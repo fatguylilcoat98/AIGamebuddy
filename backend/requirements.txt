@@ -1,4 +1,16 @@
+# AIGamebuddy Windows backend — install from the backend directory:
+# python -m pip install -r requirements.txt
+
+# API and screen capture
 fastapi>=0.115,<1
 uvicorn>=0.30,<1
 mss>=9,<11
 Pillow>=10,<13
+
+# Local microphone input and Whisper speech recognition
+numpy>=1.26,<3
+sounddevice>=0.5,<1
+faster-whisper>=1.1,<2
+
+# Buddy's Windows speech output uses built-in PowerShell/System.Speech.
+# The vision and dialogue services use Python's standard-library HTTP client.

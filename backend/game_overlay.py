@@ -145,7 +145,7 @@ class Overlay:
             self.status.set("Enable observation to look at the game.")
         else:
             self.work(lambda: api("/buddy/observe",
-                                  {"priority": 5, "question": "Describe the current gameplay briefly and identify any notable event."}))
+                                  {"priority": 3, "question": "Describe the current gameplay briefly and identify any notable event."}))
 
     def say(self):
         text = self.entry.get().strip()

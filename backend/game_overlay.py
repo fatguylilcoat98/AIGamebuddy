@@ -32,6 +32,7 @@ class Overlay:
         self.root.protocol("WM_DELETE_WINDOW", self.close)
         self.active = False
         self.busy = False
+        self.stop_requested = False
         self.auto = tk.BooleanVar(value=False)
         self.vision = tk.BooleanVar(value=False)
         self.speech = tk.BooleanVar(value=True)
@@ -63,6 +64,7 @@ class Overlay:
         tk.Checkbutton(body, text="Auto-look every 30 seconds (opt-in)", variable=self.auto,
                        bg="#151923", fg="white", selectcolor="#29344b",
                        activebackground="#151923", activeforeground="white").pack(anchor="w")
+        ttk.Button(body, text="Apply settings", command=self.apply_settings).pack(fill="x")
         self.entry = ttk.Entry(body)
         self.entry.pack(fill="x", pady=(6, 2))
         self.entry.insert(0, "Nice catch!")
@@ -90,12 +92,17 @@ class Overlay:
             try:
                 result = fn()
                 self.root.after(0, lambda: self.complete(result, None))
-            except (error.URLError, ValueError, OSError) as exc:
-                self.root.after(0, lambda: self.complete(None, str(exc)))
+            except Exception as exc:
+                problem = str(exc)
+                self.root.after(0, lambda problem=problem: self.complete(None, problem))
         threading.Thread(target=runner, daemon=True).start()
 
     def complete(self, result, problem):
         self.busy = False
+        if self.stop_requested:
+            self.stop_requested = False
+            self.stop()
+            return
         if problem:
             self.status.set("Error: " + problem[:160])
             return
@@ -114,15 +121,28 @@ class Overlay:
                     "speech_enabled": self.speech.get()}
         self.work(lambda: api("/buddy/start", settings))
 
+    def apply_settings(self):
+        if not self.active:
+            self.status.set("Start Buddy first.")
+            return
+        settings = {"personality": self.personality.get(),
+                    "vision_enabled": self.vision.get(),
+                    "speech_enabled": self.speech.get()}
+        self.work(lambda: api("/buddy/settings", settings))
+
     def stop(self):
         self.auto.set(False)
+        if self.busy:
+            self.stop_requested = True
+            self.status.set("Stop queued; finishing current request…")
+            return
         self.work(lambda: api("/buddy/stop", {}))
 
     def observe(self):
         if not self.active:
             self.status.set("Start Buddy first.")
         elif not self.vision.get():
-            self.status.set("Enable observation and restart Buddy first.")
+            self.status.set("Enable observation to look at the game.")
         else:
             self.work(lambda: api("/buddy/observe",
                                   {"priority": 5, "question": "Describe the current gameplay briefly and identify any notable event."}))

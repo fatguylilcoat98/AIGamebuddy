@@ -29,6 +29,7 @@ class GameCapture:
 
     def __init__(self, capture: ScreenCapture | None = None):
         self.capture = capture if capture is not None else ScreenCapture()
+        self._last_game_monitor: int | None = None
 
     def target(self, fallback_monitor: int = 1) -> CaptureTarget:
         monitors = self.capture.monitors()
@@ -39,9 +40,9 @@ class GameCapture:
         if fallback_monitor not in monitor_ids:
             raise ValueError(f"Monitor {fallback_monitor} not found")
 
-        selected = fallback_monitor
-        reason = "fallback_monitor"
-        if session.active_window and session.window_rect:
+        selected = self._last_game_monitor if self._last_game_monitor in monitor_ids else fallback_monitor
+        reason = "last_game_monitor" if self._last_game_monitor in monitor_ids else "fallback_monitor"
+        if session.is_known_emulator and session.active_window and session.window_rect:
             left, top, right, bottom = session.window_rect
             if right > left and bottom > top:
                 def overlap(monitor: dict) -> int:
@@ -54,7 +55,8 @@ class GameCapture:
                 best = max(monitors, key=overlap)
                 if overlap(best) > 0:
                     selected = best["id"]
-                    reason = "foreground_window_overlap"
+                    reason = "foreground_emulator_overlap"
+                    self._last_game_monitor = selected
 
         return CaptureTarget(
             monitor_id=selected,

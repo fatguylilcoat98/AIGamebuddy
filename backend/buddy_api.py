@@ -37,7 +37,7 @@ class TextInput(BaseModel):
 
 
 class ObserveInput(BaseModel):
-    priority: int = Field(default=1, ge=0, le=10)
+    priority: int = Field(default=1, ge=0, le=3)
     question: str = Field(default="What is happening in this game?", min_length=1, max_length=500)
 
 
@@ -126,3 +126,21 @@ async def say(body: TextInput):
 @router.post("/observe")
 async def observe(body: ObserveInput):
     return await run_in_threadpool(lambda: _exclusive(lambda: _get_controller().observe(priority=body.priority, question=body.question).to_dict()))
+
+
+@router.post("/settings")
+def update_settings(settings: Settings):
+    """Update the live session after any in-flight operation finishes."""
+    def action():
+        controller = _get_controller()
+        if settings.personality not in ("casual", "sassy", "extreme"):
+            raise HTTPException(status_code=422, detail="Invalid personality")
+        with controller._lock:
+            controller.dialogue.personality = settings.personality
+            controller.vision_enabled = settings.vision_enabled
+            controller.speech_enabled = settings.speech_enabled
+            controller.brain.cooldown_seconds = settings.cooldown_seconds
+        return {"running": True, "personality": settings.personality,
+                "vision_enabled": settings.vision_enabled,
+                "speech_enabled": settings.speech_enabled}
+    return _exclusive(action)

@@ -1,38 +1,44 @@
-"""Windows text-to-speech output for AIGamebuddy.
+"""Neural speech output for Game Buddy on Windows (Edge TTS).
 
-Uses Windows' built-in System.Speech synthesizer; no API key or pip package.
-Call BuddyVoice.speak() with a completed line of dialogue. Speech runs in a
-background thread so the game and backend stay responsive.
+Uses edge-tts for synthesis and Windows MediaPlayer for playback.
+Speech is queued in a background worker. Stop interrupts playback.
+Install: python -m pip install edge-tts
 """
 from __future__ import annotations
 
+import asyncio
 import os
 import queue
 import subprocess
 import sys
+import tempfile
 import threading
 from dataclasses import dataclass
 from typing import Optional
 
+import edge_tts
 
-# PowerShell reads the line from standard input, never from interpolated code.
-# This avoids quoting/injection issues with arbitrary AI-generated dialogue.
-_SPEAK_SCRIPT = r"""
-Add-Type -AssemblyName System.Speech
-$synth = New-Object System.Speech.Synthesis.SpeechSynthesizer
+VOICE = os.getenv("AIGAMEBUDDY_EDGE_VOICE", "en-US-GuyNeural")
+_PLAY_SCRIPT = r"""
+Add-Type -AssemblyName PresentationCore
+$p = New-Object System.Windows.Media.MediaPlayer
 try {
-    $synth.Rate = [int]$env:AIGAMEBUDDY_VOICE_RATE
-    $synth.Volume = [int]$env:AIGAMEBUDDY_VOICE_VOLUME
-    $requested = $env:AIGAMEBUDDY_VOICE_NAME
-    if ($requested) {
-        try { $synth.SelectVoice($requested) } catch { }
+    $p.Open([Uri]$env:AIGAMEBUDDY_AUDIO_FILE)
+    $p.Volume = [double]$env:AIGAMEBUDDY_AUDIO_VOLUME
+    $p.Play()
+    $deadline = (Get-Date).AddSeconds(10)
+    while (-not $p.NaturalDuration.HasTimeSpan -and (Get-Date) -lt $deadline) {
+        Start-Sleep -Milliseconds 50
     }
-    $message = [Console]::In.ReadToEnd()
-    if (-not [string]::IsNullOrWhiteSpace($message)) {
-        $synth.Speak($message)
+    if (-not $p.NaturalDuration.HasTimeSpan) { throw 'Audio could not be loaded' }
+    $duration = $p.NaturalDuration.TimeSpan.TotalMilliseconds
+    $end = (Get-Date).AddMilliseconds($duration + 1000)
+    while ((Get-Date) -lt $end) {
+        Start-Sleep -Milliseconds 75
     }
 } finally {
-    $synth.Dispose()
+    $p.Stop()
+    $p.Close()
 }
 """
 
@@ -45,24 +51,16 @@ class VoiceStatus:
 
 
 class BuddyVoice:
-    """Non-blocking Windows TTS with interruption and a bounded queue.
-
-    Example:
-        voice = BuddyVoice(rate=1, volume=90)
-        voice.speak("Nice catch!")
-        # Later, on app exit:
-        voice.shutdown()
-    """
-
     def __init__(self, *, rate: int = 0, volume: int = 100, voice_name: str = "") -> None:
         self.rate = max(-10, min(10, int(rate)))
         self.volume = max(0, min(100, int(volume)))
-        self.voice_name = voice_name
+        self.voice_name = voice_name or VOICE
         self._queue: queue.Queue[Optional[str]] = queue.Queue(maxsize=3)
         self._lock = threading.Lock()
-        self._process: Optional[subprocess.Popen[str]] = None
+        self._process: Optional[subprocess.Popen] = None
         self._speaking = False
         self._closed = False
+        self._cancel = threading.Event()
         self._thread = threading.Thread(target=self._worker, name="buddy-voice", daemon=True)
         self._thread.start()
 
@@ -71,10 +69,6 @@ class BuddyVoice:
         return sys.platform == "win32"
 
     def speak(self, text: str, *, interrupt: bool = False) -> bool:
-        """Queue speech; return False if unavailable, closed, or queue full.
-
-        `interrupt=True` cancels the current line and clears pending speech.
-        """
         if not self.available() or not isinstance(text, str) or not text.strip():
             return False
         with self._lock:
@@ -89,7 +83,7 @@ class BuddyVoice:
             return False
 
     def stop(self) -> None:
-        """Stop current speech and discard pending lines."""
+        self._cancel.set()
         with self._lock:
             proc = self._process
             if proc is not None and proc.poll() is None:
@@ -107,7 +101,6 @@ class BuddyVoice:
         return VoiceStatus(speaking=speaking, queued=self._queue.qsize(), available=self.available())
 
     def shutdown(self) -> None:
-        """Stop speaking and close the worker (safe to call more than once)."""
         with self._lock:
             if self._closed:
                 return
@@ -122,6 +115,7 @@ class BuddyVoice:
     def _worker(self) -> None:
         while True:
             line = self._queue.get()
+            audio_path = None
             try:
                 if line is None:
                     return
@@ -129,37 +123,44 @@ class BuddyVoice:
                     if self._closed:
                         return
                     self._speaking = True
+                self._cancel.clear()
+                fd, audio_path = tempfile.mkstemp(suffix=".mp3", prefix="gamebuddy_")
+                os.close(fd)
+                rate = f"{self.rate * 5:+d}%"
+                async def generate() -> None:
+                    await edge_tts.Communicate(line, self.voice_name, rate=rate).save(audio_path)
+                asyncio.run(generate())
+                if self._cancel.is_set():
+                    continue
                 env = os.environ.copy()
-                env.update({
-                    "AIGAMEBUDDY_VOICE_RATE": str(self.rate),
-                    "AIGAMEBUDDY_VOICE_VOLUME": str(self.volume),
-                    "AIGAMEBUDDY_VOICE_NAME": self.voice_name,
-                })
-                # PowerShell is installed with supported Windows versions.
+                env["AIGAMEBUDDY_AUDIO_FILE"] = audio_path
+                env["AIGAMEBUDDY_AUDIO_VOLUME"] = str(self.volume / 100)
                 proc = subprocess.Popen(
-                    ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", _SPEAK_SCRIPT],
-                    stdin=subprocess.PIPE,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    text=True,
-                    encoding="utf-8",
-                    env=env,
-                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                    ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", _PLAY_SCRIPT],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                    env=env, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
                 )
                 with self._lock:
                     self._process = proc
+                if self._cancel.is_set():
+                    proc.kill()
                 try:
-                    proc.communicate(input=line, timeout=90)
+                    proc.wait(timeout=100)
                 except subprocess.TimeoutExpired:
                     proc.kill()
-                    proc.communicate()
+                    proc.wait()
                 finally:
                     with self._lock:
                         self._process = None
-            except (OSError, ValueError):
-                # Voice failure must not crash gameplay or the backend.
+            except Exception:
+                # Speech errors must never crash gameplay.
                 pass
             finally:
+                if audio_path:
+                    try:
+                        os.unlink(audio_path)
+                    except OSError:
+                        pass
                 with self._lock:
                     self._speaking = False
                 self._queue.task_done()
@@ -168,9 +169,7 @@ class BuddyVoice:
 if __name__ == "__main__":
     voice = BuddyVoice()
     if not voice.available():
-        print("BuddyVoice requires Windows.")
-        raise SystemExit(1)
-    print("Speaking a test line...")
-    voice.speak("Hey, I'm Buddy. Let's play!")
+        raise SystemExit("BuddyVoice requires Windows")
+    voice.speak("Hey, I'm Buddy. Let's catch some fish!")
     voice._queue.join()
     voice.shutdown()

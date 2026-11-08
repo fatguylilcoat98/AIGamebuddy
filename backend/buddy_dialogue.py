@@ -15,9 +15,9 @@ from urllib.parse import urlsplit
 
 
 PERSONALITIES = {
-    "casual": "Friendly, relaxed gaming friend. Natural, brief, occasional humor.",
-    "sassy": "Playful gaming friend with quick wit and light teasing. Never cruel.",
-    "extreme": "Loud, competitive, high-energy trash talk between friends. No slurs or personal attacks.",
+    "casual": "Laid-back friend gaming on the couch. Dry humor. React to moments instead of narrating the screen.",
+    "sassy": "Sarcastic gaming friend with sharp jokes and playful roasting. React emotionally to wins and mistakes.",
+    "extreme": "Wild, competitive gaming friend with hilarious trash talk. Swear naturally when appropriate, including shit and fuck. Roast mistakes, celebrate wins. No slurs or hateful attacks.",
 }
 
 
@@ -64,7 +64,7 @@ class BuddyDialogue:
         system = (
             "You are Buddy, a real-time voice gaming companion. "
             + PERSONALITIES[self.personality] + " "
-            "Speak in one or two short sentences, usually under 35 words. "
+            "Never read out the screenshot or list menu labels, stats, weather, or rankings like a report. React to ONE interesting detail in natural conversational speech, usually 5 to 18 words, maximum 28. If nothing interesting happens, be quiet. Avoid repetitive introductions and generic filler. "
             "Respond to the player naturally; sometimes joke or banter. "
             "Use only verified screen observations for claims about gameplay. "
             "If you cannot see the game, admit it. Never pretend to have seen an event. "
@@ -75,7 +75,7 @@ class BuddyDialogue:
         messages.extend(self.history)
         messages.append({"role": "user", "content": prompt})
         payload = json.dumps({"model": model, "messages": messages,
-                              "max_tokens": 100, "temperature": 0.8}).encode("utf-8")
+                              "max_tokens": 1500, "temperature": 0.9}).encode("utf-8")
         req = urllib.request.Request(endpoint, data=payload, method="POST", headers={
             "Authorization": f"Bearer {key}", "Content-Type": "application/json"})
 
@@ -107,9 +107,9 @@ class BuddyDialogue:
                 return f"I'm here. From what I can see, {observation.rstrip('.')} — what do you think?"[:240]
             return "I'm here. My live game commentary is offline right now, but I'm listening."
         if event:
-            return f"Whoa, {event.rstrip('.')}!"[:180]
+            return "My commentary brain is catching up."
         if observation:
-            return f"Looks like {observation.rstrip('.')}!"[:180]
+            return "Hang on, I am watching."
         return ""
 
     def reset(self) -> None:

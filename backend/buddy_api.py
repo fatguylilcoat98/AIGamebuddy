@@ -37,7 +37,7 @@ class TextInput(BaseModel):
 
 
 class ObserveInput(BaseModel):
-    priority: int = Field(default=1, ge=0, le=10)
+    priority: int = Field(default=1, ge=0, le=3)
     question: str = Field(default="What is happening in this game?", min_length=1, max_length=500)
 
 

@@ -1,0 +1,752 @@
+"""One Buddy session: memory, banter, voice, vision, and real commands."""
+from __future__ import annotations
+
+import json
+import logging
+import random
+import threading
+import time
+from pathlib import Path
+
+from .actions import launch_process, search_games
+from .audio_out import AudioOutput
+from .banter import (
+    angle_note,
+    example_block,
+    insults_player,
+    known_slots,
+    offline_variant,
+    select_angle,
+)
+from .buddy_brain import BuddyBrain
+from .commands import match_intent
+from .config_loader import Config, default_data_dir
+from .detection import Detector, merge_vision
+from .emotions import EmotionDirector, parse_tags
+from .memory_store import MemoryStore
+from .novelty import NoveltyEngine, category_for, looks_like_callback
+from .personality_pack import load_pack, normalize_personality
+from .prompts import build_messages
+from .providers import chat
+from .results import ActionResult, ModelResult
+from .takeover import InputSink, RetroArchCommandClient, evaluate_gate
+from .window_layout import emulator_target, position_foreground_window
+
+log = logging.getLogger("buddy.session")
+
+FREQUENCIES = ("off", "rare", "normal", "chatty")
+FREQ_COOLDOWN = {"off": 3600, "rare": 40, "normal": 16, "chatty": 8}
+
+
+class SystemClock:
+    def unix(self) -> float:
+        return time.time()
+
+    def mono(self) -> float:
+        return time.monotonic()
+
+
+class _ConfigModel:
+    def __init__(self, config: Config, transport=None):
+        self.config = config
+        self.transport = transport
+
+    def complete(self, messages: list[dict]) -> ModelResult:
+        return chat(self.config, messages, transport=self.transport)
+
+
+class BuddySession:
+    def __init__(self, config: Config, *, memory: MemoryStore | None = None, clock=None,
+                 model=None, audio=None, detector=None, vision=None, rng=None,
+                 process_runner=None, command_client=None):
+        self.config = config
+        self.clock = clock or SystemClock()
+        self.character = str(config.get("character_name") or "Buddy")
+        self.product = str(config.get("product_name"))
+        self.banner = str(config.get("banner_title") or "GAME WINGMAN")
+        data_dir = default_data_dir(config)
+        data_dir.mkdir(parents=True, exist_ok=True)
+        self.data_dir = data_dir
+        self.memory = memory or MemoryStore(data_dir / "buddy.sqlite3")
+        self.model = model if model is not None else _ConfigModel(config)
+        self.audio = audio if audio is not None else AudioOutput()
+        self.detector = detector if detector is not None else Detector(
+            extra_emulators=list(config.get("extra_emulators") or [])
+        )
+        self.vision = vision
+        self.rng = rng or random.Random()
+        self.process_runner = process_runner
+        self.commands = command_client if command_client is not None else RetroArchCommandClient(
+            str(config.get("retroarch", "command_host") or "127.0.0.1"),
+            int(config.get("retroarch", "command_port") or 0),
+            bool(config.get("retroarch", "command_enabled")),
+        )
+        self.input_sink = InputSink()
+        self.novelty = NoveltyEngine(self.memory)
+        self.emotion = EmotionDirector()
+        self.brain = BuddyBrain(cooldown_seconds=float(config.get("commentary", "cooldown_seconds") or 16))
+        self.personality = self._initial_personality()
+        self.pack = load_pack(self.personality)
+        self.frequency = str(config.get("commentary", "frequency") or "normal")
+        if self.frequency not in FREQUENCIES:
+            self.frequency = "normal"
+        self.brain.cooldown_seconds = FREQ_COOLDOWN[self.frequency]
+        self.volume = int(config.get("voice", "volume") or 80)
+        self.muted = bool(config.get("voice", "mute"))
+        self.speech_enabled = bool(config.get("voice", "enabled", default=True))
+        self.output_device = str(config.get("voice", "output_device") or "")
+        self.vision_enabled = bool(config.get("vision", "enabled"))
+        self.theme_mode = str(config.get("overlay", "theme") or "auto")
+        self.theme = self.theme_mode if self.theme_mode in {"nes", "snes", "genesis"} else "genesis"
+        self.layout = str(config.get("overlay", "layout") or "full")
+        self.corner = str(config.get("overlay", "corner") or "bottom-right")
+        self.manage_window = bool(config.get("overlay", "manage_emulator_window", default=True))
+        self.offline_confirmed = False
+        self.mode = "spectator"
+        self.gate_open = False
+        self.running = False
+        self.closed = False
+        self.session_id: int | None = None
+        self.identity = self.detector.detect()
+        self.last_text = ""
+        self.last_reason = ""
+        self.mouth = 0.0
+        self._callbacks = 0
+        self._vision_guess = None
+        self._vision_confidence = 0.0
+        self._lock = threading.Lock()
+        self._ears = None
+        self._layout_note = ""
+        self._load_ui()
+
+    def _initial_personality(self) -> str:
+        saved = self.memory.get_profile("personality")
+        raw = saved or str(self.config.get("personality") or "sassy")
+        try:
+            return normalize_personality(raw)
+        except ValueError:
+            return "sassy"
+
+    def _ui_path(self) -> Path:
+        return self.data_dir / "ui-state.json"
+
+    def _load_ui(self) -> None:
+        path = self._ui_path()
+        if not path.exists():
+            return
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return
+        self.volume = int(data.get("volume", self.volume))
+        self.muted = bool(data.get("muted", self.muted))
+        self.layout = data.get("layout", self.layout)
+        self.corner = data.get("corner", self.corner)
+        self.output_device = str(data.get("output_device", self.output_device))
+        self.frequency = data.get("frequency", self.frequency)
+        if self.frequency in FREQ_COOLDOWN:
+            self.brain.cooldown_seconds = FREQ_COOLDOWN[self.frequency]
+        self.vision_enabled = bool(data.get("vision_enabled", self.vision_enabled))
+        self.offline_confirmed = bool(data.get("offline_confirmed", False))
+        if data.get("theme_mode"):
+            self.theme_mode = data["theme_mode"]
+        if data.get("theme") in {"nes", "snes", "genesis"}:
+            self.theme = data["theme"]
+
+    def _save_ui(self) -> None:
+        payload = {
+            "volume": self.volume, "muted": self.muted, "layout": self.layout,
+            "corner": self.corner, "output_device": self.output_device,
+            "frequency": self.frequency, "vision_enabled": self.vision_enabled,
+            "offline_confirmed": self.offline_confirmed, "theme_mode": self.theme_mode,
+            "theme": self.theme, "personality": self.personality,
+        }
+        try:
+            self._ui_path().write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        except OSError as exc:
+            log.warning("Could not save UI state: %s", exc)
+
+    def start(self) -> ActionResult:
+        with self._lock:
+            if self.closed:
+                return ActionResult(False, "Buddy is closed.", reason="closed")
+            if self.running:
+                return ActionResult(True, f"{self.character} is already running.", reason="already_running")
+            now = self.clock.unix()
+            self.session_id = self.memory.start_session(now, self.personality)
+            self.running = True
+            if self.config.get("wake_word"):
+                log.warning("Wake word is not implemented. Use F9 push-to-talk.")
+            self.memory.set_profile("personality", self.personality, "system", now)
+        greeting = self._maybe_greet()
+        message = f"{self.character} is running."
+        return ActionResult(True, message, text=greeting.text, spoken=greeting.spoken,
+                            emotion=greeting.emotion, reason="started")
+
+    def close(self) -> None:
+        with self._lock:
+            if self.closed:
+                return
+            self.closed = True
+            self.running = False
+            session_id = self.session_id
+        if session_id is not None:
+            self.memory.end_session(session_id, self.clock.unix())
+        if self._ears is not None:
+            self._ears.cancel()
+        self.audio.stop()
+        self._save_ui()
+
+    def hud(self) -> dict:
+        with self._lock:
+            return {
+                "running": self.running,
+                "character": self.character,
+                "product": self.product,
+                "banner": self.banner,
+                "personality": self.personality,
+                "theme": self.theme,
+                "theme_mode": self.theme_mode,
+                "layout": self.layout,
+                "corner": self.corner,
+                "volume": self.volume,
+                "muted": self.muted,
+                "frequency": self.frequency,
+                "vision_enabled": self.vision_enabled,
+                "expression": self.emotion.expression,
+                "gaze": self.emotion.gaze,
+                "mouth": self.mouth,
+                "last_text": self.last_text,
+                "last_reason": self.last_reason,
+                "game": self.identity.factual_line(),
+                "mode": self.mode,
+                "gate_open": self.gate_open,
+                "offline_confirmed": self.offline_confirmed,
+                "layout_note": self._layout_note,
+                "recording": bool(self._ears and self._ears.recording),
+            }
+
+    def tick_animation(self, now: float | None = None) -> None:
+        moment = self.clock.mono() if now is None else now
+        speaking = bool(getattr(self.audio, "speaking", False))
+        self.emotion.tick(moment, speaking=speaking, mouth=self.mouth)
+
+    def refresh_identity(self):
+        found = self.detector.detect()
+        if self._vision_guess:
+            found = merge_vision(found, self._vision_guess, self._vision_confidence)
+        self.identity = found
+        if self.theme_mode == "auto":
+            theme = found.overlay_theme()
+            if theme:
+                self.theme = theme
+        return found
+
+    def handle_text(self, text: str) -> ActionResult:
+        if self.closed:
+            return ActionResult(False, "Buddy is closed.", reason="closed")
+        cleaned = (text or "").strip()
+        if not cleaned:
+            return ActionResult(False, "I did not hear anything.", reason="empty")
+        self.memory.add_message(unix=self.clock.unix(), role="player", text=cleaned, source="user_reported")
+        intent = match_intent(cleaned)
+        if intent:
+            result = self._dispatch(intent)
+            if result.message and not result.text and result.reason != "memory":
+                spoken = self._play(result.message)
+                return ActionResult(result.ok, result.message, text=result.message, spoken=spoken,
+                                    reason=result.reason, data=result.data, emotion=result.emotion)
+            return result
+        return self._banter(player_text=cleaned, spontaneous=False, event="", priority=2, direct=True)
+
+    def _dispatch(self, intent) -> ActionResult:
+        name = intent.name
+        if name == "stop_insults":
+            self.memory.set_profile("insults_allowed", "false", "user_reported", self.clock.unix())
+            self.emotion.set_expression("idle", self.clock.mono(), 2)
+            return self._show("I will stop insulting you. I can still help.", emotion="idle", category="status")
+        if name == "allow_insults":
+            self.memory.set_profile("insults_allowed", "true", "user_reported", self.clock.unix())
+            return self._show("Insults are allowed again. I will still skip a joke that I have already used.",
+                              category="status", emotion="smug")
+        if name == "mute":
+            return self.set_mute(True)
+        if name == "unmute":
+            return self.set_mute(False)
+        if name == "volume_set":
+            return self.set_volume(int(intent.args["level"]))
+        if name == "volume_step":
+            delta = 10 if intent.args["direction"] == "up" else -10
+            return self.set_volume(self.volume + delta)
+        if name == "silence":
+            self.brain.mark_spoken("player asked for quiet", now=self.clock.mono())
+            self.brain.cooldown_seconds = max(self.brain.cooldown_seconds, 60)
+            return self._show("I'll stay quiet for a bit.", category="status", emotion="idle")
+        if name == "frequency":
+            return self.set_frequency(intent.args["level"])
+        if name == "layout_compact":
+            return self.set_layout("compact")
+        if name == "layout_full":
+            return self.set_layout("full")
+        if name == "theme_nes":
+            return self.set_theme("nes")
+        if name == "theme_snes":
+            return self.set_theme("snes")
+        if name == "theme_genesis":
+            return self.set_theme("genesis")
+        if name == "personality":
+            return self.set_personality(intent.args["name"])
+        if name == "memory_view":
+            return ActionResult(True, self.memory.summary(), reason="memory")
+        if name == "memory_reset":
+            return self.reset_memory()
+        if name == "memory_clear":
+            return self.clear_memory()
+        if name == "observe":
+            if "playing" in intent.name:
+                pass
+            return self.observe_once() if name == "observe" else self._identify()
+        if name == "open_retroarch":
+            return launch_process(str(self.config.get("retroarch", "path") or ""), runner=self.process_runner)
+        if name == "open_es":
+            return launch_process(str(self.config.get("emulationstation", "path") or ""), runner=self.process_runner)
+        if name == "emulator_menu":
+            return self.commands.send("MENU_TOGGLE", requires_control=False, gate_open=False)
+        if name == "find_game":
+            return search_games(list(self.config.get("libraries") or []), intent.args["query"])
+        if name == "load_game":
+            return self.load_game(intent.args["query"])
+        if name == "takeover":
+            return self.request_takeover()
+        if name == "coop":
+            return self.request_coop()
+        if name == "release":
+            return self.release_control()
+        return ActionResult(False, "I recognized a command but I do not have an action for it.", reason="unhandled")
+
+    def _identify(self) -> ActionResult:
+        self.refresh_identity()
+        return ActionResult(True, self.identity.factual_line(), reason="identity")
+
+    def set_personality(self, name: str) -> ActionResult:
+        try:
+            chosen = normalize_personality(name)
+        except ValueError as exc:
+            return ActionResult(False, str(exc), reason="bad_personality")
+        self.personality = chosen
+        self.pack = load_pack(chosen)
+        self.memory.set_profile("personality", chosen, "user_reported", self.clock.unix())
+        self._save_ui()
+        return self._show(f"Personality is now {self.pack.display_name}. I will help the same either way.",
+                          category="status", emotion="smile")
+
+    def set_volume(self, level: int) -> ActionResult:
+        self.volume = max(0, min(100, int(level)))
+        self._save_ui()
+        if self.volume == 0:
+            return self._show("Volume is 0, so I will not play audio.", category="status")
+        return self._show(f"Volume is {self.volume}.", category="status")
+
+    def set_mute(self, muted: bool) -> ActionResult:
+        self.muted = bool(muted)
+        if self.muted:
+            self.audio.stop()
+        self._save_ui()
+        text = "Muted. I will still show lines, but I will not play them." if self.muted else "Unmuted."
+        return self._show(text, category="status", speak=not self.muted)
+
+    def set_frequency(self, level: str) -> ActionResult:
+        if level not in FREQUENCIES:
+            return ActionResult(False, f"I did not change commentary. '{level}' is not a frequency I know.",
+                                reason="bad_frequency")
+        self.frequency = level
+        self.brain.cooldown_seconds = FREQ_COOLDOWN[level]
+        self._save_ui()
+        return self._show(f"Commentary frequency is {level}.", category="status")
+
+    def set_theme_auto(self) -> ActionResult:
+        self.theme_mode = "auto"
+        self.refresh_identity()
+        self._save_ui()
+        return self._show(
+            f"Overlay theme is automatic. Right now the frame is {self.theme}. I did not launch a game.",
+            category="status",
+        )
+
+    def set_theme(self, theme: str) -> ActionResult:
+        if theme not in {"nes", "snes", "genesis"}:
+            return ActionResult(False, "I did not change the overlay. The theme must be nes, snes, or genesis.",
+                                reason="bad_theme")
+        self.theme = theme
+        self.theme_mode = theme
+        self._save_ui()
+        return self._show(f"Overlay frame is now {theme}. I did not launch a game.", category="status")
+
+    def set_layout(self, layout: str) -> ActionResult:
+        if layout not in {"full", "compact"}:
+            return ActionResult(False, "I did not change the layout.", reason="bad_layout")
+        self.layout = layout
+        self._save_ui()
+        label = "compact streaming card" if layout == "compact" else "full retro frame"
+        return self._show(f"Layout is now the {label}.", category="status")
+
+    def set_output_device(self, name: str) -> ActionResult:
+        devices = self.audio.devices()
+        from .audio_out import AudioDevice, resolve_device
+        found = resolve_device(name, [AudioDevice(item.get("index"), item["name"]) for item in devices])
+        if name.strip() and found is None:
+            shown = ", ".join(item["name"] for item in devices) or "(none found)"
+            return ActionResult(False, f"I did not change the audio device. '{name}' was not found. Devices: {shown}",
+                                reason="device_missing")
+        self.output_device = "" if found is None or found.name == "default" else found.name
+        self._save_ui()
+        return self._show(f"Audio output is {self.output_device or 'the default device'}.", category="status")
+
+    def set_vision(self, enabled: bool) -> ActionResult:
+        self.vision_enabled = bool(enabled)
+        self._save_ui()
+        if self.vision_enabled:
+            return self._show("Screen observation is on. I will only comment when something registers.", category="status")
+        return self._show("Screen observation is off. I did not capture the screen.", category="status")
+
+    def set_offline_confirmed(self, confirmed: bool) -> ActionResult:
+        self.offline_confirmed = bool(confirmed)
+        self._save_ui()
+        if self.offline_confirmed:
+            return ActionResult(True, "You confirmed offline single-player. I still will not automate an online game.",
+                                reason="offline_flag")
+        self.gate_open = False
+        self.mode = "spectator"
+        return ActionResult(True, "Offline confirmation is cleared. Takeover stays off.", reason="offline_flag")
+
+    def reset_memory(self) -> ActionResult:
+        count = self.memory.reset_preferences()
+        self.memory.set_profile("personality", self.personality, "user_reported", self.clock.unix())
+        return ActionResult(True, f"Cleared {count} saved preferences. Joke history and sessions are still there, so I will not repeat old lines.",
+                            reason="memory_reset")
+
+    def clear_memory(self) -> ActionResult:
+        counts = self.memory.clear_all()
+        self._callbacks = 0
+        self.memory.set_profile("personality", self.personality, "user_reported", self.clock.unix())
+        removed = sum(counts.values())
+        return ActionResult(True, f"Cleared saved memory ({removed} rows), including joke history.",
+                            reason="memory_clear", data=counts)
+
+    def load_game(self, query: str) -> ActionResult:
+        found = search_games(list(self.config.get("libraries") or []), query)
+        if not found.ok:
+            return found
+        rom = found.data["matches"][0]
+        core = ""
+        for entry in self.config.get("libraries") or []:
+            folder = str(entry.get("path") or "")
+            if folder and rom.startswith(str(Path(folder))):
+                core = str(entry.get("core") or "")
+                break
+        exe = str(self.config.get("retroarch", "path") or "")
+        args = ["-L", core, rom] if core else [rom]
+        launched = launch_process(exe, args, runner=self.process_runner)
+        if not launched.ok:
+            return ActionResult(False, f"I found {rom} but did not launch it. {launched.message}", reason=launched.reason)
+        return ActionResult(True, f"I found {rom} and started RetroArch (process {launched.data.get('pid')}).",
+                            reason="launched", data=launched.data)
+
+    def request_takeover(self) -> ActionResult:
+        return self._request_mode("takeover")
+
+    def request_coop(self) -> ActionResult:
+        return self._request_mode("coop")
+
+    def _request_mode(self, mode: str) -> ActionResult:
+        self.refresh_identity()
+        title = self.identity.title or ""
+        decision = evaluate_gate(
+            mode=mode,
+            game_title=title,
+            window_title=self.identity.window_title or "",
+            user_confirmed_offline=self.offline_confirmed,
+            enabled=bool(self.config.get("takeover", "enabled")),
+        )
+        if not decision.allowed:
+            self.gate_open = False
+            self.mode = "spectator"
+            return ActionResult(False, decision.message, reason="takeover_denied",
+                                data={"mode": mode, "allowed": False})
+        self.mode = mode
+        self.gate_open = True
+        sink = self.input_sink.press(2 if mode == "coop" else 1, "start", gate_open=True)
+        return ActionResult(False, decision.message + " " + sink.message, reason="takeover_not_playing",
+                            emotion="smug", data={"allowed": True, "mode": mode, "game_id": decision.game_id})
+
+    def release_control(self) -> ActionResult:
+        was_open = self.gate_open or self.mode != "spectator"
+        self.gate_open = False
+        self.mode = "spectator"
+        if was_open:
+            return self._show("Takeover is off. I was not sending inputs, and I am not sending them now.",
+                              category="status", emotion="smile")
+        return ActionResult(True, "I was not controlling the game. You already have the controls.", reason="release")
+
+    def maintain_layout(self, overlay_origin: tuple[int, int], overlay_size: tuple[int, int]) -> ActionResult:
+        if self.layout != "full" or not self.manage_window:
+            return ActionResult(False, "I am not managing the emulator window in this layout.", reason="layout_idle")
+        rect = emulator_target(overlay_origin, overlay_size)
+        result = position_foreground_window(rect)
+        self._layout_note = result.message
+        return result
+
+    def observe_once(self) -> ActionResult:
+        if not self.vision_enabled:
+            return ActionResult(False, "Vision is off, so I did not capture the screen.", reason="vision_disabled")
+        if self.vision is None:
+            from .vision_service import VisionService
+            try:
+                result = VisionService().analyze("What is happening in this game? Reply as JSON.")
+            except Exception as exc:
+                return ActionResult(False, f"I could not look at the screen. {exc}", reason="vision_error")
+        else:
+            try:
+                result = self.vision.analyze("What is happening in this game?")
+            except Exception as exc:
+                return ActionResult(False, f"I could not look at the screen. {exc}", reason="vision_error")
+        summary = getattr(result, "description", "") or ""
+        uncertain = bool(getattr(result, "uncertain", True))
+        event = getattr(result, "event", "none") or "none"
+        event_confidence = float(getattr(result, "event_confidence", 0) or 0)
+        guess = getattr(result, "game_guess", None)
+        guess_confidence = float(getattr(result, "game_confidence", 0) or 0)
+        if uncertain or event_confidence < 0.55:
+            event = "none"
+        if guess and guess_confidence >= 0.7:
+            self._vision_guess = guess
+            self._vision_confidence = guess_confidence
+        else:
+            self._vision_guess = None
+            self._vision_confidence = 0
+        self.refresh_identity()
+        if event != "none":
+            self.memory.add_event(
+                unix=self.clock.unix(), session_id=self.session_id,
+                game_title=self.identity.title, kind=event, detail=summary[:240],
+                source="vision", confidence=event_confidence,
+            )
+            self.emotion.on_event(event, self.clock.mono())
+        if uncertain:
+            fact = f"I looked. I am not confident what is happening. Impression: {summary}" if summary else "I looked, and I am not confident what is happening."
+        else:
+            fact = f"I looked. {summary}" if summary else "I looked, and the vision model returned nothing I can use."
+        comment = self._banter(player_text="", spontaneous=True, event=event if event != "none" else "idle",
+                               priority=3 if event in {"death", "win", "lose_round"} else 1, direct=False,
+                               observation=summary if not uncertain else "")
+        shown = comment.text or ""
+        return ActionResult(True, fact, text=shown, spoken=comment.spoken, emotion=self.emotion.expression,
+                            reason="observed" if shown else "observed_quiet",
+                            data={"event": event, "uncertain": uncertain})
+
+    def start_talking(self) -> ActionResult:
+        if self.closed:
+            return ActionResult(False, "Buddy is closed.", reason="closed")
+        self.audio.stop()
+        try:
+            if self._ears is None:
+                from .buddy_ears import BuddyEars
+                self._ears = BuddyEars()
+            self._ears.start()
+        except Exception as exc:
+            return ActionResult(False, f"I did not start the microphone. {exc}", reason="mic_failed")
+        return ActionResult(True, "Listening.", reason="listening")
+
+    def finish_talking(self) -> ActionResult:
+        if self._ears is None or not self._ears.recording:
+            return ActionResult(False, "I was not recording, so there is nothing to transcribe.", reason="not_recording")
+        heard = self._ears.stop_and_transcribe()
+        if heard.error:
+            return ActionResult(False, heard.error, reason="transcription_error")
+        if not heard.text:
+            return ActionResult(False, "I did not catch any words.", reason="empty_speech")
+        return self.handle_text(heard.text)
+
+    def _maybe_greet(self) -> ActionResult:
+        # A greeting only when a previous session exists and a fresh line is available.
+        with self.memory._lock:
+            count = self.memory._conn.execute("SELECT COUNT(*) AS n FROM sessions").fetchone()["n"]
+        if count < 2:
+            return ActionResult(True, "", reason="no_greeting")
+        return self._banter(player_text="", spontaneous=True, event="greeting_return", priority=2, direct=False)
+
+    def _slots(self, category: str) -> dict[str, str]:
+        game = None if self.identity.uncertain else self.identity.title
+        kind = category if category not in {"greeting_return", "callback_to_past_session"} else "death"
+        count = self.memory.count_events(kind, game) if game else self.memory.count_events(kind)
+        last = ""
+        with self.memory._lock:
+            row = self.memory._conn.execute(
+                "SELECT kind, detail FROM events ORDER BY id DESC LIMIT 1"
+            ).fetchone()
+        if row and row["detail"]:
+            last = f"{row['kind']}: {row['detail']}"
+        return known_slots(count=count, game=game, last_session_event=last or None)
+
+    def _banter(self, *, player_text: str, spontaneous: bool, event: str, priority: int,
+                direct: bool, observation: str = "") -> ActionResult:
+        if not self.running and spontaneous:
+            return ActionResult(True, "", reason="not_running")
+        category = category_for(player_text, event, spontaneous)
+        allow_callback = False
+        if spontaneous and category in {"death", "lose_round", "boss_fight", "near_miss"}:
+            total = self.memory.count_events(category, self.identity.title)
+            if total >= 3 and total % 4 == 0 and self._callbacks < 1:
+                allow_callback = True
+        if self.frequency == "off" and spontaneous:
+            return ActionResult(True, "", reason="frequency_off")
+        if spontaneous and category == "idle" and self.rng.random() < 0.75:
+            return ActionResult(True, "", reason="idle_skipped")
+        if spontaneous:
+            brain = self.brain.decide(event or category, priority, now=self.clock.mono(),
+                                     buddy_speaking=bool(getattr(self.audio, "speaking", False)),
+                                     direct_request=False)
+            if not brain.should_speak:
+                return ActionResult(True, "", reason=brain.reason)
+        use_category = "callback_to_past_session" if allow_callback else category
+        angle = select_angle(self.pack, self.memory, use_category, self.clock.unix(), self.novelty,
+                             personality=self.personality, priority=priority, frequency=self.frequency)
+        if angle is None and use_category != "chat":
+            if allow_callback:
+                use_category = category
+                allow_callback = False
+                angle = select_angle(self.pack, self.memory, use_category, self.clock.unix(), self.novelty,
+                                     personality=self.personality, priority=priority, frequency=self.frequency)
+            if angle is None and use_category not in {"chat", "player_asks_help", "stuck_where_to_go"}:
+                return ActionResult(True, "", reason="no_fresh_angle")
+        insults_allowed = (self.memory.get_profile("insults_allowed", "true") or "true").lower() != "false"
+        slots = self._slots(use_category)
+        line, emotion, used_angle, callback = self._draft_line(
+            player_text=player_text, spontaneous=spontaneous, category=use_category, angle=angle or "",
+            insults_allowed=insults_allowed, slots=slots, observation=observation,
+            allow_callback=allow_callback, priority=priority, direct=direct,
+        )
+        if not line:
+            if direct:
+                return self._show(
+                    "I don't have a fresh line that sticks to the facts, so I won't invent one.",
+                    category="status", emotion="idle",
+                )
+            return ActionResult(True, "", reason="silence")
+        if not insults_allowed and insults_player(line):
+            line = "I'm not going to insult you. Tell me what you want help with."
+            emotion = "idle"
+            used_angle = ""
+            callback = False
+            use_category = "status"
+        return self._show(line, category=use_category, emotion=emotion, angle=used_angle,
+                          callback=callback, speak=True)
+
+    def _draft_line(self, *, player_text, spontaneous, category, angle, insults_allowed, slots,
+                    observation, allow_callback, priority, direct):
+        facts = "\n".join(f"{key}={value}" for key, value in slots.items()) or "(none)"
+        messages = build_messages(
+            character=self.character, product=self.product, pack=self.pack,
+            memory_text=self.memory.prompt_context(), identity_text=self.identity.factual_line(),
+            observation=observation, player_text=player_text, spontaneous=spontaneous,
+            insults_allowed=insults_allowed, category=category, angle=angle or "none",
+            angle_note=angle_note(self.pack, category, angle) if angle else "",
+            examples=example_block(self.pack, category) if category in self.pack.seeds else "",
+            known_facts=facts,
+        )
+        drafted = self.model.complete(messages)
+        if drafted.text:
+            parsed = parse_tags(drafted.text)
+            if parsed.silence:
+                return "", "idle", "", False
+            if parsed.text:
+                chosen = parsed.angle or angle
+                decision = self.novelty.screen(
+                    parsed.text, category=category, angle=chosen or "", personality=self.personality,
+                    now=self.clock.unix(), direct=direct, allow_callback=allow_callback,
+                    priority=priority, callbacks_this_session=self._callbacks, frequency=self.frequency,
+                )
+                if decision.allow:
+                    return parsed.text, parsed.emotion, chosen or "", decision.callback
+                if not direct:
+                    return "", "idle", "", False
+                if direct:
+                    messages = build_messages(
+                        character=self.character, product=self.product, pack=self.pack,
+                        memory_text=self.memory.prompt_context(), identity_text=self.identity.factual_line(),
+                        observation=observation, player_text=player_text, spontaneous=False,
+                        insults_allowed=insults_allowed, category=category, angle=angle or "none",
+                        angle_note=angle_note(self.pack, category, angle) if angle else "",
+                        examples=example_block(self.pack, category) if category in self.pack.seeds else "",
+                        known_facts=facts, rejected_line=parsed.text,
+                    )
+                    retry = self.model.complete(messages)
+                    if retry.text:
+                        again = parse_tags(retry.text)
+                        if again.text and not again.silence:
+                            second = self.novelty.screen(
+                                again.text, category=category, angle=again.angle or angle or "",
+                                personality=self.personality, now=self.clock.unix(), direct=True,
+                                allow_callback=allow_callback, priority=priority,
+                                callbacks_this_session=self._callbacks, frequency=self.frequency,
+                            )
+                            if second.allow:
+                                return again.text, again.emotion, again.angle or angle or "", second.callback
+                    if category in {"player_asks_help", "stuck_where_to_go", "chat"}:
+                        return ("I don't have a fresh way to joke about that, and I won't invent the answer.",
+                                "idle", "", False)
+        if drafted.error and drafted.error != "offline" and not drafted.text and direct:
+            return (f"The model did not answer ({drafted.error}). I won't invent a reply.", "idle", "", False)
+        if not angle:
+            return "", "idle", "", False
+        filled = offline_variant(
+            self.pack, category, slots, self.novelty, personality=self.personality, angle=angle,
+            now=self.clock.unix(), priority=priority, frequency=self.frequency, direct=direct,
+            allow_callback=allow_callback, callbacks_this_session=self._callbacks,
+        )
+        if filled:
+            return filled, "talk", angle, allow_callback and category == "callback_to_past_session" and looks_like_callback(filled)
+        return "", "idle", "", False
+
+    def _show(self, text: str, *, category: str, emotion: str = "talk", angle: str = "",
+              callback: bool = False, speak: bool = True) -> ActionResult:
+        self.last_text = text
+        self.last_reason = category
+        shown = emotion if emotion in {
+            "idle", "blink", "talk", "smile", "wink", "laugh", "smug", "shocked", "celebrate", "sad"
+        } else "talk"
+        self.emotion.set_expression(shown, self.clock.mono(), 2.6)
+        self.memory.add_line(
+            unix=self.clock.unix(), personality=self.personality, category=category, text=text,
+            emotion=emotion, game_title=self.identity.title, callback=callback, angle=angle,
+            session_id=self.session_id,
+        )
+        if callback:
+            self._callbacks += 1
+        self.brain.mark_spoken(text, now=self.clock.mono())
+        self.memory.add_message(unix=self.clock.unix(), role="buddy", text=text, source="system")
+        spoken, audio_message = self._play(text) if speak else (False, "")
+        message = text if not audio_message else f"{text} ({audio_message})"
+        return ActionResult(True, message, text=text, spoken=spoken, emotion=shown, reason=category,
+                            data={"angle": angle, "callback": callback})
+
+    def _play(self, text: str) -> tuple[bool, str]:
+        if not self.speech_enabled:
+            return False, "Speech is disabled, so I did not play audio."
+        def on_level(level: float) -> None:
+            self.mouth = level
+        heard = self.audio.speak(
+            text, volume=self.volume, rate=int(self.config.get("voice", "rate") or 0),
+            device_name=self.output_device, mute=self.muted, on_level=on_level,
+        )
+        if not heard.ok:
+            self.mouth = 0.0
+            return False, heard.message
+        return True, ""
+
+    def demo_expression(self, name: str) -> ActionResult:
+        from .hologram import EXPRESSIONS
+        if name not in EXPRESSIONS:
+            return ActionResult(False, f"I don't have an expression named {name}.", reason="bad_expression")
+        self.emotion.set_expression(name, self.clock.mono(), 3)
+        return ActionResult(True, f"Showing {name}.", emotion=name, reason="expression")

@@ -1,0 +1,121 @@
+# First run on Windows
+
+You need Windows 10 or 11 and Python 3.11 or newer.
+Buddy was built on a Linux machine. The steps below are what you run on your PC.
+Voice, the microphone, the transparent overlay, and emulator windows still need you to try them there.
+
+## 1. Install Python
+
+1. Open https://www.python.org/downloads/windows/
+2. Download Python 3.11 or newer.
+3. Run the installer.
+4. Check **Add python.exe to PATH**.
+5. Finish the install.
+
+## 2. Install Buddy
+
+1. Copy this project folder onto the PC (or clone the repo).
+2. Double-click `install.bat`.
+3. Wait until it says `Installed.`
+4. If a window says Python is missing, repeat step 1 and make sure PATH was checked.
+
+That creates a `.venv` folder and installs the Python packages.
+It also copies `config/buddy.config.sample.json` to `config/buddy.config.json` the first time.
+
+## 3. Choose how Buddy thinks
+
+Open `config/buddy.config.json` in Notepad.
+
+Leave `"provider": "offline"` if you only want to see the overlay and the menu.
+Offline Buddy will not invent walkthroughs. He can still run menu commands.
+
+To use Ollama on this PC (your RTX 3060 can run it):
+
+1. Install Ollama from https://ollama.com and start it.
+2. In a terminal run `ollama pull llama3.2` (or another model you already have).
+3. In the config set:
+
+```json
+"provider": "ollama",
+"ollama": { "base_url": "http://127.0.0.1:11434", "model": "llama3.2" }
+```
+
+To use Meta's API instead, set `"provider": "meta"`, fill in `meta.model` and `meta.base_url` if Meta gave you a different host, and set a user environment variable. Do not paste the key into the json file.
+
+```text
+setx BUDDY_META_API_KEY "your-key-here"
+```
+
+Close and reopen the terminal or sign out once so Windows picks up `setx`.
+The sample base URL is `https://api.meta.ai/v1`. If that host is wrong for your key, change `meta.base_url` only. Buddy will not pretend the call worked if the key or the URL is rejected.
+
+Vision is separate and off by default. When you have a vision model:
+
+```json
+"vision": {
+  "provider": "meta",
+  "model": "the-vision-model-name",
+  "base_url": "https://api.meta.ai/v1",
+  "api_key_env": "BUDDY_VISION_API_KEY",
+  "enabled": true
+}
+```
+
+```text
+setx BUDDY_VISION_API_KEY "your-vision-key"
+```
+
+## 4. Point Buddy at RetroArch (optional)
+
+In the same config file set the real path, for example:
+
+```json
+"retroarch": { "path": "C:\\RetroArch\\retroarch.exe", "command_enabled": false }
+```
+
+ROM folders look like this. Use your real folders.
+
+```json
+"libraries": [
+  { "system": "snes", "path": "C:\\ROMs\\SNES", "core": "C:\\RetroArch\\cores\\snes9x_libretro.dll" }
+]
+```
+
+If the path is empty or wrong, Buddy says he did not launch the program.
+
+For the overlay to line up, run RetroArch in a window (borderless windowed is fine), not exclusive fullscreen.
+
+## 5. Start Buddy
+
+Double-click `Start-Buddy.bat`.
+
+You get one window:
+
+- The center opening is clear so the game shows through (Windows only).
+- Buddy's hologram sits in the bottom-right box.
+- The top-right button is the menu.
+- F9 is push-to-talk. Hold it, talk, let go.
+- Ctrl+Shift+Q quits.
+
+Open your game from EmulationStation or RetroArch, then start Buddy.
+The menu can switch the 8-bit, fantasy, and speed frames. Auto uses the emulator window title when it can.
+
+## 6. Talk to him
+
+Try these out loud or type them into the menu box:
+
+- `switch to extreme`
+- `stop insulting me`
+- `what am I playing`
+- `open RetroArch`
+- `clear memory`
+
+If a program did not start, the line says he did not launch it. That is the real result.
+
+## 7. If something fails
+
+- `install.bat` closes immediately: install Python and check PATH.
+- The window opens but the game is covered: the game is exclusive fullscreen. Switch RetroArch to windowed and start Buddy again.
+- He does not speak: Windows voice needs this PC. Pick a device in the menu after you read STREAMING.md. Volume 0 and Mute both keep him quiet on purpose.
+- The microphone errors: another app has the mic, or the voice packages did not install. Run install.bat again and read the red text.
+- A log is written under `%LOCALAPPDATA%\VideoGameWingman\buddy.log` unless you set `data_dir` in the config.

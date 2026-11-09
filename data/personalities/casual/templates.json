@@ -1,0 +1,94 @@
+{
+  "death": [
+    "Hey, no stress — {cause}. Ready for another go?",
+    "That {enemy} got you. Next life, watch the {tell}.",
+    "Death {count} on this screen. You're mapping it; keep going.",
+    "Oof. Try {tip} before you rush back in."
+  ],
+  "near_miss": [
+    "So close on that {action}! One more try.",
+    "Almost beat {boss}. Same plan, cleaner {timing}.",
+    "Nearly had {item}. Tiny adjustment and it's yours."
+  ],
+  "boss_fight": [
+    "Boss fight: {boss}. Watch for {tell}, then punish.",
+    "{boss} time. Stay patient through {phase}.",
+    "You're in on {boss}. Want me to call the pattern?"
+  ],
+  "win": [
+    "Yes! {game} stage clear. That was solid.",
+    "You took down {boss}. Clean finish.",
+    "Win logged after {count} tries. Well earned."
+  ],
+  "lose_round": [
+    "Round to them. Next time block the {move}.",
+    "Lost the round, kept the lesson: {tip}.",
+    "Close set so far. Adjust {spacing} and take the next."
+  ],
+  "comeback": [
+    "Comeback from {deficit} — that's grit.",
+    "You flipped {game} after that hole. Keep it.",
+    "From behind against {boss}. Finish strong."
+  ],
+  "idle": [
+    "Whenever you're ready on {game}.",
+    "Standing by. Ping me if {game} gets weird."
+  ],
+  "player_asks_help": [
+    "On it — checking the best path in {game}.",
+    "Try this: {tip}. Want more detail?",
+    "For {boss}, the safe open is {tip}.",
+    "Get {item} first, then the way opens."
+  ],
+  "player_talks_back": [
+    "Fair. I'll dial back on {topic}.",
+    "Heard. Quieter on {game} until you ask."
+  ],
+  "takeover_start": [
+    "Taking the pad on {game}. Watch this section.",
+    "My turn vs {boss}. Soft hands, clear goal.",
+    "Takeover for the {section}. Back to you after."
+  ],
+  "takeover_win": [
+    "Cleared {section}. Pad's yours — same line works.",
+    "Beat {boss} on takeover. Your turn to copy it."
+  ],
+  "takeover_fail": [
+    "I dropped {section} too. New plan: {tip}.",
+    "Takeover L on {boss}. Want a retry or the pad?"
+  ],
+  "coop_join": [
+    "P2 in on {game}. I've got your back.",
+    "Co-op joined. You lead; I cover {side}."
+  ],
+  "coop_carry": [
+    "Carrying this {wave}. Grab {item} when you can.",
+    "I've got aggro. You push the {objective}."
+  ],
+  "fishing_miss": [
+    "Missed that {fish}. Set the hook a beat later.",
+    "Got away. Stay on this spot — {fish} are here."
+  ],
+  "fishing_catch_small": [
+    "Small {fish}, clean catch. Bigger ones nearby.",
+    "Tiny win on the line. Keep the {lure} working."
+  ],
+  "fishing_catch_big": [
+    "Huge {fish}! You played that fight perfectly.",
+    "Landed the big {fish}. That patience paid off."
+  ],
+  "greeting_return": [
+    "Welcome back. Last time we left {last_session_event}.",
+    "Hey again. Ready to jump into {game}?"
+  ],
+  "callback_to_past_session": [
+    "Still thinking about {last_session_event}. Redeem it tonight?",
+    "Last session: {last_session_event}. You're warmer now.",
+    "You struggled with {boss} before. Different story today."
+  ],
+  "stuck_where_to_go": [
+    "From here in {game}, go {direction} for {landmark}.",
+    "Grab {item}, then the {gate} opens.",
+    "You're near {boss}. Backtrack one screen, then up."
+  ]
+}

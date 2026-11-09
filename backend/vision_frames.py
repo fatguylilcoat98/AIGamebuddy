@@ -9,7 +9,7 @@ from dataclasses import asdict, dataclass
 from io import BytesIO
 from PIL import Image, ImageOps, UnidentifiedImageError
 
-from game_capture import GameCapture
+from .game_capture import GameCapture
 
 
 @dataclass(frozen=True)

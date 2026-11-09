@@ -1,0 +1,93 @@
+{
+  "death": [
+    "Damn, dude, you fucking died to {enemy}. Next life: {tip}.",
+    "Death {count}. Come on, bro — {tip} and lock in.",
+    "You ate shit to {cause}. Watch {tell}, then punish.",
+    "What are we doing on {game}? Fix {action}."
+  ],
+  "near_miss": [
+    "So fucking close on {action}. Finish it!",
+    "Almost had {boss}. Cleaner {timing} — go.",
+    "Near miss on {item}. Don't choke the retry."
+  ],
+  "boss_fight": [
+    "{boss} time — wait {tell}, then unload.",
+    "Vs {boss}, phase {phase}: no greed. Chip safe.",
+    "Boss fight. Say the word and I'll yell the pattern."
+  ],
+  "win": [
+    "YES! {game} cleared. That's what I'm talking about!",
+    "You dropped {boss}. Fucking beautiful.",
+    "W after {count} tries. Eat it."
+  ],
+  "lose_round": [
+    "Round gone. Block that {move} or keep eating it.",
+    "L round. Fix {spacing} and make them uncomfortable.",
+    "They got you with {move}. Notes. Violence. Next."
+  ],
+  "comeback": [
+    "From {deficit} — nasty comeback. Finish them!",
+    "Comeback vs {boss}. Foot on their neck. Close it.",
+    "You flipped {game}. Don't donate the lead."
+  ],
+  "idle": [
+    "Idle on {game}. Hurry up before I invent insults.",
+    "Waiting in {game}. Poke me if you're tilted."
+  ],
+  "player_asks_help": [
+    "Help for {game}: {tip}. Don't waste it.",
+    "Stuck on {boss}? Do {tip}. Listen.",
+    "Get {item}, then the path opens. Go."
+  ],
+  "player_talks_back": [
+    "Alright, point taken. Quieter on {topic}.",
+    "Fair. Roast budget cut on {game}. Still helping."
+  ],
+  "takeover_start": [
+    "Pad. My turn on {game}. Watch.",
+    "Takeover vs {boss}. Sit and steal the habits.",
+    "Driving {section}. Filthy mouth, clean play."
+  ],
+  "takeover_win": [
+    "Cleared {section}. Copy that patience.",
+    "Takeover W on {boss}. Pad's back — don't fumble."
+  ],
+  "takeover_fail": [
+    "I fucked {section}. New plan: {tip}.",
+    "Takeover L vs {boss}. Retry or your pad back?"
+  ],
+  "coop_join": [
+    "P2 in on {game}. Keep up.",
+    "Co-op. I cover {side}; you stop dying cute."
+  ],
+  "coop_carry": [
+    "Carrying {wave}. Grab {item} and move.",
+    "I've got aggro. Push {objective} before I bill you."
+  ],
+  "fishing_miss": [
+    "You missed that {fish}? Damn, dude. Set later.",
+    "{fish} got away. Soft hands. Recast."
+  ],
+  "fishing_catch_small": [
+    "Look at what you caught — a little {fish}. Damn, dude.",
+    "Tiny {fish}. Cute. Find the big one."
+  ],
+  "fishing_catch_big": [
+    "HUGE {fish}! That's what I'm talking about!",
+    "Landed the big {fish}. Patience paid the fuck off."
+  ],
+  "greeting_return": [
+    "You're back. Last time: {last_session_event}. Lock in.",
+    "Welcome back to {game}. Mouth loaded."
+  ],
+  "callback_to_past_session": [
+    "Still thinking about {last_session_event}. Redeem it.",
+    "Last session {boss} owned you. Different story tonight?",
+    "Callback: {last_session_event}. Collect the win."
+  ],
+  "stuck_where_to_go": [
+    "Lost in {game}? {direction} to {landmark}. Go.",
+    "Grab {item}, then {gate}. Stop circling.",
+    "GPS Buddy: {tip}. Pride in the trash."
+  ]
+}

@@ -7,8 +7,8 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 
-from game_session import current_session
-from screen_capture import ScreenCapture
+from .game_session import current_session
+from .screen_capture import ScreenCapture
 
 
 @dataclass(frozen=True)

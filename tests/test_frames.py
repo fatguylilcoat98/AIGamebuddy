@@ -59,6 +59,62 @@ def test_sheets_split_and_turns_keep_gb_readable():
     assert male.right_turns[-1][0] == 1.0
 
 
+def test_approved_composite_keeps_the_bezel():
+    import numpy as np
+    from backend.frame_library import FRAME_DIR, FRAME_FILES, PLACEMENTS, paste_head
+    for frame_id, filename in FRAME_FILES.items():
+        source = Image.open(FRAME_DIR / filename).convert("RGBA")
+        box = PLACEMENTS[frame_id]["buddy"]
+        rest = render_hologram("idle", t=0.4, mouth=0.0, size=280, character="male", resting="left")
+        talk = render_hologram("talk", t=0.4, mouth=0.9, size=280, character="male", resting="left")
+        src = np.asarray(source)
+        mask = np.ones(src.shape[:2], dtype=bool)
+        mask[box["y"]:box["y"] + box["height"], box["x"]:box["x"] + box["width"]] = False
+        for head in (rest, talk):
+            composed = np.asarray(paste_head(source, head, box))
+            assert np.array_equal(src[mask], composed[mask])
+        assert np.asarray(paste_head(source, talk, box)).tobytes() != src.tobytes()
+    # The old SNES box covered this bezel pixel. It has to stay outside the well.
+    snes_box = PLACEMENTS["snes"]["buddy"]
+    assert snes_box["x"] + snes_box["width"] <= 1236
+    assert snes_box["y"] + snes_box["height"] <= 576
+    snes = Image.open(FRAME_DIR / "snes-sky-kingdom.jpg").convert("RGBA")
+    talk = render_hologram("talk", t=0.4, mouth=0.9, size=280, character="male", resting="left")
+    assert paste_head(snes, talk, snes_box).getpixel((1244, 360)) == snes.getpixel((1244, 360))
+
+
+def test_rest_pose_faces_left_until_talking():
+    from backend.hologram import _pose_sprite, yaw_at
+    from backend.hologram_art import frame_rest_pose, get_art
+    for t in (0.0, 0.4, 1.1, 2.2, 3.5, 5.0):
+        assert yaw_at(t, "idle", "left") <= -0.8
+        assert yaw_at(t, "smile", "left") <= -0.8
+        assert abs(yaw_at(t, "talk", "left")) <= 0.05
+    profile = frame_rest_pose()
+    # Male rest is the left profile cut from the approved frame, not the front sheet.
+    assert _pose_sprite("male", "idle", yaw_at(0.3, "idle", "left"), 0).tobytes() == profile.tobytes()
+    assert profile.tobytes() != get_art("male").front["neutral"].tobytes()
+    assert _cap_text_present(profile)
+    female_rest = get_art("female").rest_left
+    assert female_rest.tobytes() != get_art("female").front["neutral"].tobytes()
+    assert _cap_text_present(female_rest)
+    rest = render_hologram("idle", t=0.3, mouth=0.0, size=140, character="male", resting="left")
+    talking = render_hologram("talk", t=0.3, mouth=0.9, size=140, character="male", resting="left")
+    assert rest.tobytes() != talking.tobytes()
+
+
+def _cap_text_present(image) -> bool:
+    import numpy as np
+    array = np.asarray(image.convert("RGBA"))
+    bright = (
+        (array[:, :, 3] > 180)
+        & (array[:, :, 0] > 170)
+        & (array[:, :, 1] > 170)
+        & (array[:, :, 2] > 190)
+    )
+    return int(bright.sum()) > 40
+
+
 def test_hologram_expressions_are_distinct_and_stable():
     idle = render_hologram("idle", t=0.2, mouth=0.0, size=96, character="male", resting="left")
     again = render_hologram("idle", t=0.2, mouth=0.0, size=96, character="male", resting="left")

@@ -56,6 +56,7 @@ class CharacterArt:
     right_turns: list[tuple[float, Image.Image]]
     left_expr: dict[str, Image.Image]
     right_expr: dict[str, Image.Image]
+    rest_left: Image.Image | None = None
     notes: list[str] = field(default_factory=list)
 
 
@@ -396,7 +397,27 @@ def build_character(character: str) -> CharacterArt:
         front_aligned[name] = left_aligned[cursor]
         cursor += 1
     # The right-side front views are the same pictures; keep one set.
-    return CharacterArt(character, front_aligned, left_turns, right_turns, left_expr, right_expr, notes)
+    art = CharacterArt(character, front_aligned, left_turns, right_turns, left_expr, right_expr, notes=notes)
+    if character == "male":
+        # The turn sheet never reaches a side profile. The approved frames do.
+        art.rest_left = frame_rest_pose()
+        art.notes.append("male rest pose is the left profile cut from the approved frame.")
+    else:
+        art.rest_left = left_turns[-1][1]
+        art.notes.append("female rest pose is the left-facing turn profile.")
+    return art
+
+
+def frame_rest_pose() -> Image.Image:
+    """Left-profile head from the approved SNES frame. GB is the original art.
+
+    The crop is the inner well only. The bezel and its glow stay out of the sprite.
+    """
+    from .frame_library import FRAME_DIR, PLACEMENTS
+    box = PLACEMENTS["snes"]["buddy"]
+    image = Image.open(FRAME_DIR / "snes-sky-kingdom.jpg").convert("RGB")
+    x, y, w, h = box["x"], box["y"], box["width"], box["height"]
+    return key_black(image.crop((x, y, x + w, y + h)))
 
 
 def get_art(character: str = "male") -> CharacterArt:

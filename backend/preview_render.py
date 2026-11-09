@@ -7,6 +7,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw
 
+from .frame_library import FRAME_DIR, FRAME_FILES, PLACEMENTS, paste_head
 from .frames import composite_with_head, render_frame
 from .hologram import EXPRESSIONS, render_hologram
 
@@ -60,6 +61,24 @@ def _on_checker(image: Image.Image) -> Image.Image:
     return plate
 
 
+def render_approved(folder: Path | None = None) -> list[Path]:
+    """Rest pose (left profile) and talking pose (toward the viewer) on each frame."""
+    out = folder or OUT
+    out.mkdir(parents=True, exist_ok=True)
+    written = []
+    rest = render_hologram("idle", t=0.4, mouth=0.0, size=360, character="male", resting="left")
+    talking = render_hologram("talk", t=0.4, mouth=0.85, size=360, character="male", resting="left")
+    for frame_id, filename in FRAME_FILES.items():
+        source = Image.open(FRAME_DIR / filename).convert("RGBA")
+        box = PLACEMENTS[frame_id]["buddy"]
+        rest_path = out / f"approved-{frame_id}.jpg"
+        talk_path = out / f"approved-{frame_id}-talking.jpg"
+        paste_head(source, rest, box).convert("RGB").save(rest_path, quality=92)
+        paste_head(source, talking, box).convert("RGB").save(talk_path, quality=92)
+        written.extend((rest_path, talk_path))
+    return written
+
+
 def render_all(folder: Path | None = None) -> list[Path]:
     out = folder or OUT
     out.mkdir(parents=True, exist_ok=True)
@@ -95,5 +114,7 @@ def render_all(folder: Path | None = None) -> list[Path]:
 
 
 if __name__ == "__main__":
+    for path in render_approved():
+        print(path)
     for path in render_all():
         print(path)

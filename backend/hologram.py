@@ -1,9 +1,9 @@
 """Buddy's hologram, drawn from Chris's GB-cap sprite sheets.
 
 Yaw is -1 (strong left, toward the game) through 0 (camera) to +1 (strong right).
-Idle sweeps back and forth around the resting direction. Talking and reactions
-turn him toward the camera. Turns cross-fade between sheets and add a little
-squash, skew, and pedestal parallax so the motion reads as a head turn.
+The default rest is a left profile toward the game window. It stays there while
+idle. Only talking turns the head to face the viewer. Turns cross-fade between
+sheets and add a little squash, skew, and pedestal parallax.
 """
 from __future__ import annotations
 
@@ -54,19 +54,16 @@ def normalize_resting(value: str | None) -> str | None:
 
 
 def yaw_at(t: float, expression: str, resting: str = "left", gaze: str = "center") -> float:
-    """Where the head should point. Reactions face the camera. Idle sweeps."""
-    sweep = math.sin(t * 0.55)
+    """Rest stays in profile. Only talking turns the head toward the viewer."""
+    if expression == "talk":
+        return 0.0
+    drift = 0.05 * math.sin(t * 0.65)
     if resting == "right":
-        idle = 0.2 + sweep * 0.8
-    elif resting == "center":
-        idle = sweep * 0.85
-    else:
-        idle = -0.2 + sweep * 0.8
-    gaze_bias = {"left": -0.12, "right": 0.12}.get(gaze, 0.0)
-    if expression in {"idle", "blink"}:
-        return max(-1.0, min(1.0, idle + gaze_bias))
-    # Face the player while talking or reacting, with a hint of the sweep.
-    return max(-1.0, min(1.0, idle * 0.12 + gaze_bias * 0.25))
+        return min(1.0, 0.9 + drift)
+    if resting == "center":
+        return drift
+    # Left rest is a three-quarter/side profile toward the game, not a front view.
+    return max(-1.0, min(-0.82, -0.92 + drift))
 
 
 def _smooth(value: float) -> float:
@@ -94,9 +91,13 @@ def _pose_sprite(character: str, expression: str, yaw: float, mouth: float) -> I
     side_expr = art.left_expr if yaw < 0 else art.right_expr
     base = _blend_pair(side_turns, magnitude)
     name = _FRONT.get(expression, "neutral")
+    if expression != "talk" and yaw <= -0.75 and art.rest_left is not None:
+        if expression in {"laugh", "shocked", "celebrate"} and name in side_expr:
+            return side_expr[name]
+        return art.rest_left
     if expression == "talk":
-        opened = side_expr["talk"] if magnitude > 0.38 else art.front["talk"]
-        closed = base if magnitude > 0.38 else art.front["neutral"]
+        opened = art.front["talk"]
+        closed = art.front["neutral"]
         level = max(0.0, min(1.0, (mouth - 0.12) / 0.55))
         return Image.blend(closed, opened, level)
     if name in TURN_EXPRESSIONS and magnitude > 0.38 and name in side_expr:
@@ -234,8 +235,10 @@ def _compose(expression: str, t: float, mouth: float, gaze: str, size: int,
              character: str, resting: str) -> Image.Image:
     yaw = yaw_at(t, expression, resting, gaze)
     sprite = _pose_sprite(character, expression, yaw, mouth)
-    sprite = _squash_skew(sprite, yaw)
-    sprite = _parallax(sprite, yaw, t)
+    # The frame cutout is already a side profile. Squash and parallax pull it back toward center.
+    if expression == "talk" or yaw > -0.75:
+        sprite = _squash_skew(sprite, yaw)
+        sprite = _parallax(sprite, yaw, t)
     sprite = _blink(sprite, _blink_amount(t, expression))
     bob = math.sin(t * 1.7) * size * 0.015
     sway = math.sin(t * 0.8) * size * 0.012

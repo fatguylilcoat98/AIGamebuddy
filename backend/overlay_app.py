@@ -9,9 +9,9 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from PIL import Image, ImageDraw
+from PIL import Image
 
-from .frame_library import frame_record, punch_screen, scaled_box, scaled_screen
+from .frame_library import frame_record, paste_head, punch_screen, scaled_box, scaled_screen
 
 
 def chroma_key(image, key=(255, 0, 255, 255)):
@@ -29,15 +29,10 @@ def chroma_key(image, key=(255, 0, 255, 255)):
 
 
 def _prepared_frame(frame_id: str) -> Image.Image:
+    """Punch the game window only. The portrait bezel stays in the art."""
     record = frame_record(frame_id)
     source = Image.open(Path(__file__).resolve().parents[1] / "assets" / "frames" / record["file"])
-    image = punch_screen(source, record["screen"])
-    buddy = record["buddy"]
-    ImageDraw.Draw(image).rectangle(
-        [buddy["x"], buddy["y"], buddy["x"] + buddy["width"] - 1, buddy["y"] + buddy["height"] - 1],
-        fill=(0, 0, 0, 255),
-    )
-    return image
+    return punch_screen(source, record["screen"])
 
 
 def run_overlay(session) -> None:
@@ -54,10 +49,9 @@ def run_overlay(session) -> None:
     root.overrideredirect(True)
     root.geometry("1280x720+40+40")
 
-    holder = {"photo": None, "head": None, "frame": None}
+    holder = {"photo": None, "base": None}
     background = tk.Label(root, bd=0, bg="magenta")
     background.place(x=0, y=0, relwidth=1, relheight=1)
-    head_label = tk.Label(root, bd=0, bg="#000000")
 
     button_style = {
         "bg": "#12121a", "fg": "#f4f4f4", "activebackground": "#2c2c3a",
@@ -124,10 +118,7 @@ def run_overlay(session) -> None:
         width = max(root.winfo_width(), 1)
         height = max(root.winfo_height(), 1)
         frame_id = session.theme if session.theme in {"nes", "snes", "genesis"} else "genesis"
-        buddy = scaled_box(frame_id, "buddy", (width, height))
         menu_box = scaled_box(frame_id, "menu", (width, height))
-        if buddy:
-            head_label.place(x=buddy[0], y=buddy[1], width=buddy[2], height=buddy[3])
         if menu_box:
             menu.place(x=menu_box[0], y=menu_box[1], width=menu_box[2], height=menu_box[3])
             menu.lift()
@@ -136,26 +127,34 @@ def run_overlay(session) -> None:
         frame_id = session.theme if session.theme in {"nes", "snes", "genesis"} else "genesis"
         image = _prepared_frame(frame_id)
         image = image.resize((max(root.winfo_width(), 2), max(root.winfo_height(), 2)))
+        holder["base"] = image
+        _paint()
+
+    def _paint():
+        base = holder.get("base")
+        if base is None:
+            return
+        hud = session.hud()
+        expression = hud["expression"]
+        mouth = hud["mouth"] if hud["mouth"] else (0.55 if expression == "talk" else 0.0)
+        frame_id = session.theme if session.theme in {"nes", "snes", "genesis"} else "genesis"
+        buddy = scaled_box(frame_id, "buddy", base.size)
+        head = render_hologram(
+            expression, t=session.clock.mono(), mouth=mouth, gaze=hud["gaze"],
+            size=max(buddy[2], buddy[3], 64) if buddy else 64,
+            character=hud.get("buddy_character", "male"),
+            resting=hud.get("resting_direction", "left"),
+            from_expression=hud.get("from_expression"), blend=hud.get("expression_blend", 1.0),
+        )
+        frame = paste_head(base, head, {"x": buddy[0], "y": buddy[1], "width": buddy[2], "height": buddy[3]}) if buddy else base
         if os.name == "nt":
-            image = chroma_key(image)
-        holder["frame"] = image
-        holder["photo"] = ImageTk.PhotoImage(image)
+            frame = chroma_key(frame)
+        holder["photo"] = ImageTk.PhotoImage(frame)
         background.configure(image=holder["photo"])
 
     def animate():
         session.tick_animation()
-        hud = session.hud()
-        expression = hud["expression"]
-        mouth = hud["mouth"] if hud["mouth"] else (0.55 if expression == "talk" else 0.0)
-        width = max(head_label.winfo_width(), 64)
-        head = render_hologram(
-            expression, t=session.clock.mono(), mouth=mouth, gaze=hud["gaze"],
-            size=max(width, 64), character=hud.get("buddy_character", "male"),
-            resting=hud.get("resting_direction", "left"),
-            from_expression=hud.get("from_expression"), blend=hud.get("expression_blend", 1.0),
-        )
-        holder["head"] = ImageTk.PhotoImage(head)
-        head_label.configure(image=holder["head"])
+        _paint()
         if session.theme != holder.get("shown"):
             holder["shown"] = session.theme
             redraw_frame()

@@ -42,16 +42,18 @@ SYSTEM_ALIASES = {
 # Portrait and menu, in source pixels. Tuned to the approved art so the live
 # head covers the baked face and the menu sits on the pixel bar under it.
 PLACEMENTS = {
+    # buddy is the inner well only. The bezel and its glow stay outside this rect.
     "genesis": {
-        "buddy": {"x": 1024, "y": 332, "width": 240, "height": 276},
+        "buddy": {"x": 1032, "y": 348, "width": 208, "height": 232},
         "menu": {"x": 1004, "y": 616, "width": 254, "height": 94},
     },
     "nes": {
-        "buddy": {"x": 1020, "y": 340, "width": 240, "height": 258},
+        "buddy": {"x": 1036, "y": 356, "width": 200, "height": 220},
         "menu": {"x": 1004, "y": 606, "width": 260, "height": 102},
     },
     "snes": {
-        "buddy": {"x": 1016, "y": 328, "width": 248, "height": 262},
+        # Inside the black well. x>=1236 and y>=576 are the glowing bezel.
+        "buddy": {"x": 1036, "y": 340, "width": 196, "height": 232},
         "menu": {"x": 996, "y": 598, "width": 264, "height": 110},
     },
 }
@@ -114,6 +116,24 @@ def scale_rect(rect: dict[str, int], target: tuple[int, int]) -> dict[str, int]:
         "width": int(round(rect["width"] * sx)),
         "height": int(round(rect["height"] * sy)),
     }
+
+
+def paste_head(image: Image.Image, head: Image.Image, box: dict[str, int]) -> Image.Image:
+    """Composite a transparent head into the inner well. The bezel stays untouched."""
+    canvas = image.convert("RGBA")
+    x, y, w, h = int(box["x"]), int(box["y"]), int(box["width"]), int(box["height"])
+    # Drop the baked portrait. This rect is the inner well, so the bezel stays.
+    canvas.paste(Image.new("RGBA", (w, h), (0, 0, 0, 255)), (x, y))
+    sprite = head.convert("RGBA")
+    trimmed = sprite.crop(sprite.getbbox()) if sprite.getbbox() else sprite
+    trimmed.thumbnail((max(1, int(w * 0.92)), max(1, int(h * 0.92))), Image.Resampling.LANCZOS)
+    layer = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    layer.alpha_composite(
+        trimmed,
+        ((w - trimmed.width) // 2, max(0, (h - trimmed.height) // 2)),
+    )
+    canvas.alpha_composite(layer, (x, y))
+    return canvas
 
 
 def punch_screen(image: Image.Image, screen: dict[str, int], threshold: int = 18) -> Image.Image:

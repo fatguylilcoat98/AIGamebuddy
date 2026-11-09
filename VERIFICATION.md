@@ -1,6 +1,6 @@
 # Verification
 
-Run on this machine: `python3 -m pytest tests -q` — 28 passed.
+Run on this machine: `python3 -m pytest tests -q` — 30 passed.
 That does not mean the Windows overlay, microphone, or a live model was tried.
 A feature is listed from what the code does and what the tests check, not from a wish list.
 
@@ -21,7 +21,7 @@ Tested here with pytest. No Windows desktop, microphone, or API key was availabl
 - Window titles are reported as titles, not as "I can see the game." On a non-Windows host the detector says detection needs Windows.
 - The three frames are 1920x1080 PNG files. The game opening is alpha 0. The menu and frame are opaque. Drawn labels do not include Sega, Nintendo, Sonic, Mario, or Zion.
 - The three approved frames map genesis/megadrive, nes/famicom, and snes/sfc. Each screen rectangle is remeasured from the JPG and matches `metadata.json`. The controller overlap stays opaque. 1080p viewports are the 720p rect scaled by 1.5. RetroArch configs set integer scale off and aspect Custom.
-- Official GB-cap sheets are sliced into front expressions and turn poses. Black becomes transparent. Male turn panels face left and stay unmirrored. Female turn panels face right, so her left-facing set is mirrored and the cap letters are redrawn upright (not reversed). Idle sweeps left and right around a resting direction (default left, toward the game). Talk and reactions face the camera. Mouth level swaps the closed and open talk frames. Male and female are separate sprite sets. The display name stays Buddy.
+- Official GB-cap sheets are sliced into front expressions and turn poses. Black becomes transparent. Male turn panels face left and stay unmirrored. Female turn panels face right, so her left-facing set is mirrored and the cap letters are redrawn upright (not reversed). The default rest yaw stays in a left profile toward the game. The male rest sprite is that profile cut from the approved SNES frame, with the cap text left as drawn. Only talking turns the head toward the viewer. The live head is composited inside the portrait well, so the frame's bezel and glow stay. Mouth level swaps the closed and open talk frames. Male and female are separate sprite sets. The display name stays Buddy.
 - Config comments are allowed. A character name of Zion is renamed to Buddy. The sample config has no API key.
 - Ollama requests are built for localhost. A bad HTTP URL is rejected. A fake 401 error has the key redacted.
 - The old short-term cooldown in `BuddyBrain` still blocks chatter a few seconds after a line.

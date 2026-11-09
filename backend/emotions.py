@@ -69,6 +69,8 @@ class EmotionDirector:
 
     def __init__(self) -> None:
         self.expression = "idle"
+        self.from_expression = "idle"
+        self.blend_started: float | None = None
         self.gaze = "center"
         self.hold_until = 0.0
         self.mouth = 0.0
@@ -77,6 +79,9 @@ class EmotionDirector:
     def set_expression(self, name: str, now: float, hold_s: float = 2.4) -> None:
         if name not in EXPRESSIONS:
             name = "idle"
+        if name != self.expression:
+            self.from_expression = self.expression
+            self.blend_started = now
         self.expression = name
         self.hold_until = now + max(0.2, hold_s)
 
@@ -100,15 +105,19 @@ class EmotionDirector:
         self.speaking = speaking
         self.mouth = max(0.0, min(1.0, mouth))
         if speaking and self.expression in {"idle", "blink"}:
-            self.expression = "talk"
-            self.hold_until = now + 0.4
-        elif now >= self.hold_until and not speaking:
-            self.expression = "idle"
+            self.set_expression("talk", now, 0.4)
+        elif now >= self.hold_until and not speaking and self.expression != "idle":
+            self.set_expression("idle", now, 0.2)
             self.mouth = 0.0
 
-    def snapshot(self) -> dict:
+    def snapshot(self, now: float | None = None) -> dict:
+        blend = 1.0
+        if now is not None and self.blend_started is not None:
+            blend = max(0.0, min(1.0, (now - self.blend_started) / 0.28))
         return {
             "expression": self.expression,
+            "from_expression": self.from_expression,
+            "expression_blend": round(blend, 3),
             "gaze": self.gaze,
             "mouth": round(self.mouth, 3),
             "speaking": self.speaking,

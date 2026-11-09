@@ -50,6 +50,11 @@ def match_intent(text: str) -> Intent | None:
         (r"^(you play|take over|takeover|your turn|you think youre so smart you play)$", "takeover"),
         (r"^(give me the controller|im playing|i am playing|stop playing|release control|hand it back)$", "release"),
         (r"^(co op|coop|player 2|join as player 2)$", "coop"),
+        (r"^(character male|male|switch to male)$", "character_male"),
+        (r"^(character female|female|switch to female)$", "character_female"),
+        (r"^(rest left|look left|face the game|resting direction left)$", "rest_left"),
+        (r"^(rest right|look right|resting direction right)$", "rest_right"),
+        (r"^(rest center|face center|face me|resting direction center)$", "rest_center"),
     ]
     for pattern, name in patterns:
         match = re.match(pattern, norm)

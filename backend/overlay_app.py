@@ -48,7 +48,7 @@ def run_overlay(session) -> None:
 
     background = tk.Label(root, bd=0, bg="magenta")
     background.place(x=0, y=0, relwidth=1, relheight=1)
-    head_label = tk.Label(root, bd=0, bg="#02060f")
+    head_label = tk.Label(root, bd=0, bg="#000000")
     caption_label = tk.Label(root, textvariable=caption, fg="#f4fbff", bg="#101820",
                              wraplength=700, justify="left", font=("Segoe UI", 12))
     status_label = tk.Label(root, textvariable=status, fg="#9ad7ff", bg="#101820",
@@ -75,6 +75,11 @@ def run_overlay(session) -> None:
     add_button("Casual", lambda: session.set_personality("casual"))
     add_button("Sassy", lambda: session.set_personality("sassy"))
     add_button("Extreme", lambda: session.set_personality("extreme"))
+    add_button("Buddy character: Male", lambda: session.set_buddy_character("male"))
+    add_button("Buddy character: Female", lambda: session.set_buddy_character("female"))
+    add_button("Rest facing the game", lambda: session.set_resting_direction("left"))
+    add_button("Rest facing right", lambda: session.set_resting_direction("right"))
+    add_button("Rest facing camera", lambda: session.set_resting_direction("center"))
     add_button("Stop insulting me", lambda: session.handle_text("stop insulting me"))
     add_button("Mute", lambda: session.set_mute(True))
     add_button("Unmute", lambda: session.set_mute(False))
@@ -129,7 +134,7 @@ def run_overlay(session) -> None:
             menu.place_forget()
             menu_open.set(False)
         else:
-            menu.place(relx=0.78, rely=0.12, relwidth=0.20, relheight=0.42)
+            menu.place(relx=0.76, rely=0.10, relwidth=0.22, relheight=0.62)
             menu_open.set(True)
 
     def on_click(event):
@@ -178,7 +183,13 @@ def run_overlay(session) -> None:
         hud = session.hud()
         expression = hud["expression"]
         mouth = hud["mouth"] if hud["mouth"] else (0.45 if expression == "talk" else 0)
-        head = render_hologram(expression, t=session.clock.mono(), mouth=mouth, gaze=hud["gaze"], size=256)
+        head = render_hologram(
+            expression, t=session.clock.mono(), mouth=mouth, gaze=hud["gaze"], size=280,
+            character=hud.get("buddy_character", "male"),
+            resting=hud.get("resting_direction", "left"),
+            from_expression=hud.get("from_expression"),
+            blend=hud.get("expression_blend", 1.0),
+        )
         holder["head"] = ImageTk.PhotoImage(head)
         head_label.configure(image=holder["head"])
         if hud["last_text"] and hud["last_text"] != caption.get():

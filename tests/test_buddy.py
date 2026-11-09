@@ -384,6 +384,23 @@ def test_audio_device_must_exist():
     assert resolve_device("", devices).name == "default"
 
 
+def test_character_and_resting_direction_switch(tmp_path):
+    buddy, _clock, _audio, _model = session_for(tmp_path)
+    buddy.start()
+    assert buddy.buddy_character == "male"
+    assert buddy.resting_direction == "left"
+    female = buddy.handle_text("switch to female buddy")
+    assert female.ok
+    assert buddy.buddy_character == "female"
+    assert buddy.character == "Buddy"
+    right = buddy.handle_text("rest right")
+    assert right.ok
+    assert buddy.resting_direction == "right"
+    bad = buddy.set_buddy_character("zion")
+    assert bad.ok is False
+    assert buddy.buddy_character == "female"
+
+
 def test_clear_and_reset_are_distinct(tmp_path):
     buddy, clock, _audio, _model = session_for(tmp_path)
     buddy.start()

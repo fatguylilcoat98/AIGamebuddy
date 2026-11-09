@@ -15,6 +15,8 @@ DEFAULTS: dict[str, Any] = {
     "product_name": "Video Game Wingman — Powered by GNG AI",
     "banner_title": "GAME WINGMAN",
     "character_name": "Buddy",
+    "buddy_character": "male",
+    "resting_direction": "left",
     "personality": "sassy",
     "provider": "offline",
     "port": 8766,
@@ -154,6 +156,16 @@ def load_config(path: Path | None = None) -> Config:
     if personality == "regular":
         personality = "casual"
     data["personality"] = personality
+    buddy_character = str(data.get("buddy_character") or "male").strip().lower()
+    if buddy_character not in {"male", "female"}:
+        warnings.append("buddy_character must be male or female. Using male.")
+        buddy_character = "male"
+    data["buddy_character"] = buddy_character
+    resting = str(data.get("resting_direction") or "left").strip().lower()
+    if resting not in {"left", "right", "center"}:
+        warnings.append("resting_direction must be left, right, or center. Using left.")
+        resting = "left"
+    data["resting_direction"] = resting
     return Config(data, Path(chosen) if chosen else None, warnings)
 
 

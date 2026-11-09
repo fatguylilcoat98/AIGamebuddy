@@ -92,7 +92,7 @@ Double-click `Start-Buddy.bat`.
 You get one window:
 
 - The center opening is clear so the game shows through (Windows only).
-- Buddy's hologram sits in the bottom-right box.
+- Buddy's hologram sits in the bottom-right box and rests looking left, toward the game. The menu can switch Male / Female and the resting direction. The name on screen stays whatever `character_name` says.
 - The top-right button is the menu.
 - F9 is push-to-talk. Hold it, talk, let go.
 - Ctrl+Shift+Q quits.

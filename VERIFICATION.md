@@ -1,6 +1,6 @@
 # Verification
 
-Run on this machine: `python3 -m pytest tests -q` — 23 passed.
+Run on this machine: `python3 -m pytest tests -q` — 25 passed.
 That does not mean the Windows overlay, microphone, or a live model was tried.
 A feature is listed from what the code does and what the tests check, not from a wish list.
 
@@ -20,7 +20,7 @@ Tested here with pytest. No Windows desktop, microphone, or API key was availabl
 - Memory reset keeps joke history. Clear deletes it. A second session still sees the saved personality and an observed event.
 - Window titles are reported as titles, not as "I can see the game." On a non-Windows host the detector says detection needs Windows.
 - The three frames are 1920x1080 PNG files. The game opening is alpha 0. The menu and frame are opaque. Drawn labels do not include Sega, Nintendo, Sonic, Mario, or Zion.
-- All ten hologram expressions render, differ from idle, and the same inputs produce the same image.
+- Official GB-cap sheets are sliced into front expressions and turn poses. Black becomes transparent. Male turn panels face left and stay unmirrored. Female turn panels face right, so her left-facing set is mirrored and the cap letters are redrawn upright (not reversed). Idle sweeps left and right around a resting direction (default left, toward the game). Talk and reactions face the camera. Mouth level swaps the closed and open talk frames. Male and female are separate sprite sets. The display name stays Buddy.
 - Config comments are allowed. A character name of Zion is renamed to Buddy. The sample config has no API key.
 - Ollama requests are built for localhost. A bad HTTP URL is rejected. A fake 401 error has the key redacted.
 - The old short-term cooldown in `BuddyBrain` still blocks chatter a few seconds after a line.
@@ -60,4 +60,4 @@ The code is in the app. It was not run on Windows, with a mic, with OBS, or with
 - Ollama installed on the Windows PC if you choose the local provider.
 - Your RetroArch / EmulationStation paths and ROM folders.
 - A microphone, speakers or a virtual cable, and OBS on that PC.
-- The original photographed hologram and the old cabinet ZIP. They are not in the repo. The cartoon head and the three frames are new original art, not stand-ins labeled as the old files.
+- Nothing visual is blocking a first look. The expression and turn sheets Chris supplied are in `assets/hologram/source/`. The full concept board with game characters is not in the repo.

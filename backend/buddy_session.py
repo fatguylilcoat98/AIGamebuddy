@@ -62,6 +62,12 @@ class BuddySession:
         self.config = config
         self.clock = clock or SystemClock()
         self.character = str(config.get("character_name") or "Buddy")
+        self.buddy_character = str(config.get("buddy_character") or "male")
+        if self.buddy_character not in {"male", "female"}:
+            self.buddy_character = "male"
+        self.resting_direction = str(config.get("resting_direction") or "left")
+        if self.resting_direction not in {"left", "right", "center"}:
+            self.resting_direction = "left"
         self.product = str(config.get("product_name"))
         self.banner = str(config.get("banner_title") or "GAME WINGMAN")
         data_dir = default_data_dir(config)
@@ -152,6 +158,10 @@ class BuddySession:
             self.theme_mode = data["theme_mode"]
         if data.get("theme") in {"nes", "snes", "genesis"}:
             self.theme = data["theme"]
+        if data.get("buddy_character") in {"male", "female"}:
+            self.buddy_character = data["buddy_character"]
+        if data.get("resting_direction") in {"left", "right", "center"}:
+            self.resting_direction = data["resting_direction"]
 
     def _save_ui(self) -> None:
         payload = {
@@ -160,6 +170,8 @@ class BuddySession:
             "frequency": self.frequency, "vision_enabled": self.vision_enabled,
             "offline_confirmed": self.offline_confirmed, "theme_mode": self.theme_mode,
             "theme": self.theme, "personality": self.personality,
+            "buddy_character": self.buddy_character,
+            "resting_direction": self.resting_direction,
         }
         try:
             self._ui_path().write_text(json.dumps(payload, indent=2), encoding="utf-8")
@@ -199,9 +211,12 @@ class BuddySession:
 
     def hud(self) -> dict:
         with self._lock:
+            emotion = self.emotion.snapshot(self.clock.mono())
             return {
                 "running": self.running,
                 "character": self.character,
+                "buddy_character": self.buddy_character,
+                "resting_direction": self.resting_direction,
                 "product": self.product,
                 "banner": self.banner,
                 "personality": self.personality,
@@ -213,8 +228,10 @@ class BuddySession:
                 "muted": self.muted,
                 "frequency": self.frequency,
                 "vision_enabled": self.vision_enabled,
-                "expression": self.emotion.expression,
-                "gaze": self.emotion.gaze,
+                "expression": emotion["expression"],
+                "from_expression": emotion["from_expression"],
+                "expression_blend": emotion["expression_blend"],
+                "gaze": emotion["gaze"],
                 "mouth": self.mouth,
                 "last_text": self.last_text,
                 "last_reason": self.last_reason,
@@ -296,6 +313,16 @@ class BuddySession:
             return self.set_theme("genesis")
         if name == "personality":
             return self.set_personality(intent.args["name"])
+        if name == "character_male":
+            return self.set_buddy_character("male")
+        if name == "character_female":
+            return self.set_buddy_character("female")
+        if name == "rest_left":
+            return self.set_resting_direction("left")
+        if name == "rest_right":
+            return self.set_resting_direction("right")
+        if name == "rest_center":
+            return self.set_resting_direction("center")
         if name == "memory_view":
             return ActionResult(True, self.memory.summary(), reason="memory")
         if name == "memory_reset":
@@ -327,6 +354,28 @@ class BuddySession:
     def _identify(self) -> ActionResult:
         self.refresh_identity()
         return ActionResult(True, self.identity.factual_line(), reason="identity")
+
+    def set_buddy_character(self, value: str) -> ActionResult:
+        from .hologram import normalize_character
+        chosen = normalize_character(value)
+        if chosen is None:
+            return ActionResult(False, "I did not change the character. Choose male or female.",
+                                reason="bad_character")
+        self.buddy_character = chosen
+        self._save_ui()
+        label = "Male" if chosen == "male" else "Female"
+        return self._show(f"Buddy character is {label}. The name is still {self.character}.",
+                          category="status", emotion="smile")
+
+    def set_resting_direction(self, value: str) -> ActionResult:
+        from .hologram import normalize_resting
+        chosen = normalize_resting(value)
+        if chosen is None:
+            return ActionResult(False, "I did not change the resting direction. Choose left, right, or center.",
+                                reason="bad_rest")
+        self.resting_direction = chosen
+        self._save_ui()
+        return self._show(f"Resting direction is {chosen}.", category="status", emotion="smile")
 
     def set_personality(self, name: str) -> ActionResult:
         try:

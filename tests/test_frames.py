@@ -3,6 +3,9 @@ from __future__ import annotations
 
 from backend.frames import render_frame
 from backend.hologram import EXPRESSIONS, render_hologram
+from backend.hologram_art import get_art, mirror_fix_gb, split_sheet
+from pathlib import Path
+from PIL import Image, ImageOps
 from backend.layout_spec import BUDDY_BOX, HOLE, MENU_BUTTON, overlaps
 
 FORBIDDEN = ("sega", "nintendo", "sonic", "mario", "zion", "famicom")
@@ -37,14 +40,41 @@ def test_frames_have_a_transparent_opening_and_no_trademarks():
         assert "GAME WINGMAN" in art.labels
 
 
+def test_sheets_split_and_turns_keep_gb_readable():
+    root = Path("assets/hologram/source")
+    for name in ("male-expressions.jpg", "female-expressions.jpg", "male-turns.jpg", "female-turns.jpg"):
+        panels = split_sheet(root / name)
+        assert len(panels) == 8
+    male = get_art("male")
+    female = get_art("female")
+    assert "faces left" in male.notes[0]
+    assert "faces right" in female.notes[0]
+    # Female's left-facing strong turn is mirrored, so GB is redrawn rather than reversed.
+    source = split_sheet(root / "female-turns.jpg")[3]
+    fixed = mirror_fix_gb(source)
+    assert fixed.tobytes() != ImageOps.mirror(source).tobytes()
+    assert male.front["neutral"].getpixel((0, 0))[3] == 0
+    assert female.front["grin"].getpixel((0, 0))[3] == 0
+    assert male.left_turns[-1][0] == 1.0
+    assert male.right_turns[-1][0] == 1.0
+
+
 def test_hologram_expressions_are_distinct_and_stable():
-    idle = render_hologram("idle", t=0.2, mouth=0.0, size=128)
-    again = render_hologram("idle", t=0.2, mouth=0.0, size=128)
+    idle = render_hologram("idle", t=0.2, mouth=0.0, size=96, character="male", resting="left")
+    again = render_hologram("idle", t=0.2, mouth=0.0, size=96, character="male", resting="left")
     assert idle.tobytes() == again.tobytes()
+    assert render_hologram("idle", t=2.4, mouth=0.0, size=96).tobytes() != idle.tobytes()
     for name in EXPRESSIONS:
-        mouth = 0.8 if name in {"talk", "laugh", "shocked"} else 0.0
-        image = render_hologram(name, t=0.2, mouth=mouth, size=128)
+        mouth = 0.9 if name in {"talk", "laugh", "shocked", "celebrate"} else 0.0
+        image = render_hologram(name, t=0.2, mouth=mouth, size=96, resting="center")
         assert image.mode == "RGBA"
         assert image.getbbox() is not None
         if name != "idle":
             assert image.tobytes() != idle.tobytes()
+    closed = render_hologram("talk", t=0.2, mouth=0.0, size=96, resting="center")
+    opened = render_hologram("talk", t=0.2, mouth=1.0, size=96, resting="center")
+    assert closed.tobytes() != opened.tobytes()
+    female = render_hologram("idle", t=0.2, mouth=0.0, size=96, character="female")
+    assert female.tobytes() != idle.tobytes()
+    right = render_hologram("idle", t=0.2, mouth=0.0, size=96, resting="right")
+    assert right.tobytes() != idle.tobytes()

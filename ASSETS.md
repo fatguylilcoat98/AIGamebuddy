@@ -4,17 +4,18 @@ The old hologram photo and `Retro_Arcade_Replay_Menu_RetroArch_Fix(1).zip` are n
 
 The concept screenshots Chris sent are layout references only. They contain console logos and the old face. They are not shipped.
 
-What is in the repo is original pixel art drawn by the frame generator, plus a new cartoon hologram:
+The frames are original pixel art. Buddy's head is Chris's GB-cap hologram, sliced from the sheets in `assets/hologram/source/`:
 
 - `assets/previews/frame-nes.png`
 - `assets/previews/frame-snes.png`
 - `assets/previews/frame-genesis.png`
 - `assets/previews/frame-*-opening.png` shows the game opening on a checkerboard so you can see it is empty
-- `assets/previews/buddy-expressions.png`
-- `assets/previews/buddy-idle.gif`
-- `assets/previews/buddy-talk.gif`
+- `assets/previews/buddy-expressions-male.png` and `buddy-expressions-female.png`
+- `assets/previews/buddy-idle-male.gif`, `buddy-idle-female.gif`
+- `assets/previews/buddy-talk-male.gif`, `buddy-talk-female.gif`
+- `assets/previews/buddy-turn-male.gif`, `buddy-turn-female.gif`
 
-The app draws these at runtime from `backend/frames.py` and `backend/hologram.py`. You do not have to drop files in for the current look.
+The app builds the head at runtime from those sheets. Male's left-facing turn uses the original pixels, because those panels already look left and the GB on the cap stays readable. Female's sheet looks right, so the left-facing set is a mirror and GB is redrawn upright. Default rest is left, toward the game window. Config keys: `buddy_character` (`male` or `female`) and `resting_direction` (`left`, `right`, or `center`). The spoken name is still `character_name` (default Buddy).
 
 The banner text comes from `banner_title` in the config. The default is `GAME WINGMAN`. The name plate says BUDDY.
 

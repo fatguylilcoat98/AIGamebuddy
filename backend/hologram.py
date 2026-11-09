@@ -1,161 +1,280 @@
-"""Original cartoon hologram of Buddy.
+"""Buddy's hologram, drawn from Chris's GB-cap sprite sheets.
 
-This is a new character: a rounded headset face with a glass visor.
-It is not a photograph and it is not named Zion.
+Yaw is -1 (strong left, toward the game) through 0 (camera) to +1 (strong right).
+Idle sweeps back and forth around the resting direction. Talking and reactions
+turn him toward the camera. Turns cross-fade between sheets and add a little
+squash, skew, and pedestal parallax so the motion reads as a head turn.
 """
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
 
-from PIL import Image, ImageDraw, ImageFilter
+import numpy as np
+from PIL import Image, ImageDraw
+
+from .hologram_art import TURN_EXPRESSIONS, get_art
 
 EXPRESSIONS = (
     "idle", "blink", "talk", "smile", "wink", "laugh",
     "smug", "shocked", "celebrate", "sad",
 )
 
-
-@dataclass
-class Pose:
-    expression: str
-    gaze_x: float
-    gaze_y: float
-    blink: float
-    wink: float
-    mouth: float
-    smile: float
-    squint: float
-    brow: float
-    bob: float
-    shake: float
-    sparkle: float
-    lid: float
+_FRONT = {
+    "idle": "neutral",
+    "blink": "neutral",
+    "talk": "talk",
+    "smile": "grin",
+    "wink": "wink",
+    "laugh": "laugh",
+    "smug": "smug",
+    "shocked": "shocked",
+    "celebrate": "grin",
+    "sad": "sad",
+}
 
 
-def pose_for(expression: str, t: float, mouth: float = 0.0, gaze: str = "center") -> Pose:
-    if expression not in EXPRESSIONS:
-        expression = "idle"
-    gaze_x = {"left": -0.85, "right": 0.85}.get(gaze, 0.0)
-    gaze_y = {"up": -0.45, "down": 0.55}.get(gaze, 0.0)
-    blink = 1.0 if (t % 4.6) > 4.38 else 0.0
-    bob = math.sin(t * 1.6) * 3.0
-    look = math.sin(t * 0.55)
-    if expression == "idle":
-        gaze_x = look * 0.75 if gaze == "center" else gaze_x
-        gaze_y = math.sin(t * 0.33) * 0.25 if gaze == "center" else gaze_y
-        return Pose(expression, gaze_x, gaze_y, blink, 0, mouth, 0.35, 0, 0, bob, 0, 0, 0.15)
-    if expression == "blink":
-        return Pose(expression, gaze_x, gaze_y, 1, 0, mouth, 0.2, 0, 0, bob * 0.4, 0, 0, 0.1)
+def normalize_character(value: str | None) -> str | None:
+    text = str(value or "").strip().lower()
+    if text in {"male", "m", "man"}:
+        return "male"
+    if text in {"female", "f", "woman"}:
+        return "female"
+    return None
+
+
+def normalize_resting(value: str | None) -> str | None:
+    text = str(value or "").strip().lower()
+    if text in {"left", "l", "game"}:
+        return "left"
+    if text in {"right", "r"}:
+        return "right"
+    if text in {"center", "centre", "camera", "forward"}:
+        return "center"
+    return None
+
+
+def yaw_at(t: float, expression: str, resting: str = "left", gaze: str = "center") -> float:
+    """Where the head should point. Reactions face the camera. Idle sweeps."""
+    sweep = math.sin(t * 0.55)
+    if resting == "right":
+        idle = 0.2 + sweep * 0.8
+    elif resting == "center":
+        idle = sweep * 0.85
+    else:
+        idle = -0.2 + sweep * 0.8
+    gaze_bias = {"left": -0.12, "right": 0.12}.get(gaze, 0.0)
+    if expression in {"idle", "blink"}:
+        return max(-1.0, min(1.0, idle + gaze_bias))
+    # Face the player while talking or reacting, with a hint of the sweep.
+    return max(-1.0, min(1.0, idle * 0.12 + gaze_bias * 0.25))
+
+
+def _smooth(value: float) -> float:
+    return value * value * (3 - 2 * value)
+
+
+def _blend_pair(frames: list[tuple[float, Image.Image]], magnitude: float) -> Image.Image:
+    if magnitude <= frames[0][0]:
+        return frames[0][1]
+    if magnitude >= frames[-1][0]:
+        return frames[-1][1]
+    for index in range(len(frames) - 1):
+        start, end = frames[index][0], frames[index + 1][0]
+        if start <= magnitude <= end:
+            span = end - start
+            mix = 0.0 if span <= 0 else _smooth((magnitude - start) / span)
+            return Image.blend(frames[index][1], frames[index + 1][1], mix)
+    return frames[-1][1]
+
+
+def _pose_sprite(character: str, expression: str, yaw: float, mouth: float) -> Image.Image:
+    art = get_art(character)
+    magnitude = abs(yaw)
+    side_turns = art.left_turns if yaw < 0 else art.right_turns
+    side_expr = art.left_expr if yaw < 0 else art.right_expr
+    base = _blend_pair(side_turns, magnitude)
+    name = _FRONT.get(expression, "neutral")
     if expression == "talk":
-        openness = mouth if mouth > 0 else (0.35 + 0.45 * abs(math.sin(t * 14)))
-        return Pose(expression, gaze_x * 0.4, gaze_y, blink * 0.3, 0, openness, 0.15, 0, 0.05, bob, 0, 0, 0.1)
-    if expression == "smile":
-        return Pose(expression, gaze_x, gaze_y, blink, 0, max(mouth, 0.08), 0.9, 0.05, 0.1, bob, 0, 0.2, 0.05)
-    if expression == "wink":
-        return Pose(expression, 0.2, gaze_y, 0, 1, max(mouth, 0.05), 0.75, 0, 0.3, bob, 0, 0.15, 0.2)
-    if expression == "laugh":
-        return Pose(expression, gaze_x * 0.2, -0.1, 0, 0, max(mouth, 0.9), 0.8, 0.65, 0.2,
-                    math.sin(t * 10) * 4, 0, 0.4, 0)
-    if expression == "smug":
-        return Pose(expression, 0.55, 0.2, 0, 0, 0.02, 0.35, 0.45, 0.9, bob * 0.3, 0, 0, 0.55)
-    if expression == "shocked":
-        jitter = math.sin(t * 28) * 2.5
-        return Pose(expression, 0, -0.35, 0, 0, 0.45, 0, 0, -0.8, 0, jitter, 0, 0)
+        opened = side_expr["talk"] if magnitude > 0.38 else art.front["talk"]
+        closed = base if magnitude > 0.38 else art.front["neutral"]
+        level = max(0.0, min(1.0, (mouth - 0.12) / 0.55))
+        return Image.blend(closed, opened, level)
+    if name in TURN_EXPRESSIONS and magnitude > 0.38 and name in side_expr:
+        turned = side_expr[name]
+        return Image.blend(base, turned, 0.82)
+    if name == "neutral":
+        return base
+    front = art.front.get(name, art.front["neutral"])
+    if magnitude < 0.28:
+        return front
+    return Image.blend(base, front, 0.55)
+
+
+def _squash_skew(image: Image.Image, yaw: float) -> Image.Image:
+    width, height = image.size
+    squeeze = 1 - 0.12 * math.sin(min(1.0, abs(yaw)) * math.pi)
+    squeeze = max(0.82, squeeze)
+    shear = -0.07 * yaw
+    inverse_x = 1 / squeeze
+    center_x = width / 2
+    center_y = height / 2
+    # dst (x, y) samples src (a x + b y + c, y)
+    slope = shear * (width / max(1, height))
+    coefficients = (
+        inverse_x,
+        -slope,
+        center_x - inverse_x * center_x + slope * center_y,
+        0,
+        1,
+        0,
+    )
+    return image.transform(image.size, Image.Transform.AFFINE, coefficients, resample=Image.Resampling.BICUBIC)
+
+
+def _shift(image: np.ndarray, dx: int, dy: int) -> np.ndarray:
+    out = np.zeros_like(image)
+    height, width = image.shape[:2]
+    src_x0 = max(0, -dx)
+    src_y0 = max(0, -dy)
+    dst_x0 = max(0, dx)
+    dst_y0 = max(0, dy)
+    copy_w = min(width - src_x0, width - dst_x0)
+    copy_h = min(height - src_y0, height - dst_y0)
+    if copy_w > 0 and copy_h > 0:
+        out[dst_y0:dst_y0 + copy_h, dst_x0:dst_x0 + copy_w] = image[src_y0:src_y0 + copy_h, src_x0:src_x0 + copy_w]
+    return out
+
+
+def _parallax(image: Image.Image, yaw: float, t: float) -> Image.Image:
+    array = np.array(image)
+    alpha = array[:, :, 3]
+    rows = np.where(alpha.max(axis=1) > 20)[0]
+    if len(rows) < 8:
+        return image
+    split = int(rows[0] + (rows[-1] - rows[0]) * 0.8)
+    head = array.copy()
+    head[split:] = 0
+    pedestal = array.copy()
+    pedestal[:split] = 0
+    width = array.shape[1]
+    head_dx = int(round(-yaw * width * 0.035))
+    pedestal_dx = int(round(yaw * width * 0.018))
+    float_dy = int(round(math.sin(t * 1.25) * array.shape[0] * 0.012))
+    combined = _shift(pedestal, pedestal_dx, 0)
+    moved = _shift(head, head_dx, float_dy)
+    # Porter-Duff source-over of the head onto the pedestal.
+    src_a = moved[:, :, 3:4].astype(np.float32) / 255.0
+    dst_a = combined[:, :, 3:4].astype(np.float32) / 255.0
+    out_a = src_a + dst_a * (1 - src_a)
+    out_rgb = moved[:, :, :3].astype(np.float32) * src_a + combined[:, :, :3].astype(np.float32) * dst_a * (1 - src_a)
+    safe = np.clip(out_a, 1e-4, 1)
+    rgb = np.clip(out_rgb / safe, 0, 255).astype(np.uint8)
+    alpha_out = np.clip(out_a * 255, 0, 255).astype(np.uint8)
+    return Image.fromarray(np.dstack([rgb, alpha_out]), "RGBA")
+
+
+def _blink(image: Image.Image, amount: float) -> Image.Image:
+    if amount <= 0.02:
+        return image
+    array = np.array(image)
+    alpha = array[:, :, 3]
+    rows = np.where(alpha.max(axis=1) > 30)[0]
+    if len(rows) < 8:
+        return image
+    top, bottom = int(rows[0]), int(rows[-1])
+    span = bottom - top
+    y0 = top + int(span * 0.38)
+    y1 = top + int(span * 0.45)
+    shade = array.copy()
+    band = shade[y0:y1, :, :3].astype(np.float32) * (1 - 0.45 * amount)
+    shade[y0:y1, :, :3] = band.astype(np.uint8)
+    lid = (y0 + y1) // 2
+    shade[lid:lid + 2, :, 1] = np.clip(shade[lid:lid + 2, :, 1].astype(np.int16) + int(90 * amount), 0, 255)
+    shade[lid:lid + 2, :, 2] = np.clip(shade[lid:lid + 2, :, 2].astype(np.int16) + int(50 * amount), 0, 255)
+    return Image.blend(image, Image.fromarray(shade, "RGBA"), max(0.0, min(1.0, amount)))
+
+
+def _blink_amount(t: float, expression: str) -> float:
+    if expression == "blink":
+        return 1.0
+    if expression not in {"idle", "smile", "smug"}:
+        return 0.0
+    phase = t % 4.6
+    if phase < 4.42 or phase > 4.58:
+        return 0.0
+    return 1 - abs(phase - 4.50) / 0.08
+
+
+def _scanlines(image: Image.Image, t: float, burst: float) -> Image.Image:
+    array = np.array(image)
+    flicker = 0.9 + 0.1 * math.sin(t * 17.0)
+    if (t * 13.0) % 1.0 > 0.94:
+        flicker *= 0.86
+    array[:, :, :3] = np.clip(array[:, :, :3].astype(np.float32) * flicker, 0, 255).astype(np.uint8)
+    for y in range(0, array.shape[0], 3):
+        array[y, :, 3] = (array[y, :, 3].astype(np.float32) * 0.78).astype(np.uint8)
+    if burst > 0:
+        array[:, :, 1] = np.clip(array[:, :, 1].astype(np.int16) + int(40 * burst), 0, 255)
+        array[:, :, 2] = np.clip(array[:, :, 2].astype(np.int16) + int(55 * burst), 0, 255)
+    return Image.fromarray(array, "RGBA")
+
+
+def _fit(sprite: Image.Image, size: int, offset: tuple[float, float], scale: float) -> Image.Image:
+    target = max(8, int(size * 0.94 * scale))
+    fitted = sprite.copy()
+    fitted.thumbnail((target, target), Image.Resampling.LANCZOS)
+    canvas = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    x = (size - fitted.width) // 2 + int(offset[0])
+    y = (size - fitted.height) // 2 + int(offset[1])
+    canvas.alpha_composite(fitted, (x, y))
+    return canvas
+
+
+def _compose(expression: str, t: float, mouth: float, gaze: str, size: int,
+             character: str, resting: str) -> Image.Image:
+    yaw = yaw_at(t, expression, resting, gaze)
+    sprite = _pose_sprite(character, expression, yaw, mouth)
+    sprite = _squash_skew(sprite, yaw)
+    sprite = _parallax(sprite, yaw, t)
+    sprite = _blink(sprite, _blink_amount(t, expression))
+    bob = math.sin(t * 1.7) * size * 0.015
+    sway = math.sin(t * 0.8) * size * 0.012
+    burst = 0.0
+    scale = 1.0
     if expression == "celebrate":
-        return Pose(expression, 0, -0.2, 0, 0, 0.15, 1, 0.72, 0.4,
-                    abs(math.sin(t * 6)) * 7, 0, 1, 0)
-    # sad
-    return Pose("sad", 0, 0.65, blink, 0, max(mouth, 0.04), -0.7, 0.1, -0.35, bob * 0.3, 0, 0, 0.35)
-
-
-def _eye(draw: ImageDraw.ImageDraw, cx: float, cy: float, open_amount: float, gaze_x: float,
-         gaze_y: float, squint: float, wide: float = 1.0) -> None:
-    height = max(2.0, 26 * wide * open_amount * (1 - 0.75 * squint))
-    if height <= 3.5:
-        draw.line((cx - 16, cy, cx + 16, cy), fill=(220, 255, 255, 255), width=3)
-        return
-    box = (cx - 18, cy - height, cx + 18, cy + height)
-    draw.ellipse(box, fill=(232, 255, 255, 245))
-    px = cx + gaze_x * 7
-    py = cy + gaze_y * min(6, height * 0.45)
-    draw.ellipse((px - 7, py - 8, px + 7, py + 8), fill=(8, 24, 48, 255))
-    draw.ellipse((px - 3, py - 5, px + 1, py - 1), fill=(255, 255, 255, 230))
+        bob -= abs(math.sin(t * 6.0)) * size * 0.05
+        scale = 1.05
+        burst = 0.55 + 0.45 * abs(math.sin(t * 6.0))
+    elif expression == "shocked":
+        sway += math.sin(t * 28.0) * size * 0.01
+    fitted = _fit(sprite, size, (sway - yaw * size * 0.02, bob), scale)
+    if burst > 0:
+        glow = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(glow)
+        pad = int(size * (0.08 + 0.05 * burst))
+        draw.ellipse((pad, pad, size - pad, size - pad), fill=(40, 170, 255, int(70 * burst)))
+        fitted = Image.alpha_composite(glow, fitted)
+    pulse = 0.45 + 0.55 * (0.5 + 0.5 * math.sin(t * 2.2))
+    ring = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(ring)
+    cx, cy = size // 2, int(size * 0.78)
+    rx, ry = int(size * 0.22), int(size * 0.05)
+    draw.ellipse((cx - rx, cy - ry, cx + rx, cy + ry), outline=(80, 220, 255, int(180 * pulse)), width=max(1, size // 80))
+    fitted = Image.alpha_composite(fitted, ring)
+    return _scanlines(fitted, t, burst)
 
 
 def render_hologram(expression: str = "idle", t: float = 0.4, mouth: float = 0.0,
-                    gaze: str = "center", size: int = 256) -> Image.Image:
-    pose = pose_for(expression, t, mouth, gaze)
-    image = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    glow = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    g = ImageDraw.Draw(glow)
-    cx = size / 2 + pose.shake
-    cy = size / 2 + 8 + pose.bob
-    g.ellipse((cx - 92, cy - 100, cx + 92, cy + 96), fill=(40, 190, 255, 70))
-    g.ellipse((cx - 70, cy - 78, cx + 70, cy + 74), fill=(80, 230, 255, 90))
-    glow = glow.filter(ImageFilter.GaussianBlur(8))
-    image.alpha_composite(glow)
-    draw = ImageDraw.Draw(image)
-
-    # Headset cups. Original shapes, not a copy of a real product.
-    for side in (-1, 1):
-        ex = cx + side * 78
-        draw.rounded_rectangle((ex - 16, cy - 28, ex + 16, cy + 36), radius=10,
-                               fill=(120, 235, 255, 210), outline=(230, 255, 255, 255))
-        draw.arc((cx - 78, cy - 70, cx + 78, cy + 10), 200 if side < 0 else 340, 340 if side < 0 else 20,
-                 fill=(180, 250, 255, 180), width=4)
-
-    draw.ellipse((cx - 62, cy - 74, cx + 62, cy + 70), fill=(150, 245, 255, 235),
-                 outline=(240, 255, 255, 255), width=3)
-    draw.ellipse((cx - 50, cy - 60, cx + 50, cy + 56), fill=(8, 32, 64, 230))
-    # Forehead spark. A plain four-point mark, not a logo.
-    draw.polygon([(cx, cy - 50), (cx + 5, cy - 42), (cx, cy - 34), (cx - 5, cy - 42)],
-                 fill=(190, 255, 255, 220))
-
-    eye_y = cy - 8
-    left_open = 0 if pose.wink else (0 if pose.blink > 0.8 else 1)
-    right_open = 0 if pose.blink > 0.8 else 1
-    wide = 1.35 if pose.expression == "shocked" else 1.0
-    _eye(draw, cx - 22, eye_y, left_open, pose.gaze_x, pose.gaze_y, pose.squint, wide)
-    _eye(draw, cx + 22, eye_y, right_open, pose.gaze_x, pose.gaze_y, pose.squint, wide)
-
-    # Brows.
-    for side, lift in ((-1, pose.brow), (1, -pose.brow * 0.3)):
-        y = eye_y - 24 - lift * 10
-        draw.arc((cx + side * 22 - 16, y - 8, cx + side * 22 + 16, y + 10),
-                 200, 340, fill=(190, 255, 255, 230), width=3)
-
-    mouth_y = cy + 24
-    smile = pose.smile
-    if pose.expression == "shocked":
-        draw.ellipse((cx - 10, mouth_y, cx + 10, mouth_y + 18), fill=(4, 16, 36, 255))
-    elif pose.expression == "celebrate":
-        draw.arc((cx - 22, mouth_y - 8, cx + 22, mouth_y + 18), 15, 165, fill=(255, 255, 255, 255), width=4)
-    elif pose.mouth > 0.2 and pose.expression != "smug":
-        open_h = 6 + pose.mouth * 22
-        draw.ellipse((cx - 16, mouth_y - 2, cx + 16, mouth_y + open_h), fill=(4, 16, 36, 255))
-        if pose.expression == "laugh":
-            draw.rectangle((cx - 12, mouth_y + 2, cx + 12, mouth_y + 8), fill=(255, 255, 255, 230))
-    else:
-        start, end = (20, 160) if smile >= 0 else (200, 340)
-        bend = 10 + abs(smile) * 8
-        draw.arc((cx - 18, mouth_y - bend, cx + 18, mouth_y + bend), start, end,
-                 fill=(210, 255, 255, 255), width=3)
-
-    if pose.sparkle > 0:
-        for index, (dx, dy) in enumerate(((-40, -78), (48, -70), (36, 68), (-46, 60))):
-            if (index + int(t * 4)) % 2 and pose.sparkle < 0.9:
-                continue
-            sx, sy = cx + dx, cy + dy
-            draw.line((sx - 4, sy, sx + 4, sy), fill=(230, 255, 255, 200), width=2)
-            draw.line((sx, sy - 4, sx, sy + 4), fill=(230, 255, 255, 200), width=2)
-
-    # Scanlines and a moving sheen so the head reads as a hologram.
-    shade = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    sd = ImageDraw.Draw(shade)
-    for y in range(0, size, 4):
-        sd.line((0, y, size, y), fill=(0, 20, 40, 38))
-    sheen_x = int((math.sin(t * 1.3) * 0.5 + 0.5) * size)
-    sd.rectangle((sheen_x, 0, sheen_x + 10, size), fill=(255, 255, 255, 28))
-    image.alpha_composite(shade)
-    return image
+                    gaze: str = "center", size: int = 256, character: str = "male",
+                    resting: str = "left", from_expression: str | None = None,
+                    blend: float = 1.0) -> Image.Image:
+    if expression not in EXPRESSIONS:
+        expression = "idle"
+    character = character if character in {"male", "female"} else "male"
+    resting = resting if resting in {"left", "right", "center"} else "left"
+    current = _compose(expression, t, mouth, gaze, size, character, resting)
+    amount = max(0.0, min(1.0, float(blend)))
+    if from_expression and from_expression != expression and amount < 0.999:
+        previous = _compose(from_expression, t, mouth, gaze, size, character, resting)
+        return Image.blend(previous, current, amount)
+    return current

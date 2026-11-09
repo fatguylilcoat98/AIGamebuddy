@@ -26,6 +26,11 @@ if ($launcher -eq "py") {
 $venv = Join-Path $PSScriptRoot ".venv\Scripts\python.exe"
 & $venv -m pip install --upgrade pip
 & $venv -m pip install -r (Join-Path $PSScriptRoot "backend\requirements.txt")
+& $venv -m backend.frame_library --install
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "Could not write RetroArch configs for this display."
+    exit 1
+}
 $config = Join-Path $PSScriptRoot "config\buddy.config.json"
 if (-not (Test-Path $config)) {
     Copy-Item (Join-Path $PSScriptRoot "config\buddy.config.sample.json") $config

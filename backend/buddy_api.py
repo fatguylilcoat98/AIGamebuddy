@@ -4,7 +4,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-import app_state
+from . import app_state
 from .buddy_session import BuddySession
 from .config_loader import load_config
 

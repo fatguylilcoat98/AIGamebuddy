@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from backend.audio_out import AudioDevice, resolve_device
+from backend.audio_out import AudioDevice, AudioOutput, resolve_device
 from backend.buddy_brain import BuddyBrain
 from backend.buddy_session import BuddySession
 from backend.config_loader import SAMPLE_PATH, load_config, strip_json_comments
@@ -399,6 +399,112 @@ def test_character_and_resting_direction_switch(tmp_path):
     bad = buddy.set_buddy_character("zion")
     assert bad.ok is False
     assert buddy.buddy_character == "female"
+
+
+def test_speak_never_raises_when_portaudio_is_missing():
+    def explode():
+        raise OSError("PortAudio library not found")
+
+    audio = AudioOutput(device_lister=explode, synthesizer=lambda text, rate: b"RIFF", player=explode)
+    result = audio.speak("hello", volume=40, rate=0, device_name="", mute=False)
+    assert result.ok is False
+    assert result.reason == "playback_failed"
+
+
+def test_menu_action_refreshes_before_a_throw():
+    from backend.overlay_app import run_menu_action
+    seen = []
+
+    def mutate():
+        seen.append("mutate")
+
+    def refresh():
+        seen.append("refresh")
+
+    def announce():
+        seen.append("announce")
+        raise OSError("audio")
+
+    run_menu_action(mutate, refresh, announce)
+    assert seen == ["mutate", "refresh", "announce", "refresh"]
+
+
+def test_hotkey_edges_and_quit_keysym():
+    from backend.hotkeys import QUIT_SEQUENCES, poll_hotkey_events, tk_quit_event
+    assert "<Control-Shift-Q>" in QUIT_SEQUENCES
+    previous = {"f8": False, "f9": False, "quit": False}
+    assert poll_hotkey_events(previous, {"f8": False, "f9": True, "quit": False}) == ["talk_down"]
+    assert poll_hotkey_events({"f9": True}, {"f8": False, "f9": False, "quit": False}) == ["talk_up"]
+    assert poll_hotkey_events(previous, {"f8": True, "f9": False, "quit": True}) == ["menu", "quit"]
+
+    class Event:
+        keysym = "Q"
+        state = 0x1 | 0x4
+
+    assert tk_quit_event(Event())
+    Event.keysym = "q"
+    Event.state = 0x4
+    assert tk_quit_event(Event()) is False
+
+
+def test_local_api_health():
+    import json
+    import socket
+    import threading
+    import time
+    import urllib.request
+    import uvicorn
+    from backend.main import app
+
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    port = sock.getsockname()[1]
+    sock.close()
+    config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning")
+    server = uvicorn.Server(config)
+    thread = threading.Thread(target=server.run, name="buddy-api-test", daemon=True)
+    thread.start()
+    body = None
+    last_error = None
+    for _ in range(50):
+        try:
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=1) as response:
+                body = json.loads(response.read().decode())
+            break
+        except Exception as exc:
+            last_error = exc
+            time.sleep(0.1)
+    server.should_exit = True
+    thread.join(timeout=5)
+    assert body is not None, last_error
+    assert body["status"] == "ok"
+    assert body["character"] == "Buddy"
+
+
+def test_every_mode_fills_fifty_death_lines(tmp_path):
+    fallback = "i don't have a fresh line"
+    for personality in ("casual", "sassy", "extreme"):
+        folder = tmp_path / personality
+        folder.mkdir()
+        buddy, clock, _audio, _model = session_for(folder, personality=personality)
+        buddy.start()
+        lines = []
+        for index in range(60):
+            buddy.memory.add_event(
+                unix=clock.unix(), session_id=buddy.session_id, game_title=None,
+                kind="death", detail=f"hit {index}", source="observed", confidence=0.9,
+            )
+            clock.advance(2 * 3600)
+            result = buddy._banter(
+                player_text="", spontaneous=False, event="death", priority=3, direct=True,
+            )
+            text = (result.text or "").strip()
+            assert fallback not in text.lower()
+            assert fallback not in (result.message or "").lower()
+            assert text
+            lines.append(text)
+        assert len(lines) >= 50
+        assert len({line.lower() for line in lines}) >= 50
 
 
 def test_clear_and_reset_are_distinct(tmp_path):

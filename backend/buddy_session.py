@@ -12,6 +12,7 @@ from .actions import launch_process, search_games
 from .audio_out import AudioOutput
 from .banter import (
     angle_note,
+    complete_slots,
     example_block,
     insults_player,
     known_slots,
@@ -483,18 +484,20 @@ class BuddySession:
                             reason="memory_clear", data=counts)
 
     def _launch_retroarch(self, extra: list[str], system: str = "", exe: str = "") -> ActionResult:
-        from .frame_library import append_config_for, frame_for_system
+        from .frame_library import detect_display_size, frame_for_system, write_runtime_retroarch_cfg
         program = exe or str(self.config.get("retroarch", "path") or "")
         frame = frame_for_system(system) or frame_for_system(self.theme) or "genesis"
-        mode = str(self.config.get("display", "mode") or "720p")
-        if mode not in {"720p", "1080p"}:
-            mode = "720p"
-        cfg = append_config_for(frame, mode)
-        launched = launch_process(program, ["--appendconfig", str(cfg), *extra], runner=self.process_runner)
+        size = detect_display_size()
+        if size is None:
+            mode = str(self.config.get("display", "mode") or "720p")
+            size = (1920, 1080) if mode == "1080p" else (1280, 720)
+        cfg = write_runtime_retroarch_cfg(frame, size, self.data_dir / "retroarch")
+        launched = launch_process(program, ["--appendconfig", str(cfg.resolve()), *extra], runner=self.process_runner)
         if launched.ok:
             launched.message = (
-                f"{launched.message} Auto-lock config {cfg.name} is on the command line. "
-                "The overlay also moves the game window into the frame hole."
+                f"{launched.message} Auto-lock config {cfg.name} matches a {size[0]}x{size[1]} "
+                "windowed fullscreen and uses an absolute overlay path. "
+                "Exclusive fullscreen is off. The overlay also moves the game window into the frame hole."
             )
             if frame_for_system(system):
                 self.theme = frame
@@ -783,10 +786,11 @@ class BuddySession:
             return (f"The model did not answer ({drafted.error}). I won't invent a reply.", "idle", "", False)
         if not angle:
             return "", "idle", "", False
+        filled_slots, real_keys = complete_slots(slots, self.pack)
         filled = offline_variant(
-            self.pack, category, slots, self.novelty, personality=self.personality, angle=angle,
+            self.pack, category, filled_slots, self.novelty, personality=self.personality, angle=angle,
             now=self.clock.unix(), priority=priority, frequency=self.frequency, direct=direct,
-            allow_callback=allow_callback, callbacks_this_session=self._callbacks,
+            allow_callback=allow_callback, callbacks_this_session=self._callbacks, real=real_keys,
         )
         if filled:
             return filled, "talk", angle, allow_callback and category == "callback_to_past_session" and looks_like_callback(filled)

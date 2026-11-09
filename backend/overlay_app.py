@@ -6,12 +6,32 @@ buttons. Nothing is written over the gameplay opening.
 """
 from __future__ import annotations
 
+import logging
 import os
+import threading
+import time
 from pathlib import Path
 
 from PIL import Image
 
 from .frame_library import frame_record, paste_head, punch_screen, scaled_box, scaled_screen
+from .hotkeys import QUIT_SEQUENCES, start_windows_hotkeys, tk_quit_event
+
+
+def run_menu_action(mutate, refresh, announce=None) -> None:
+    """Apply the menu change, refresh the labels, then do the part that can throw.
+
+    Speech used to raise after the setting was saved, and the button never updated.
+    """
+    mutate()
+    refresh()
+    if announce is None:
+        return
+    try:
+        announce()
+    except Exception:
+        logging.getLogger("buddy.overlay").exception("Menu action failed")
+        refresh()
 
 
 def chroma_key(image, key=(255, 0, 255, 255)):
@@ -69,28 +89,49 @@ def run_overlay(session) -> None:
 
     def _toggle_character():
         current = session.hud().get("buddy_character", "male")
-        session.set_buddy_character("female" if current == "male" else "male")
-        _refresh_labels()
+        nxt = "female" if current == "male" else "male"
+
+        def mutate():
+            session.buddy_character = nxt
+            session._save_ui()
+
+        run_menu_action(mutate, _refresh_labels, lambda: session.set_buddy_character(nxt))
 
     def _cycle_mode():
         order = ["casual", "sassy", "extreme"]
         current = session.hud().get("personality", "sassy")
-        session.set_personality(order[(order.index(current) + 1) % len(order)] if current in order else "sassy")
-        _refresh_labels()
+        nxt = order[(order.index(current) + 1) % len(order)] if current in order else "sassy"
+
+        def mutate():
+            session.personality = nxt
+
+        run_menu_action(mutate, _refresh_labels, lambda: session.set_personality(nxt))
 
     def _toggle_voice():
-        session.set_mute(not session.muted)
-        _refresh_labels()
+        nxt = not session.muted
+
+        def mutate():
+            session.muted = nxt
+
+        run_menu_action(mutate, _refresh_labels, lambda: session.set_mute(nxt))
 
     def _cycle_rest():
         order = ["left", "center", "right"]
         current = session.hud().get("resting_direction", "left")
-        session.set_resting_direction(order[(order.index(current) + 1) % len(order)] if current in order else "left")
-        _refresh_labels()
+        nxt = order[(order.index(current) + 1) % len(order)] if current in order else "left"
+
+        def mutate():
+            session.resting_direction = nxt
+
+        run_menu_action(mutate, _refresh_labels, lambda: session.set_resting_direction(nxt))
 
     def _step_volume():
-        session.set_volume(0 if session.volume >= 100 else session.volume + 20)
-        _refresh_labels()
+        nxt = 0 if session.volume >= 100 else session.volume + 20
+
+        def mutate():
+            session.volume = nxt
+
+        run_menu_action(mutate, _refresh_labels, lambda: session.set_volume(nxt))
 
     def _refresh_labels():
         hud = session.hud()
@@ -185,17 +226,58 @@ def run_overlay(session) -> None:
         import threading
         threading.Thread(target=work, daemon=True).start()
 
-    root.bind("<KeyPress-F9>", talk_down)
-    root.bind("<KeyRelease-F9>", talk_up)
-    root.bind("<Control-Shift-q>", lambda _event: root.destroy())
-    root.bind("<F8>", lambda _event: _focus(0))
+    recent_hotkey = {}
+    stop_hotkeys = threading.Event()
+
+    def _quit(_event=None):
+        stop_hotkeys.set()
+        root.destroy()
+
+    def _once(name, fn):
+        def wrapped(_event=None):
+            now = time.monotonic()
+            if now - recent_hotkey.get(name, 0.0) < 0.2:
+                return
+            recent_hotkey[name] = now
+            fn()
+        return wrapped
+
+    def _maybe_quit(event):
+        if tk_quit_event(event):
+            _once("quit", _quit)()
+
+    talk_down_once = _once("talk_down", talk_down)
+    talk_up_once = _once("talk_up", talk_up)
+    menu_once = _once("menu", lambda: _focus(0))
+    quit_once = _once("quit", _quit)
+    # bind_all still works when a menu button has focus. The lowercase q bind
+    # does not: Tk's keysym for Shift+Q is Q.
+    root.bind_all("<KeyPress-F9>", talk_down_once)
+    root.bind_all("<KeyRelease-F9>", talk_up_once)
+    root.bind_all("<F8>", menu_once)
+    for sequence in QUIT_SEQUENCES:
+        root.bind_all(sequence, quit_once)
+    root.bind_all("<KeyPress>", _maybe_quit)
     root.bind("<Tab>", lambda _event: _move(1))
     root.bind("<Right>", lambda _event: _move(1))
     root.bind("<Left>", lambda _event: _move(-1))
     root.bind("<Up>", lambda _event: _focus(0))
     root.bind("<Down>", lambda _event: _focus(1))
     root.bind("<Return>", lambda _event: buttons[focus_at["i"]].invoke())
-    root.protocol("WM_DELETE_WINDOW", root.destroy)
+
+    def _schedule_hotkey(name: str):
+        actions = {
+            "talk_down": talk_down_once,
+            "talk_up": talk_up_once,
+            "menu": menu_once,
+            "quit": quit_once,
+        }
+        action = actions.get(name)
+        if action is not None:
+            root.after(0, action)
+
+    start_windows_hotkeys(_schedule_hotkey, stop_hotkeys)
+    root.protocol("WM_DELETE_WINDOW", _quit)
     _refresh_labels()
     redraw_frame()
     place_chrome()

@@ -13,6 +13,7 @@ from backend.frame_library import (
     measure_screen,
     punch_screen,
     scale_rect,
+    write_runtime_retroarch_cfg,
 )
 
 
@@ -73,3 +74,24 @@ def test_viewports_and_retroarch_flags():
         overlay = (FRAME_DIR / "overlays" / f"{frame_id}.cfg").read_text(encoding="utf-8")
         assert "overlay0_full_screen = true" in overlay
         assert Path(record["file"]).stem + ".png" in overlay
+
+
+def test_runtime_cfg_is_absolute_and_matches_the_window(tmp_path):
+    size = (1400, 900)
+    path = write_runtime_retroarch_cfg("nes", size, tmp_path)
+    text = path.read_text(encoding="utf-8")
+    assert "../overlays" not in text
+    viewport = scale_rect(load_metadata()["frames"]["nes"]["screen"], size)
+    assert f'custom_viewport_width = "{viewport["width"]}"' in text
+    assert f'custom_viewport_height = "{viewport["height"]}"' in text
+    assert 'video_fullscreen = "false"' in text
+    assert 'video_windowed_fullscreen = "true"' in text
+    assert 'video_window_width = "1400"' in text
+    overlay_line = next(line for line in text.splitlines() if line.startswith("input_overlay = "))
+    overlay_path = Path(overlay_line.split("=", 1)[1].strip().strip('"'))
+    assert overlay_path.is_absolute()
+    overlay_text = overlay_path.read_text(encoding="utf-8")
+    png_line = next(line for line in overlay_text.splitlines() if line.startswith("overlay0_overlay = "))
+    png_path = Path(png_line.split("=", 1)[1].strip().strip('"'))
+    assert png_path.is_absolute()
+    assert png_path.exists()

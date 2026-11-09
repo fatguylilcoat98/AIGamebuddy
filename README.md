@@ -24,7 +24,7 @@ F9 is push-to-talk. F8 focuses the menu under Buddy. Arrow keys and Enter move t
 Each frame in `assets/frames/` has a measured game window in `assets/frames/metadata.json`. The same numbers are used two ways:
 
 1. **Buddy's window.** Start Buddy and the 1280x720 frame opens. The black window is transparent. When RetroArch or EmulationStation is the front window, Buddy moves it into that hole. The controller art still overlaps the game, because only near-black pixels were cut out.
-2. **RetroArch's own overlay.** `assets/frames/retroarch/*-720p.cfg` and `*-1080p.cfg` set `video_scale_integer` off, aspect ratio Custom, and the viewport for that resolution. They point at `assets/frames/overlays/*.cfg`. ES-DE command lines are in `assets/frames/es-de/launch-commands.txt`.
+2. **RetroArch's own overlay.** `assets/frames/retroarch/*-720p.cfg` and `*-1080p.cfg` set `video_scale_integer` off, aspect ratio Custom, and the viewport for that resolution. Install and Buddy's launcher write a separate cfg for the actual display size, with an absolute overlay path, and turn exclusive fullscreen off. Use windowed fullscreen at that same resolution. A 720p viewport on a different window puts the game outside the hole. ES-DE command lines are in `assets/frames/es-de/launch-commands.txt`.
 
 Use one of those, not both at once. Buddy's window already draws the frame. Adding RetroArch's overlay on top draws it a second time.
 

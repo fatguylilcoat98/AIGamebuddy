@@ -5,6 +5,7 @@ chosen output device. If the device is missing, nothing is played.
 """
 from __future__ import annotations
 
+import logging
 import os
 import subprocess
 import sys
@@ -53,10 +54,15 @@ def resolve_device(requested: str, devices: list[AudioDevice]) -> AudioDevice | 
 def list_sounddevice_devices() -> list[AudioDevice]:
     try:
         import sounddevice as sd
+        infos = sd.query_devices()
     except ImportError:
         return []
+    except Exception as exc:
+        # sounddevice imports, then query_devices raises OSError when PortAudio is missing.
+        logging.getLogger("buddy.audio").warning("Could not list audio devices: %s", exc)
+        return []
     found = []
-    for index, info in enumerate(sd.query_devices()):
+    for index, info in enumerate(infos):
         if info.get("max_output_channels", 0) > 0:
             found.append(AudioDevice(index, str(info.get("name") or f"device {index}")))
     return found
@@ -161,6 +167,25 @@ class AudioOutput:
 
     def speak(self, text: str, *, volume: int, rate: int, device_name: str, mute: bool,
               on_level=None) -> ActionResult:
+        try:
+            return self._speak(text, volume=volume, rate=rate, device_name=device_name, mute=mute, on_level=on_level)
+        except Exception as exc:
+            logging.getLogger("buddy.audio").warning("speak failed: %s", exc)
+            if on_level:
+                try:
+                    on_level(0.0)
+                except Exception:
+                    pass
+            with self._lock:
+                self.playing = False
+            return ActionResult(
+                False,
+                f"Audio playback failed, so I did not finish speaking. {exc}",
+                reason="playback_failed",
+            )
+
+    def _speak(self, text: str, *, volume: int, rate: int, device_name: str, mute: bool,
+               on_level=None) -> ActionResult:
         if not text.strip():
             return ActionResult(False, "There was no line to speak.", reason="empty")
         if mute or volume <= 0:
@@ -187,6 +212,7 @@ class AudioOutput:
         try:
             self.player(wav, volume, device, on_level)
         except Exception as exc:
+            logging.getLogger("buddy.audio").warning("Audio playback failed: %s", exc)
             return ActionResult(False, f"Audio playback failed, so I did not finish speaking. {exc}",
                                 reason="playback_failed")
         finally:

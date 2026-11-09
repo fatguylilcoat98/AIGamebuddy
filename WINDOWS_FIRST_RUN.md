@@ -83,26 +83,35 @@ ROM folders look like this. Use your real folders.
 
 If the path is empty or wrong, Buddy says he did not launch the program.
 
-For the overlay to line up, run RetroArch in a window (borderless windowed is fine), not exclusive fullscreen.
+Exclusive fullscreen is off. Buddy writes a RetroArch append-config for the current display size, with absolute paths to the overlay, when you run install.bat and again when Buddy launches a game. The game viewport is scaled to that resolution. The cfg name includes the size, such as `nes-1400x900.cfg`.
+
+Use windowed fullscreen at that same resolution. A 720p viewport on a different window (for example 1400x900) puts the game outside the hole. If you start RetroArch yourself, regenerate the configs for the size you actually use:
+
+```text
+python -m backend.frame_library --install
+```
+
+For Buddy's own overlay hole, a 1280x720 window matches the frame. Do not turn on RetroArch's overlay at the same time, or the frame is drawn twice.
 
 ## 5. Start Buddy
 
 Double-click `Start-Buddy.bat`.
 
-You get one window:
+You get one 1280x720 window:
 
 - The center opening is clear so the game shows through (Windows only).
-- Buddy's hologram sits in the bottom-right box and rests looking left, toward the game. The menu can switch Male / Female and the resting direction. The name on screen stays whatever `character_name` says.
-- The top-right button is the menu.
-- F9 is push-to-talk. Hold it, talk, let go.
+- Buddy's hologram sits in the bottom-right box and rests looking left, toward the game. The name on screen stays whatever `character_name` says.
+- The menu is the button bar under that box. It is not a top-right button. The buttons are Buddy (Male / Female), Mode (casual, sassy, extreme), Voice, Settings (resting direction: left, center, right), and Sound (volume).
+- F8 focuses that menu. Arrow keys and Enter move through it.
+- F9 is push-to-talk. Hold it, talk, let go. On Windows those keys are global, so they still work while the game is in front.
 - Ctrl+Shift+Q quits.
 
 Open your game from EmulationStation or RetroArch, then start Buddy.
-The menu can switch the 8-bit, fantasy, and speed frames. Auto uses the emulator window title when it can.
+The frame follows the system that is running (NES, Super NES, or Genesis) when Buddy can tell. There is no menu button that swaps frames.
 
 ## 6. Talk to him
 
-Try these out loud or type them into the menu box:
+Hold F9 and say these, or send them to the local API:
 
 - `switch to extreme`
 - `stop insulting me`
@@ -115,7 +124,7 @@ If a program did not start, the line says he did not launch it. That is the real
 ## 7. If something fails
 
 - `install.bat` closes immediately: install Python and check PATH.
-- The window opens but the game is covered: the game is exclusive fullscreen. Switch RetroArch to windowed and start Buddy again.
+- The window opens but the game is covered, or the picture sits outside the hole: RetroArch is exclusive fullscreen, or the window size does not match the append-config. Use the windowed-fullscreen cfg from install (the size is in the filename) and start Buddy again.
 - He does not speak: Windows voice needs this PC. Pick a device in the menu after you read STREAMING.md. Volume 0 and Mute both keep him quiet on purpose.
 - The microphone errors: another app has the mic, or the voice packages did not install. Run install.bat again and read the red text.
 - A log is written under `%LOCALAPPDATA%\VideoGameWingman\buddy.log` unless you set `data_dir` in the config.

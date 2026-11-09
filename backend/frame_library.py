@@ -7,6 +7,8 @@ near-black pixels inside the window are punched out, so the controller stays.
 from __future__ import annotations
 
 import json
+import os
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -255,6 +257,88 @@ def write_outputs() -> list[Path]:
     return written
 
 
+def detect_display_size() -> tuple[int, int] | None:
+    """Current primary monitor, or None when it cannot be read."""
+    if os.name != "nt":
+        return None
+    try:
+        import ctypes
+        user32 = ctypes.windll.user32
+        width = int(user32.GetSystemMetrics(0))
+        height = int(user32.GetSystemMetrics(1))
+    except Exception:
+        return None
+    if width < 640 or height < 480:
+        return None
+    return width, height
+
+
+def write_runtime_retroarch_cfg(frame_id: str, size: tuple[int, int], directory: Path) -> Path:
+    """Viewport scaled to `size`, with absolute overlay paths.
+
+    RetroArch resolves a relative input_overlay from the process working
+    directory, so the cfg written here does not use `../overlays`. Exclusive
+    fullscreen is off. Windowed fullscreen uses this exact resolution; a 720p
+    viewport on a different window puts the game outside the hole.
+    """
+    directory.mkdir(parents=True, exist_ok=True)
+    record = frame_record(frame_id)
+    viewport = scale_rect(record["screen"], size)
+    png = (OVERLAY_DIR / (Path(record["file"]).stem + ".png")).resolve()
+    if not png.exists():
+        source = Image.open(FRAME_DIR / record["file"])
+        OVERLAY_DIR.mkdir(parents=True, exist_ok=True)
+        punch_screen(source, record["screen"]).save(png)
+    overlay_path = directory / f"{frame_id}-overlay.cfg"
+    overlay_path.write_text(
+        "\n".join([
+            "overlays = 1",
+            f'overlay0_overlay = "{png.as_posix()}"',
+            "overlay0_full_screen = true",
+            "overlay0_descs = 0",
+            "",
+        ]),
+        encoding="utf-8",
+    )
+    width, height = size
+    cfg_path = directory / f"{frame_id}-{width}x{height}.cfg"
+    cfg_path.write_text(
+        "\n".join([
+            'video_fullscreen = "false"',
+            'video_windowed_fullscreen = "true"',
+            f'video_window_width = "{width}"',
+            f'video_window_height = "{height}"',
+            'video_scale_integer = "false"',
+            f'aspect_ratio_index = "{ASPECT_RATIO_CUSTOM}"',
+            f'custom_viewport_x = "{viewport["x"]}"',
+            f'custom_viewport_y = "{viewport["y"]}"',
+            f'custom_viewport_width = "{viewport["width"]}"',
+            f'custom_viewport_height = "{viewport["height"]}"',
+            'input_overlay_enable = "true"',
+            'input_overlay_auto_scale = "true"',
+            'input_overlay_hide_in_menu = "false"',
+            f'input_overlay = "{overlay_path.resolve().as_posix()}"',
+            "",
+        ]),
+        encoding="utf-8",
+    )
+    return cfg_path
+
+
+def install_retroarch_configs(directory: Path | None = None) -> list[Path]:
+    """Write absolute-path configs for 720p, 1080p, and the current display."""
+    target = directory or (FRAME_DIR / "retroarch")
+    written = []
+    sizes = [(1280, 720), (1920, 1080)]
+    detected = detect_display_size()
+    if detected and detected not in sizes:
+        sizes.append(detected)
+    for frame_id in FRAME_FILES:
+        for size in sizes:
+            written.append(write_runtime_retroarch_cfg(frame_id, size, target))
+    return written
+
+
 def append_config_for(frame_id: str, mode: str = "1080p") -> Path:
     path = RETROARCH_DIR / f"{frame_id}-{mode}.cfg"
     if not path.exists():
@@ -277,5 +361,9 @@ def scaled_box(frame_id: str, key: str, window: tuple[int, int]) -> tuple[int, i
 
 
 if __name__ == "__main__":
-    for path in write_outputs():
-        print(path)
+    if "--install" in sys.argv:
+        for path in install_retroarch_configs():
+            print(path)
+    else:
+        for path in write_outputs():
+            print(path)

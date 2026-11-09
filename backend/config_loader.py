@@ -12,8 +12,9 @@ SAMPLE_PATH = ROOT / "config" / "buddy.config.sample.json"
 LOCAL_PATH = ROOT / "config" / "buddy.config.json"
 
 DEFAULTS: dict[str, Any] = {
-    "product_name": "Video Game Wingman — Powered by GNG AI",
-    "banner_title": "GAME WINGMAN",
+    "product_name": "Buddy Overlay",
+    "tagline": "Retro games, real attitude",
+    "banner_title": "Buddy Overlay",
     "character_name": "Buddy",
     "buddy_character": "male",
     "resting_direction": "left",
@@ -41,6 +42,7 @@ DEFAULTS: dict[str, Any] = {
     },
     "voice": {"enabled": True, "volume": 80, "rate": 0, "output_device": "", "mute": False},
     "commentary": {"frequency": "normal", "cooldown_seconds": 18},
+    "display": {"mode": "720p"},
     "overlay": {
         "theme": "auto",
         "layout": "full",

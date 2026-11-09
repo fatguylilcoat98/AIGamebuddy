@@ -1,8 +1,9 @@
 {
   // Working product name. Change this when the brand is final.
   // Do not put API keys in this file. Set them in the environment.
-  "product_name": "Video Game Wingman — Powered by GNG AI",
-  "banner_title": "GAME WINGMAN",
+  "product_name": "Buddy Overlay",
+  "tagline": "Retro games, real attitude",
+  "banner_title": "Buddy Overlay",
   "character_name": "Buddy",
   // Which hologram sprite set to use. The display name above does not change.
   "buddy_character": "male",
@@ -45,6 +46,7 @@
     "frequency": "normal",
     "cooldown_seconds": 16
   },
+  "display": { "mode": "720p" },
   "overlay": {
     "theme": "auto",
     "layout": "full",

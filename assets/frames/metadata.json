@@ -1,0 +1,130 @@
+{
+  "product_name": "Buddy Overlay",
+  "tagline": "Retro games, real attitude",
+  "design": {
+    "width": 1280,
+    "height": 720
+  },
+  "frames": {
+    "genesis": {
+      "file": "genesis-16bit.jpg",
+      "systems": [
+        "genesis",
+        "megadrive",
+        "mega drive",
+        "mega-drive"
+      ],
+      "screen": {
+        "x": 285,
+        "y": 156,
+        "width": 699,
+        "height": 458
+      },
+      "buddy": {
+        "x": 1024,
+        "y": 332,
+        "width": 240,
+        "height": 276
+      },
+      "menu": {
+        "x": 1004,
+        "y": 616,
+        "width": 254,
+        "height": 94
+      },
+      "viewports": {
+        "720p": {
+          "x": 285,
+          "y": 156,
+          "width": 699,
+          "height": 458
+        },
+        "1080p": {
+          "x": 428,
+          "y": 234,
+          "width": 1048,
+          "height": 687
+        }
+      }
+    },
+    "nes": {
+      "file": "nes-8bit-dungeon.jpg",
+      "systems": [
+        "nes",
+        "famicom"
+      ],
+      "screen": {
+        "x": 310,
+        "y": 178,
+        "width": 658,
+        "height": 411
+      },
+      "buddy": {
+        "x": 1020,
+        "y": 340,
+        "width": 240,
+        "height": 258
+      },
+      "menu": {
+        "x": 1004,
+        "y": 606,
+        "width": 260,
+        "height": 102
+      },
+      "viewports": {
+        "720p": {
+          "x": 310,
+          "y": 178,
+          "width": 658,
+          "height": 411
+        },
+        "1080p": {
+          "x": 465,
+          "y": 267,
+          "width": 987,
+          "height": 616
+        }
+      }
+    },
+    "snes": {
+      "file": "snes-sky-kingdom.jpg",
+      "systems": [
+        "snes",
+        "sfc",
+        "super famicom"
+      ],
+      "screen": {
+        "x": 320,
+        "y": 178,
+        "width": 637,
+        "height": 402
+      },
+      "buddy": {
+        "x": 1016,
+        "y": 328,
+        "width": 248,
+        "height": 262
+      },
+      "menu": {
+        "x": 996,
+        "y": 598,
+        "width": 264,
+        "height": 110
+      },
+      "viewports": {
+        "720p": {
+          "x": 320,
+          "y": 178,
+          "width": 637,
+          "height": 402
+        },
+        "1080p": {
+          "x": 480,
+          "y": 267,
+          "width": 956,
+          "height": 603
+        }
+      }
+    }
+  }
+}

@@ -1,10 +1,17 @@
-"""Single retro overlay window. The hamburger menu calls real session actions."""
+"""Buddy Overlay window.
+
+The approved frame is the window. The game hole is click-through on Windows.
+The live hologram covers the baked head. The menu under the head is real
+buttons. Nothing is written over the gameplay opening.
+"""
 from __future__ import annotations
 
 import os
 from pathlib import Path
 
-from .layout_spec import BUDDY_SCREEN, CAPTION, HOLE, MENU_BUTTON, scale_rect
+from PIL import Image, ImageDraw
+
+from .frame_library import frame_record, punch_screen, scaled_box, scaled_screen
 
 
 def chroma_key(image, key=(255, 0, 255, 255)):
@@ -21,233 +28,181 @@ def chroma_key(image, key=(255, 0, 255, 255)):
     return keyed
 
 
+def _prepared_frame(frame_id: str) -> Image.Image:
+    record = frame_record(frame_id)
+    source = Image.open(Path(__file__).resolve().parents[1] / "assets" / "frames" / record["file"])
+    image = punch_screen(source, record["screen"])
+    buddy = record["buddy"]
+    ImageDraw.Draw(image).rectangle(
+        [buddy["x"], buddy["y"], buddy["x"] + buddy["width"] - 1, buddy["y"] + buddy["height"] - 1],
+        fill=(0, 0, 0, 255),
+    )
+    return image
+
+
 def run_overlay(session) -> None:
     import tkinter as tk
     from PIL import ImageTk
 
-    from .frames import composite_with_head, render_frame
-    from .hologram import EXPRESSIONS, render_hologram
+    from .hologram import render_hologram
     from .window_layout import apply_hole_region
 
     root = tk.Tk()
     root.title(session.product)
     root.configure(bg="magenta")
     root.attributes("-topmost", True)
-    full = session.layout != "compact"
-    if full:
-        root.geometry("1280x720+40+40")
-        root.overrideredirect(True)
-    else:
-        root.geometry("420x560+40+40")
-        root.overrideredirect(True)
+    root.overrideredirect(True)
+    root.geometry("1280x720+40+40")
 
-    status = tk.StringVar(value=f"{session.character} is starting.")
-    caption = tk.StringVar(value="")
-    menu_open = tk.BooleanVar(value=False)
-    holder = {"frame": None, "photo": None, "head": None, "theme": None}
-
+    holder = {"photo": None, "head": None, "frame": None}
     background = tk.Label(root, bd=0, bg="magenta")
     background.place(x=0, y=0, relwidth=1, relheight=1)
     head_label = tk.Label(root, bd=0, bg="#000000")
-    caption_label = tk.Label(root, textvariable=caption, fg="#f4fbff", bg="#101820",
-                             wraplength=700, justify="left", font=("Segoe UI", 12))
-    status_label = tk.Label(root, textvariable=status, fg="#9ad7ff", bg="#101820",
-                            wraplength=360, justify="left", font=("Segoe UI", 9))
 
-    menu = tk.Frame(root, bg="#141820", padx=8, pady=8)
+    button_style = {
+        "bg": "#12121a", "fg": "#f4f4f4", "activebackground": "#2c2c3a",
+        "activeforeground": "#ffffff", "relief": "flat", "bd": 0,
+        "font": ("Segoe UI", 9), "highlightthickness": 1, "highlightbackground": "#3a3a48",
+    }
+    menu = tk.Frame(root, bg="#12121a")
+    toggle = tk.Button(menu, text="Buddy: Male", command=lambda: _toggle_character(), **button_style)
+    mode = tk.Button(menu, text="Mode", command=lambda: _cycle_mode(), **button_style)
+    voice = tk.Button(menu, text="Voice", command=lambda: _toggle_voice(), **button_style)
+    settings = tk.Button(menu, text="Settings", command=lambda: _cycle_rest(), **button_style)
+    sound = tk.Button(menu, text="Sound", command=lambda: _step_volume(), **button_style)
+    buttons = [toggle, mode, voice, settings, sound]
+    focus_at = {"i": 0}
 
-    def say_result(result) -> None:
-        status.set(result.message or result.reason or "Done.")
-        if result.text:
-            caption.set(result.text)
+    def _toggle_character():
+        current = session.hud().get("buddy_character", "male")
+        session.set_buddy_character("female" if current == "male" else "male")
+        _refresh_labels()
 
-    def command(fn):
-        def wrapped():
-            try:
-                say_result(fn())
-            except Exception as exc:
-                status.set(f"That action failed. {exc}")
-        return wrapped
+    def _cycle_mode():
+        order = ["casual", "sassy", "extreme"]
+        current = session.hud().get("personality", "sassy")
+        session.set_personality(order[(order.index(current) + 1) % len(order)] if current in order else "sassy")
+        _refresh_labels()
 
-    def add_button(text, fn):
-        tk.Button(menu, text=text, command=command(fn), anchor="w").pack(fill="x", pady=1)
+    def _toggle_voice():
+        session.set_mute(not session.muted)
+        _refresh_labels()
 
-    add_button("Casual", lambda: session.set_personality("casual"))
-    add_button("Sassy", lambda: session.set_personality("sassy"))
-    add_button("Extreme", lambda: session.set_personality("extreme"))
-    add_button("Buddy character: Male", lambda: session.set_buddy_character("male"))
-    add_button("Buddy character: Female", lambda: session.set_buddy_character("female"))
-    add_button("Rest facing the game", lambda: session.set_resting_direction("left"))
-    add_button("Rest facing right", lambda: session.set_resting_direction("right"))
-    add_button("Rest facing camera", lambda: session.set_resting_direction("center"))
-    add_button("Stop insulting me", lambda: session.handle_text("stop insulting me"))
-    add_button("Mute", lambda: session.set_mute(True))
-    add_button("Unmute", lambda: session.set_mute(False))
-    add_button("Volume up", lambda: session.set_volume(session.volume + 10))
-    add_button("Volume down", lambda: session.set_volume(session.volume - 10))
-    add_button("Commentary rare", lambda: session.set_frequency("rare"))
-    add_button("Commentary normal", lambda: session.set_frequency("normal"))
-    add_button("Commentary off", lambda: session.set_frequency("off"))
-    add_button("8-bit frame", lambda: session.set_theme("nes"))
-    add_button("Fantasy frame", lambda: session.set_theme("snes"))
-    add_button("Speed frame", lambda: session.set_theme("genesis"))
-    add_button("Auto frame", lambda: session.set_theme_auto())
-    add_button("Full overlay", lambda: session.set_layout("full"))
-    add_button("Compact stream layout", lambda: session.set_layout("compact"))
-    add_button("Vision on", lambda: session.set_vision(True))
-    add_button("Vision off", lambda: session.set_vision(False))
-    add_button("Look at the game", lambda: session.observe_once())
-    add_button("What am I playing?", lambda: session.handle_text("what am I playing"))
-    add_button("View memory", lambda: session.handle_text("what do you remember"))
-    add_button("Reset preferences", lambda: session.reset_memory())
-    add_button("Clear all memory", lambda: session.clear_memory())
-    add_button("Confirm offline game", lambda: session.set_offline_confirmed(True))
-    add_button("Clear offline confirm", lambda: session.set_offline_confirmed(False))
-    add_button("Takeover (gated)", lambda: session.request_takeover())
-    add_button("Co-op port 2 (gated)", lambda: session.request_coop())
-    add_button("Give me the controls", lambda: session.release_control())
-    add_button("Cycle expression demo", lambda: cycle_expression)
-    entry = tk.Entry(menu)
-    entry.pack(fill="x", pady=4)
+    def _cycle_rest():
+        order = ["left", "center", "right"]
+        current = session.hud().get("resting_direction", "left")
+        session.set_resting_direction(order[(order.index(current) + 1) % len(order)] if current in order else "left")
+        _refresh_labels()
 
-    def submit(_event=None):
-        text = entry.get().strip()
-        if text:
-            say_result(session.handle_text(text))
-            entry.delete(0, "end")
+    def _step_volume():
+        session.set_volume(0 if session.volume >= 100 else session.volume + 20)
+        _refresh_labels()
 
-    entry.bind("<Return>", submit)
-    tk.Button(menu, text="Say it", command=submit).pack(fill="x")
-    add_button("Push-to-talk now", lambda: session.start_talking())
-    add_button("Finish talking", lambda: session.finish_talking())
-    add_button("Quit", lambda: root.destroy())
+    def _refresh_labels():
+        hud = session.hud()
+        who = "Female" if hud.get("buddy_character") == "female" else "Male"
+        toggle.configure(text=f"Buddy: {who}")
+        mode.configure(text=f"Mode: {hud.get('personality', '').title()}")
+        voice.configure(text="Voice off" if session.muted else "Voice on")
+        settings.configure(text=f"Rest: {hud.get('resting_direction', 'left')}")
+        sound.configure(text=f"Sound {session.volume}")
 
-    demo_index = {"n": 0}
+    def _focus(index: int):
+        focus_at["i"] = index % len(buttons)
+        buttons[focus_at["i"]].focus_set()
 
-    def cycle_expression():
-        name = EXPRESSIONS[demo_index["n"] % len(EXPRESSIONS)]
-        demo_index["n"] += 1
-        return session.demo_expression(name)
+    def _move(delta: int):
+        _focus(focus_at["i"] + delta)
 
-    def toggle_menu(_event=None):
-        if menu_open.get():
-            menu.place_forget()
-            menu_open.set(False)
-        else:
-            menu.place(relx=0.76, rely=0.10, relwidth=0.22, relheight=0.62)
-            menu_open.set(True)
-
-    def on_click(event):
-        width = max(root.winfo_width(), 1)
-        height = max(root.winfo_height(), 1)
-        rect = scale_rect(MENU_BUTTON, width, height)
-        x, y, w, h = rect
-        if x <= event.x <= x + w and y <= event.y <= y + h:
-            toggle_menu()
-
-    background.bind("<Button-1>", on_click)
+    toggle.pack(fill="x", padx=4, pady=(4, 2))
+    row = tk.Frame(menu, bg="#12121a")
+    row.pack(fill="both", expand=True, padx=2, pady=(0, 4))
+    for button in (mode, voice, settings, sound):
+        button.pack(in_=row, side="left", expand=True, fill="both", padx=2)
 
     def place_chrome():
         width = max(root.winfo_width(), 1)
         height = max(root.winfo_height(), 1)
-        if session.layout == "compact":
-            head_label.place(x=70, y=70, width=280, height=280)
-            caption_label.place(x=16, y=370, width=388, height=80)
-            status_label.place(x=16, y=460, width=388, height=80)
-            return
-        sx, sy, sw, sh = scale_rect(BUDDY_SCREEN, width, height)
-        head_label.place(x=sx, y=sy, width=sw, height=sh)
-        cx, cy, cw, ch = scale_rect(CAPTION, width, height)
-        caption_label.place(x=cx, y=cy, width=cw, height=ch)
-        status_label.place(x=sx, y=max(0, sy - 36), width=sw, height=32)
+        frame_id = session.theme if session.theme in {"nes", "snes", "genesis"} else "genesis"
+        buddy = scaled_box(frame_id, "buddy", (width, height))
+        menu_box = scaled_box(frame_id, "menu", (width, height))
+        if buddy:
+            head_label.place(x=buddy[0], y=buddy[1], width=buddy[2], height=buddy[3])
+        if menu_box:
+            menu.place(x=menu_box[0], y=menu_box[1], width=menu_box[2], height=menu_box[3])
+            menu.lift()
 
-    def redraw_frame(force=False):
-        theme = session.theme if session.layout == "full" else "compact"
-        if not force and holder["theme"] == theme and holder["photo"] is not None:
-            return
-        holder["theme"] = theme
-        if session.layout == "compact":
-            card = render_frame("genesis", session.banner).image.resize((420, 560))
-        else:
-            card = render_frame(session.theme, session.banner).image.resize(
-                (max(root.winfo_width(), 2), max(root.winfo_height(), 2))
-            )
-        if os.name == "nt" and session.layout == "full":
-            card = chroma_key(card)
-        holder["frame"] = card
-        holder["photo"] = ImageTk.PhotoImage(card)
+    def redraw_frame():
+        frame_id = session.theme if session.theme in {"nes", "snes", "genesis"} else "genesis"
+        image = _prepared_frame(frame_id)
+        image = image.resize((max(root.winfo_width(), 2), max(root.winfo_height(), 2)))
+        if os.name == "nt":
+            image = chroma_key(image)
+        holder["frame"] = image
+        holder["photo"] = ImageTk.PhotoImage(image)
         background.configure(image=holder["photo"])
 
     def animate():
         session.tick_animation()
         hud = session.hud()
         expression = hud["expression"]
-        mouth = hud["mouth"] if hud["mouth"] else (0.45 if expression == "talk" else 0)
+        mouth = hud["mouth"] if hud["mouth"] else (0.55 if expression == "talk" else 0.0)
+        width = max(head_label.winfo_width(), 64)
         head = render_hologram(
-            expression, t=session.clock.mono(), mouth=mouth, gaze=hud["gaze"], size=280,
-            character=hud.get("buddy_character", "male"),
+            expression, t=session.clock.mono(), mouth=mouth, gaze=hud["gaze"],
+            size=max(width, 64), character=hud.get("buddy_character", "male"),
             resting=hud.get("resting_direction", "left"),
-            from_expression=hud.get("from_expression"),
-            blend=hud.get("expression_blend", 1.0),
+            from_expression=hud.get("from_expression"), blend=hud.get("expression_blend", 1.0),
         )
         holder["head"] = ImageTk.PhotoImage(head)
         head_label.configure(image=holder["head"])
-        if hud["last_text"] and hud["last_text"] != caption.get():
-            caption.set(hud["last_text"])
-        if session.layout != ("compact" if holder["theme"] == "compact" else "full") or (
-            session.layout == "full" and holder["theme"] not in {session.theme, "compact"}
-        ):
-            apply_layout()
+        if session.theme != holder.get("shown"):
+            holder["shown"] = session.theme
+            redraw_frame()
+            place_chrome()
+            _cut_hole()
         root.after(70, animate)
 
-    def apply_layout():
-        if session.layout == "compact":
-            root.overrideredirect(True)
-            corners = {
-                "bottom-right": "+1200+400",
-                "bottom-left": "+40+400",
-                "top-right": "+1200+40",
-                "top-left": "+40+40",
-            }
-            root.geometry("420x560" + corners.get(session.corner, "+40+40"))
-        else:
-            root.geometry("1280x720+40+40")
-        redraw_frame(force=True)
-        place_chrome()
-        if os.name == "nt" and session.layout == "full":
-            root.update_idletasks()
-            hole = scale_rect(HOLE, root.winfo_width(), root.winfo_height())
+    def _cut_hole():
+        if os.name != "nt" or session.layout != "full":
+            return
+        root.update_idletasks()
+        frame_id = session.theme if session.theme in {"nes", "snes", "genesis"} else "genesis"
+        hole = scaled_screen(frame_id, (root.winfo_width(), root.winfo_height()))
+        if hole:
             apply_hole_region(root.winfo_id(), root.winfo_width(), root.winfo_height(), hole)
 
     def maintain():
         if session.layout == "full":
-            result = session.maintain_layout(
-                (root.winfo_x(), root.winfo_y()),
-                (root.winfo_width(), root.winfo_height()),
-            )
-            if result.reason not in {"not_windows", "layout_idle"} and result.message:
-                status.set(result.message)
-        root.after(2000, maintain)
+            session.maintain_layout((root.winfo_x(), root.winfo_y()), (root.winfo_width(), root.winfo_height()))
+        root.after(1500, maintain)
 
     def talk_down(_event=None):
-        say_result(session.start_talking())
+        session.start_talking()
 
     def talk_up(_event=None):
         def work():
-            result = session.finish_talking()
-            root.after(0, lambda: say_result(result))
+            session.finish_talking()
         import threading
         threading.Thread(target=work, daemon=True).start()
 
     root.bind("<KeyPress-F9>", talk_down)
     root.bind("<KeyRelease-F9>", talk_up)
     root.bind("<Control-Shift-q>", lambda _event: root.destroy())
-    root.bind("<Escape>", lambda _event: menu.place_forget())
+    root.bind("<F8>", lambda _event: _focus(0))
+    root.bind("<Tab>", lambda _event: _move(1))
+    root.bind("<Right>", lambda _event: _move(1))
+    root.bind("<Left>", lambda _event: _move(-1))
+    root.bind("<Up>", lambda _event: _focus(0))
+    root.bind("<Down>", lambda _event: _focus(1))
+    root.bind("<Return>", lambda _event: buttons[focus_at["i"]].invoke())
     root.protocol("WM_DELETE_WINDOW", root.destroy)
-    apply_layout()
+    _refresh_labels()
+    redraw_frame()
+    place_chrome()
+    _focus(0)
     root.after(70, animate)
-    root.after(2000, maintain)
-    status.set("Hamburger is the top-right button. F9 talks. Ctrl+Shift+Q quits.")
+    root.after(1500, maintain)
     root.mainloop()
 
 

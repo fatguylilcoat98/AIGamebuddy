@@ -32,12 +32,14 @@ TITLE_SYSTEMS = (
     ("(snes)", "snes"),
     ("[snes]", "snes"),
     ("super famicom", "snes"),
+    ("sfc", "snes"),
     ("(nes)", "nes"),
     ("[nes]", "nes"),
     ("famicom", "nes"),
     ("(genesis)", "genesis"),
     ("[genesis]", "genesis"),
     ("mega drive", "genesis"),
+    ("megadrive", "genesis"),
     ("(md)", "genesis"),
 )
 

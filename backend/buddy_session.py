@@ -30,7 +30,7 @@ from .prompts import build_messages
 from .providers import chat
 from .results import ActionResult, ModelResult
 from .takeover import InputSink, RetroArchCommandClient, evaluate_gate
-from .window_layout import emulator_target, position_foreground_window
+from .window_layout import position_foreground_window
 
 log = logging.getLogger("buddy.session")
 
@@ -334,7 +334,7 @@ class BuddySession:
                 pass
             return self.observe_once() if name == "observe" else self._identify()
         if name == "open_retroarch":
-            return launch_process(str(self.config.get("retroarch", "path") or ""), runner=self.process_runner)
+            return self._launch_retroarch([])
         if name == "open_es":
             return launch_process(str(self.config.get("emulationstation", "path") or ""), runner=self.process_runner)
         if name == "emulator_menu":
@@ -482,6 +482,25 @@ class BuddySession:
         return ActionResult(True, f"Cleared saved memory ({removed} rows), including joke history.",
                             reason="memory_clear", data=counts)
 
+    def _launch_retroarch(self, extra: list[str], system: str = "", exe: str = "") -> ActionResult:
+        from .frame_library import append_config_for, frame_for_system
+        program = exe or str(self.config.get("retroarch", "path") or "")
+        frame = frame_for_system(system) or frame_for_system(self.theme) or "genesis"
+        mode = str(self.config.get("display", "mode") or "720p")
+        if mode not in {"720p", "1080p"}:
+            mode = "720p"
+        cfg = append_config_for(frame, mode)
+        launched = launch_process(program, ["--appendconfig", str(cfg), *extra], runner=self.process_runner)
+        if launched.ok:
+            launched.message = (
+                f"{launched.message} Auto-lock config {cfg.name} is on the command line. "
+                "The overlay also moves the game window into the frame hole."
+            )
+            if frame_for_system(system):
+                self.theme = frame
+                self.theme_mode = frame
+        return launched
+
     def load_game(self, query: str) -> ActionResult:
         found = search_games(list(self.config.get("libraries") or []), query)
         if not found.ok:
@@ -494,12 +513,22 @@ class BuddySession:
                 core = str(entry.get("core") or "")
                 break
         exe = str(self.config.get("retroarch", "path") or "")
-        args = ["-L", core, rom] if core else [rom]
-        launched = launch_process(exe, args, runner=self.process_runner)
+        extra = ["-L", core, rom] if core else [rom]
+        system = ""
+        for entry in self.config.get("libraries") or []:
+            folder = str(entry.get("path") or "")
+            if folder and rom.startswith(str(Path(folder))):
+                system = str(entry.get("system") or "")
+                break
+        launched = self._launch_retroarch(extra, system=system, exe=exe)
         if not launched.ok:
             return ActionResult(False, f"I found {rom} but did not launch it. {launched.message}", reason=launched.reason)
-        return ActionResult(True, f"I found {rom} and started RetroArch (process {launched.data.get('pid')}).",
-                            reason="launched", data=launched.data)
+        return ActionResult(
+            True,
+            f"I found {rom} and started RetroArch (process {launched.data.get('pid')}). {launched.message}",
+            reason="launched",
+            data=launched.data,
+        )
 
     def request_takeover(self) -> ActionResult:
         return self._request_mode("takeover")
@@ -540,7 +569,13 @@ class BuddySession:
     def maintain_layout(self, overlay_origin: tuple[int, int], overlay_size: tuple[int, int]) -> ActionResult:
         if self.layout != "full" or not self.manage_window:
             return ActionResult(False, "I am not managing the emulator window in this layout.", reason="layout_idle")
-        rect = emulator_target(overlay_origin, overlay_size)
+        from .frame_library import scaled_screen
+        frame = self.theme if self.theme in {"nes", "snes", "genesis"} else "genesis"
+        hole = scaled_screen(frame, overlay_size)
+        if hole is None:
+            return ActionResult(False, "This frame has no screen rectangle, so I did not move the game.",
+                                reason="no_screen")
+        rect = (overlay_origin[0] + hole[0], overlay_origin[1] + hole[1], hole[2], hole[3])
         result = position_foreground_window(rect)
         self._layout_note = result.message
         return result

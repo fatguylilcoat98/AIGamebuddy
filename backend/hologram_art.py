@@ -18,7 +18,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageOps
 
-ROOT = Path(__file__).resolve().parents[1]
+from .config_loader import ROOT
 SOURCE = ROOT / "assets" / "hologram" / "source"
 
 FRONT_NAMES = ("neutral", "talk", "grin", "wink", "laugh", "smug", "shocked", "sad")

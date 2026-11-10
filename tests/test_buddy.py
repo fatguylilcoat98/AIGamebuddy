@@ -516,3 +516,42 @@ def test_clear_and_reset_are_distinct(tmp_path):
     assert buddy.memory.recent_lines()
     buddy.clear_memory()
     assert buddy.memory.recent_lines() == []
+
+
+def test_list_sounddevice_devices_swallows_oserror(monkeypatch):
+    import builtins
+    import backend.audio_out as audio_out
+
+    real_import = builtins.__import__
+
+    def boom(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "sounddevice":
+            raise OSError("PortAudio library not found")
+        return real_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", boom)
+    assert audio_out.list_sounddevice_devices() == []
+
+
+def test_buddy_api_imports_app_state_from_package():
+    import backend.app_state as pkg_state
+    import backend.buddy_api as api
+
+    assert api.app_state is pkg_state
+
+
+def test_resource_root_uses_meipass_when_frozen(monkeypatch):
+    import backend.config_loader as cl
+
+    monkeypatch.setattr(cl.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(cl.sys, "_MEIPASS", str(Path("/tmp/meipass-buddy")), raising=False)
+    assert cl.resource_root() == Path("/tmp/meipass-buddy")
+
+
+def test_resource_root_is_repo_when_not_frozen():
+    from backend.config_loader import ROOT, resource_root
+
+    repo = Path(__file__).resolve().parents[1]
+    assert resource_root() == repo
+    assert ROOT == repo
+

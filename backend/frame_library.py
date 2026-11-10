@@ -14,7 +14,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-ROOT = Path(__file__).resolve().parents[1]
+from .config_loader import ROOT
 FRAME_DIR = ROOT / "assets" / "frames"
 OVERLAY_DIR = FRAME_DIR / "overlays"
 RETROARCH_DIR = FRAME_DIR / "retroarch"

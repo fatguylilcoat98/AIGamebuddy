@@ -1,0 +1,74 @@
+name: Windows installer
+
+on:
+  push:
+    branches:
+      - cursor/buddy-windows-companion-25cc
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-dev.txt
+      - name: Run tests
+        run: python -m pytest tests -q
+
+  build:
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install app and build tools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r backend/requirements.txt
+          python -m pip install pyinstaller
+      - name: Bundle Buddy with PyInstaller
+        run: python -m PyInstaller packaging/buddy.spec --noconfirm --clean
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+      - name: Compile BuddySetup.exe
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { throw "ISCC.exe was not installed" }
+          & $iscc packaging\BuddySetup.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (-not (Test-Path "dist\BuddySetup.exe")) { throw "BuddySetup.exe was not created" }
+          Get-ChildItem dist\BuddySetup.exe | Format-List Name, Length, LastWriteTime
+          Get-ChildItem dist\Buddy -Recurse -Name | Select-Object -First 80
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BuddySetup
+          path: dist/BuddySetup.exe
+          if-no-files-found: error
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: buddy
+          name: Buddy Overlay
+          files: dist/BuddySetup.exe
+          fail_on_unmatched_files: true
+          prerelease: false
+          make_latest: true
+          body: |
+            Double-click BuddySetup.exe to install Buddy Overlay. No Python install and no command line.
+
+            The installer is per-user (no administrator password), adds Desktop and Start menu shortcuts, and offers Launch Buddy at the end.
+
+            If Windows SmartScreen says Windows protected your PC, click More info, then Run anyway. This build is not code-signed yet.

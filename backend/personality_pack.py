@@ -14,7 +14,7 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+from .config_loader import ROOT
 PACK_ROOT = ROOT / "data" / "personalities"
 RULES_PATH = PACK_ROOT / "ANTI-REPETITION.md"
 

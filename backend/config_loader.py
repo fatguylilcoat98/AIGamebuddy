@@ -4,10 +4,20 @@ from __future__ import annotations
 import json
 import os
 import re
+import sys
 from pathlib import Path
 from typing import Any
 
-ROOT = Path(__file__).resolve().parents[1]
+
+def resource_root() -> Path:
+    """Repo root, or the PyInstaller extract/bundle directory when frozen."""
+    meipass = getattr(sys, "_MEIPASS", None)
+    if getattr(sys, "frozen", False) and meipass:
+        return Path(meipass)
+    return Path(__file__).resolve().parents[1]
+
+
+ROOT = resource_root()
 SAMPLE_PATH = ROOT / "config" / "buddy.config.sample.json"
 LOCAL_PATH = ROOT / "config" / "buddy.config.json"
 

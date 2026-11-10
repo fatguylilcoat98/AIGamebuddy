@@ -32,7 +32,7 @@ from .setup_flow import (
     check_stored_key,
 )
 
-ROOT = Path(__file__).resolve().parents[1]
+from .config_loader import ROOT
 
 
 def bundled_runtime() -> Path | None:

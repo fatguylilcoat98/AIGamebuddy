@@ -10,6 +10,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
+from .config_loader import ROOT
 from .capture_safety import fit_frame
 from .frame_library import DESIGN, PLACEMENTS, clear_painted_head, frame_record, paste_head, punch_screen
 from .hologram import render_hologram
@@ -19,7 +20,7 @@ _FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 
 def _frame_art(frame_id: str) -> Image.Image:
     record = frame_record(frame_id)
-    source = Image.open(Path(__file__).resolve().parents[1] / "assets" / "frames" / record["file"])
+    source = Image.open(ROOT / "assets" / "frames" / record["file"])
     # The baked portrait is gone before the live sprite is drawn.
     source = clear_painted_head(source, frame_id)
     return punch_screen(source, record["screen"], frame_id=frame_id)

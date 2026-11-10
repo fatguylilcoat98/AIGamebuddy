@@ -11,7 +11,7 @@ from .frame_library import FRAME_DIR, FRAME_FILES, PLACEMENTS, paste_head
 from .frames import composite_with_head, render_frame
 from .hologram import EXPRESSIONS, render_hologram
 
-ROOT = Path(__file__).resolve().parents[1]
+from .config_loader import ROOT
 OUT = ROOT / "assets" / "previews"
 
 

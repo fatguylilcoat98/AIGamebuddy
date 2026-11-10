@@ -4,17 +4,19 @@ Retro games, real attitude. The on-screen name is configurable (`product_name` a
 
 This is one Windows app: the approved console frames, Buddy's hologram, memory, voice, and commentary.
 
-Start here on Windows: [WINDOWS_FIRST_RUN.md](WINDOWS_FIRST_RUN.md).
-One-download installer: [packaging/build-windows.ps1](packaging/build-windows.ps1) builds `Buddy-Setup.exe`. Licenses: [LICENSES.md](LICENSES.md).
+Download [BuddySetup.exe](https://github.com/fatguylilcoat98/AIGamebuddy/releases/latest/download/BuddySetup.exe), double-click it, and play.
+
+Licenses: [LICENSES.md](LICENSES.md).
 Stream setup: [STREAMING.md](STREAMING.md).
 What was actually tested: [VERIFICATION.md](VERIFICATION.md).
 
 ## Install
 
-1. Install Python 3.11 or newer and check **Add python.exe to PATH**.
-2. Double-click `Start-Buddy.bat`. The first time, and whenever `backend\requirements.txt` changes, it installs into `.venv` and then opens Buddy.
-3. Edit `config\buddy.config.json` if you use Ollama. RetroArch is found on its own. Then start Buddy again.
-4. `install.bat` is only for a manual repair.
+1. Download [BuddySetup.exe](https://github.com/fatguylilcoat98/AIGamebuddy/releases/latest/download/BuddySetup.exe).
+2. Double-click it. The installer puts Buddy on your desktop and can launch it when it finishes.
+3. If Windows SmartScreen says Windows protected your PC, click **More info**, then **Run anyway**.
+
+Developers running from a source checkout can still install Python 3.11+ (with **Add python.exe to PATH**) and double-click `Start-Buddy.bat`. `install.bat` is only for a manual repair of that checkout.
 
 F9 is push-to-talk. F8 focuses the menu under Buddy. Arrow keys and Enter move through it. Ctrl+Shift+Q quits. Buddy speaks. Lines are not drawn over the game window.
 

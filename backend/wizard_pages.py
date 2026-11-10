@@ -11,7 +11,7 @@ from PIL import Image, ImageDraw, ImageFont
 from .setup_catalog import FRAME_CHOICES, RETROARCH_VERSION, blocked_cores
 from .setup_flow import GAMES_COPY, fresh_state, scan_summary
 
-ROOT = Path(__file__).resolve().parents[1]
+from .config_loader import ROOT
 FRAME_DIR = ROOT / "assets" / "frames"
 FONT_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 FONT_BOLD = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"

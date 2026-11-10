@@ -15,6 +15,7 @@ from pathlib import Path
 from PIL import Image
 
 from . import app_state
+from .config_loader import ROOT
 from .capture_safety import OVERLAY_SIZE
 from .display_info import describe_startup, hole_screen_rect, monitor_rect
 from .frame_library import frame_record, paste_head
@@ -549,6 +550,9 @@ def run_overlay(session) -> None:
 
 
 def ensure_preview_dir() -> Path:
-    path = Path(__file__).resolve().parents[1] / "assets" / "previews"
-    path.mkdir(parents=True, exist_ok=True)
+    path = ROOT / "assets" / "previews"
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        pass
     return path

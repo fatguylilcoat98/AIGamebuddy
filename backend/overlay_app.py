@@ -635,9 +635,11 @@ def run_overlay(session) -> None:
                     menu_ui.toggle()
                     holder["menu_open"] = True
                 elif command == "scroll-menu":
-                    if not menu_ui.open:
-                        menu_ui.toggle()
-                        holder["menu_open"] = True
+                    menu_ui.open = True
+                    menu_ui.page = "main"
+                    menu_ui._rebuild()
+                    holder["menu_open"] = True
+                    menu_ui.place(design_box(holder))
                     menu_ui.scroll_to_bottom()
                 elif command == "scroll-saves":
                     menu_ui.open = True

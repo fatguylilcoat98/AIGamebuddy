@@ -352,7 +352,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Send-Smoke "scroll-menu"
-Start-Sleep -Seconds 1
+Start-Sleep -Seconds 2
 $bottomShot = Join-Path $shotDir "menu-bottom.jpg"
 Save-Screen $bottomShot
 Write-Host "Menu bottom screenshot $bottomShot"

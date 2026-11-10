@@ -592,7 +592,11 @@ def run_overlay(session) -> None:
     session.note_overlay_hwnd(int(root.winfo_id()))
     from .window_layout import toplevel_hwnd
     session.note_overlay_hwnd(toplevel_hwnd(int(root.winfo_id())))
-    affinity = exclude_window_from_capture(int(root.winfo_id()))
+    # Screen-capture exclusion hides the frame from the Windows test grab.
+    if os.environ.get("BUDDY_SMOKE_CMD"):
+        affinity = "smoke-visible"
+    else:
+        affinity = exclude_window_from_capture(int(root.winfo_id()))
     logging.getLogger("buddy.overlay").info("Capture affinity for the overlay: %s", affinity)
     _refresh_labels()
     _apply_geometry()

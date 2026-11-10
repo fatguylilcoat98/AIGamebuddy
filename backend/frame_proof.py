@@ -51,25 +51,44 @@ def _opening_ring(shot: np.ndarray, game: tuple[int, int, int, int]) -> list[str
     for name, region in samples.items():
         if region.size == 0:
             continue
-        red = region[:, :, 0].astype(np.int16)
-        green = region[:, :, 1].astype(np.int16)
-        blue = region[:, :, 2].astype(np.int16)
-        # Windows wallpaper is a pale blue. The game is pure blue. The art is not pale.
-        wallpaper = (blue > 150) & (green > 130) & (red > 90) & (red < 210) & (blue >= red) & (np.abs(blue - green) < 60)
+        wallpaper = _wallpaper_mask(region)
         if float(wallpaper.mean()) > 0.04:
             problems.append(f"the desktop is showing along the {name} of the game opening")
     return problems
 
 
+def _wallpaper_mask(region: np.ndarray) -> np.ndarray:
+    red = region[:, :, 0].astype(np.int16)
+    green = region[:, :, 1].astype(np.int16)
+    blue = region[:, :, 2].astype(np.int16)
+    return (blue > 150) & (green > 130) & (red > 90) & (red < 210) & (blue >= red) & (np.abs(blue - green) < 60)
+
+
 def _menubar(shot: np.ndarray, game: tuple[int, int, int, int]) -> list[str]:
     """A light File / Command / Window strip means the window chrome is still there."""
-    x, y, w, h = game
-    bar = shot[y:y + 18, x + w // 2:x + w - 8]
+    x, y, w, _h = game
+    bar = shot[y:y + 36, x + w // 2:x + w - 8]
     if bar.size == 0:
         return []
-    if float(bar.mean()) > 150:
+    if float(bar.mean()) > 165:
         return ["RetroArch's menu bar is visible on the game"]
     return []
+
+
+def _opening_interior(shot: np.ndarray, game: tuple[int, int, int, int]) -> list[str]:
+    """Wallpaper inside the opening, where a too-small window would leave a gap."""
+    x, y, w, h = game
+    samples = {
+        "right": shot[y + h // 5:y + (4 * h) // 5, x + w - 28:x + w - 4],
+        "bottom": shot[y + h - 24:y + h - 4, x + w // 3:x + (2 * w) // 3],
+    }
+    problems = []
+    for name, region in samples.items():
+        if region.size == 0:
+            continue
+        if float(_wallpaper_mask(region).mean()) > 0.08:
+            problems.append(f"the desktop is showing inside the {name} of the game opening")
+    return problems
 
 
 def _menu_bottom(shot: np.ndarray, button: tuple[int, int, int, int], height: int, width: int) -> list[str]:
@@ -148,6 +167,7 @@ def prove_snes_screen(screenshot: Image.Image, *, menu_open: bool, frame_path: P
     record = frame_record("snes")
     game = _scale_box(record["screen"], (origin_x, origin_y), (frame_w, frame_h))
     problems.extend(_opening_ring(shot, game))
+    problems.extend(_opening_interior(shot, game))
     problems.extend(_menubar(shot, game))
     if expect_game:
         problems.extend(_content_span(shot, game))
@@ -167,20 +187,34 @@ def prove_snes_screen(screenshot: Image.Image, *, menu_open: bool, frame_path: P
     )
     if expect_chrome:
         icon = _crop(shot, button)
+        painted_icon = _crop(painted, button)
         if icon.size:
-            luma = icon.astype(np.int16).max(axis=2)
-            # Three bright bars, on the painting. A flat black box fails the median.
-            row_hit = (luma > 190).mean(axis=1)
-            peaks = 0
-            inside = False
-            for value in row_hit:
-                if value > 0.18 and not inside:
-                    peaks += 1
-                    inside = True
-                elif value < 0.06:
-                    inside = False
-            if peaks < 3 or float(np.median(luma)) < 28:
-                problems.append("the hamburger button is not visible in the top-left")
+            std = float(icon.std())
+            mean = float(icon.mean())
+            # A flat navy or black plate has almost no texture. The skyline does.
+            if std < 22 or mean < 48:
+                problems.append("the hamburger button is a flat dark fill")
+            elif _mae(icon, painted_icon) > 48:
+                problems.append("the hamburger button does not show the frame art")
+            else:
+                height, width = icon.shape[:2]
+                mid = icon[:, int(width * 0.35):int(width * 0.65)].astype(np.int16)
+                luma = mid.max(axis=2).mean(axis=1)
+                sat = (mid.max(axis=2) - mid.min(axis=2)).mean(axis=1)
+                hot = (luma > 230) & (sat > 140)
+                runs = 0
+                run = 0
+                for flag in hot:
+                    if flag:
+                        run += 1
+                    else:
+                        if run >= 3:
+                            runs += 1
+                        run = 0
+                if run >= 3:
+                    runs += 1
+                if runs < 3:
+                    problems.append("the hamburger button is not visible in the top-left")
     if menu_scrolled and expect_chrome:
         problems.extend(_menu_bottom(shot, button, height, width))
     if menu_open and expect_chrome and not menu_scrolled:

@@ -58,7 +58,7 @@ def test_a_white_menu_bar_on_the_game_is_rejected():
     )
     x, y, w, _h = _game_at_1080()
     draw = ImageDraw.Draw(image)
-    draw.rectangle((x + w // 2, y, x + w - 8, y + 18), fill=(240, 240, 240))
+    draw.rectangle((x + w // 2, y, x + w - 8, y + 36), fill=(240, 240, 240))
     problems = prove_snes_screen(image, menu_open=False, expect_chrome=False)
     assert any("menu bar" in item for item in problems), problems
 
@@ -110,7 +110,7 @@ def test_the_painted_menu_button_is_part_of_the_frame():
     draw = ImageDraw.Draw(image)
     draw.rectangle((x, y, x + w, y + h), fill=(4, 4, 6))
     covered = prove_snes_screen(image, menu_open=False, expect_chrome=True)
-    assert any("hamburger" in item for item in covered), covered
+    assert any("flat dark" in item for item in covered), covered
 
 
 def test_chrome_requires_the_open_menu():

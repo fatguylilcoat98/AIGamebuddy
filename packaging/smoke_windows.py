@@ -121,8 +121,15 @@ def close_window(title: str) -> None:
 def prove(path: Path, menu_open: bool) -> None:
     from PIL import Image
     from backend.frame_proof import prove_snes_screen
+    image = Image.open(path)
+    expected = os.environ.get("BUDDY_EXPECT_SIZE", "").lower()
+    if expected:
+        want = tuple(int(part) for part in expected.split("x"))
+        if image.size != want:
+            print(f"screenshot is {image.size[0]}x{image.size[1]}, wanted {expected}")
+            raise SystemExit("pixel check failed")
     problems = prove_snes_screen(
-        Image.open(path),
+        image,
         menu_open=menu_open,
         menu_scrolled=os.environ.get("BUDDY_MENU_BOTTOM") == "1",
         expect_game=os.environ.get("BUDDY_EXPECT_GAME") == "1",

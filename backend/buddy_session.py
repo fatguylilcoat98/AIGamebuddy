@@ -917,18 +917,19 @@ class BuddySession:
 
     def _place_hole(self, hwnd: int, rect: tuple[int, int, int, int]) -> ActionResult:
         from .retroarch_finder import needs_replace
+        from .window_layout import client_screen_rect
         retro_log = logging.getLogger("buddy.retroarch")
-        current = self._window_rect(hwnd)
-        retro_log.info("RetroArch hwnd=%s current=%s target=%s", hwnd, current, rect)
+        # Every pass. RetroArch's GDI driver puts the File menu back after the first snap.
+        retro_log.info("Removing window decorations hwnd=%s result=%s", hwnd, strip_window_decorations(hwnd))
+        current = client_screen_rect(hwnd) or self._window_rect(hwnd)
+        retro_log.info("RetroArch hwnd=%s client=%s target=%s", hwnd, current, rect)
         if not needs_replace(current, rect):
             self._placed = (hwnd, rect)
             return ActionResult(True, "RetroArch is already in the hole.", reason="stable",
                                 data={"hwnd": hwnd, "rect": list(rect)})
-        if hwnd not in self._borderless:
-            self._borderless.add(hwnd)
-            retro_log.info("Removing window decorations hwnd=%s result=%s", hwnd, strip_window_decorations(hwnd))
         mover = self.window_positioner or position_hwnd
         result = mover(hwnd, rect, self.overlay_hwnds)
+        strip_window_decorations(hwnd)
         retro_log.info("SetWindowPos hwnd=%s rect=%s ok=%s reason=%s", hwnd, rect, result.ok, result.reason)
         if result.ok:
             self._placed = (hwnd, rect)

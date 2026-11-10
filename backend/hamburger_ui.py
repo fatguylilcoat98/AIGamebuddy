@@ -39,11 +39,7 @@ class HamburgerMenu:
         self.open = False
         self.page = "main"
         self._box = {"x": 24, "y": 16, "width": 120, "height": 72}
-        self._face = None
-        self.button = tk.Button(
-            root, command=self.toggle, relief="flat", bd=0, highlightthickness=0,
-            cursor="hand2", bg="#1a1028", activebackground="#1a1028",
-        )
+        self._save_anchor = None
         self.toast = tk.Label(
             root, text="", bg="#140c1c", fg="#f6f1ff", font=("Segoe UI", 16, "bold"),
             padx=14, pady=8,
@@ -79,6 +75,16 @@ class HamburgerMenu:
         self.canvas.configure(scrollregion=self.canvas.bbox("all"))
         self.canvas.yview_moveto(1.0)
 
+    def scroll_to_saves(self):
+        """Bring Save my spot and Load my spot into view. The menu is already open."""
+        self.inner.update_idletasks()
+        self.canvas.update_idletasks()
+        self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+        widget = self._save_anchor
+        total = max(1, int(self.inner.winfo_reqheight()))
+        y = int(widget.winfo_y()) if widget is not None else int(total * 0.42)
+        self.canvas.yview_moveto(min(0.9, max(0.0, (y - 8) / float(total))))
+
     def close(self):
         if not self.open:
             return
@@ -86,28 +92,9 @@ class HamburgerMenu:
         self.panel.place_forget()
         self.on_change()
 
-    def _apply_face(self, box: dict[str, int]):
-        """Show the painted frame art on the button so it is not a black box."""
-        try:
-            from PIL import Image, ImageTk
-            from .capture_safety import fit_frame
-            from .config_loader import ROOT
-            from .frame_library import DESIGN
-            from .menu_button_art import button_face
-            art = Image.open(ROOT / "assets" / "frames" / "snes-sky-kingdom.png")
-            target = tuple(getattr(self, "_target", None) or (DESIGN["width"], DESIGN["height"]))
-            origin_x, origin_y, frame_w, frame_h = fit_frame(target)
-            face = button_face(art, (origin_x, origin_y), (frame_w, frame_h), box)
-            self._face = ImageTk.PhotoImage(face)
-            self.button.configure(image=self._face, width=box["width"], height=box["height"])
-        except Exception:
-            self.button.configure(text="|||")
-
     def place(self, box: dict[str, int]):
+        # The bars are painted into the frame. A widget here would cover them.
         self._box = box
-        self._apply_face(box)
-        self.button.place(x=box["x"], y=box["y"], width=box["width"], height=box["height"])
-        self.button.lift()
         if not self.open:
             self.panel.place_forget()
             return
@@ -159,14 +146,16 @@ class HamburgerMenu:
 
     def _button(self, text: str, command, primary: bool = False):
         import tkinter as tk
-        tk.Button(
+        button = tk.Button(
             self.inner, text=text, command=command, anchor="w",
             bg="#7ee7ff" if primary else "#2a2038",
             fg="#140c1c" if primary else "#f6f1ff",
             activebackground="#b8f4ff" if primary else "#3c3050",
             activeforeground="#140c1c" if primary else "#ffffff",
             font=self._font(20, True), relief="flat", bd=0, padx=16, pady=10, cursor="hand2",
-        ).pack(fill="x", padx=16, pady=4)
+        )
+        button.pack(fill="x", padx=16, pady=4)
+        return button
 
     def _rebuild(self):
         self._clear()
@@ -203,7 +192,7 @@ class HamburgerMenu:
             self._button(talk_amount_line(key, talk_amount), lambda name=key: self._talk_amount(name))
             self._note(note)
         self._title("Your spot")
-        self._button("Save my spot", lambda: self._show_slots("save"))
+        self._save_anchor = self._button("Save my spot", lambda: self._show_slots("save"))
         self._note("Saves exactly where you are.")
         self._button("Load my spot", lambda: self._show_slots("load"))
         self._note("Goes back to your last save.")

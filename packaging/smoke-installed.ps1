@@ -53,22 +53,47 @@ if ($bounds.Width -lt 1600 -or $bounds.Height -lt 900) {
     throw "The runner display is $($bounds.Width)x$($bounds.Height). Buddy's pixel check needs about 1920x1080."
 }
 
+function Install-BuddySetup([string]$Path) {
+    $installLog = Join-Path $env:TEMP "buddy-install-smoke.log"
+    if (Test-Path $installLog) { Remove-Item $installLog -Force }
+    Write-Host "Installing $Path"
+    $installer = Start-Process -FilePath $Path -ArgumentList @(
+        "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/LOG=$installLog"
+    ) -Wait -PassThru
+    if ($installer.ExitCode -ne 0) {
+        if (Test-Path $installLog) { Get-Content $installLog -Tail 40 }
+        throw "BuddySetup.exe exited $($installer.ExitCode)"
+    }
+}
+
+function Stop-BuddyProcesses {
+    Get-CimInstance Win32_Process | Where-Object {
+        $exe = [string]$_.ExecutablePath
+        $cmd = [string]$_.CommandLine
+        ($exe -like "*\Buddy\*") -or ($cmd -match "backend\.(launcher|wizard_app|overlay_app)") -or ($_.Name -eq "retroarch.exe")
+    } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+}
+
+# Install the previous prerelease first, leave its data in place, then install this build over it.
+$pre10 = Join-Path $env:TEMP "BuddySetup-pre10.exe"
+Write-Host "Downloading pre10"
+Invoke-WebRequest -UseBasicParsing -Uri "https://github.com/fatguylilcoat98/AIGamebuddy/releases/download/buddy-v0.1.0-pre10/BuddySetup.exe" -OutFile $pre10
+Install-BuddySetup $pre10
+$staleDir = Join-Path $env:LOCALAPPDATA "VideoGameWingman"
+New-Item -ItemType Directory -Force -Path $staleDir | Out-Null
+# The old build remembered a Genesis frame. This file is what an upgrade has to replace.
+'{"theme":"genesis","theme_mode":"genesis","volume":70}' | Set-Content -Path (Join-Path $staleDir "ui-state.json") -Encoding ascii
+$stamp = Join-Path $staleDir "frame-revision.txt"
+if (Test-Path $stamp) { Remove-Item $stamp -Force }
+Stop-BuddyProcesses
+
 $setup = Join-Path (Split-Path -Parent $PSScriptRoot) "dist\BuddySetup.exe"
 if (-not (Test-Path $setup)) {
     throw "dist\BuddySetup.exe is missing. This smoke test only runs the installer that ships."
 }
 $setup = (Resolve-Path $setup).Path
 
-$installLog = Join-Path $env:TEMP "buddy-install-smoke.log"
-if (Test-Path $installLog) { Remove-Item $installLog -Force }
-Write-Host "Installing $setup"
-$installer = Start-Process -FilePath $setup -ArgumentList @(
-    "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/LOG=$installLog"
-) -Wait -PassThru
-if ($installer.ExitCode -ne 0) {
-    if (Test-Path $installLog) { Get-Content $installLog -Tail 40 }
-    throw "BuddySetup.exe exited $($installer.ExitCode)"
-}
+Install-BuddySetup $setup
 
 $app = Join-Path $env:LOCALAPPDATA "Buddy"
 $bat = Join-Path $app "Start-Buddy.bat"
@@ -187,6 +212,7 @@ $cmdFile = Join-Path $env:LOCALAPPDATA "Buddy\smoke-cmd.txt"
 $ackFile = Join-Path $env:LOCALAPPDATA "Buddy\smoke-ack.txt"
 $env:BUDDY_SMOKE_CMD = $cmdFile
 $env:BUDDY_SMOKE_PLAY = "1"
+$env:BUDDY_SAVE_LOG = Join-Path $shotDir "save-roundtrip.txt"
 if (Test-Path $cmdFile) { Remove-Item $cmdFile -Force }
 if (Test-Path $ackFile) { Remove-Item $ackFile -Force }
 
@@ -224,19 +250,6 @@ if (-not $ra) {
     throw "RetroArch did not start with the Super NES test ROM"
 }
 Start-Sleep -Seconds 12
-$env:BUDDY_FRAME_SHOT = "1"
-$gameShot = Join-Path $shotDir "snes-frame-retroarch.jpg"
-Save-Screen $gameShot
-Write-Host "Frame screenshot $gameShot"
-$env:BUDDY_SHOT = $gameShot
-$env:BUDDY_MENU_OPEN = "0"
-$env:BUDDY_EXPECT_GAME = "1"
-& $python $smokePy prove
-$env:BUDDY_EXPECT_GAME = "0"
-if ($LASTEXITCODE -ne 0) {
-    Write-BuddyLogs
-    throw "The SNES frame, Buddy, or the hamburger is not on screen"
-}
 
 function Send-Smoke([string]$Command) {
     if (Test-Path $ackFile) { Remove-Item $ackFile -Force }
@@ -252,14 +265,45 @@ function Send-Smoke([string]$Command) {
     throw "Buddy did not acknowledge $Command"
 }
 
+Send-Smoke "snap"
+Start-Sleep -Seconds 1
+$env:BUDDY_FRAME_SHOT = "1"
+$gameShot = Join-Path $shotDir "snes-frame-retroarch.jpg"
+Save-Screen $gameShot
+Copy-Item $gameShot (Join-Path $shotDir "upgrade-first-launch.jpg") -Force
+Write-Host "Frame screenshot $gameShot"
+$env:BUDDY_SHOT = $gameShot
+$env:BUDDY_MENU_OPEN = "0"
+$env:BUDDY_EXPECT_GAME = "1"
+& $python $smokePy prove
+$env:BUDDY_EXPECT_GAME = "0"
+if ($LASTEXITCODE -ne 0) {
+    Write-BuddyLogs
+    throw "The SNES frame, Buddy, or the hamburger is not on screen"
+}
+
+Send-Smoke "snap"
+Start-Sleep -Milliseconds 500
 Send-Smoke "pose-talk"
 Start-Sleep -Seconds 2
 $talkShot = Join-Path $shotDir "buddy-talk.jpg"
 Save-Screen $talkShot
 Write-Host "Talk pose screenshot $talkShot"
+$env:BUDDY_SHOT = $talkShot
+$env:BUDDY_MENU_OPEN = "0"
+$env:BUDDY_MENU_BOTTOM = "0"
+$env:BUDDY_EXPECT_GAME = "1"
+& $python $smokePy prove
+$env:BUDDY_EXPECT_GAME = "0"
+if ($LASTEXITCODE -ne 0) {
+    Write-BuddyLogs
+    throw "The talking pose still shows a menu bar, wallpaper, or a flat menu button"
+}
 Send-Smoke "pose-rest"
 Start-Sleep -Seconds 1
 
+Send-Smoke "snap"
+Start-Sleep -Milliseconds 500
 Send-Smoke "open-menu"
 Start-Sleep -Seconds 2
 $menuShot = Join-Path $shotDir "menu-open.jpg"
@@ -271,6 +315,40 @@ $env:BUDDY_MENU_OPEN = "1"
 if ($LASTEXITCODE -ne 0) {
     Write-BuddyLogs
     throw "The menu panel is not visible over the SNES frame"
+}
+
+Send-Smoke "scroll-saves"
+Start-Sleep -Seconds 1
+$savesShot = Join-Path $shotDir "menu-saves.jpg"
+Save-Screen $savesShot
+Write-Host "Save menu screenshot $savesShot"
+$env:BUDDY_SHOT = $savesShot
+$env:BUDDY_MENU_OPEN = "1"
+$env:BUDDY_MENU_BOTTOM = "0"
+& $python $smokePy prove
+if ($LASTEXITCODE -ne 0) {
+    Write-BuddyLogs
+    throw "Save my spot is not on screen, or the opening has a menu bar or wallpaper"
+}
+
+Send-Smoke "save-load"
+Start-Sleep -Seconds 1
+$toastShot = Join-Path $shotDir "save-toast.jpg"
+Save-Screen $toastShot
+Write-Host "Save toast screenshot $toastShot"
+$roundtrip = Join-Path $shotDir "save-roundtrip.txt"
+if (-not (Test-Path $roundtrip)) { throw "save-roundtrip.txt was not written" }
+$roundtripText = Get-Content -Raw $roundtrip
+Write-Host $roundtripText
+if ($roundtripText -notmatch "save_ok=True" -or $roundtripText -notmatch "load_ok=True") {
+    throw "Save and load did not both succeed"
+}
+$env:BUDDY_SHOT = $toastShot
+$env:BUDDY_MENU_OPEN = "0"
+& $python $smokePy prove
+if ($LASTEXITCODE -ne 0) {
+    Write-BuddyLogs
+    throw "The save toast shot still has a menu bar, wallpaper, or a flat menu button"
 }
 
 Send-Smoke "scroll-menu"
@@ -327,4 +405,71 @@ $proof = Join-Path $shotDir "exit-no-processes.txt"
     (Get-Date).ToUniversalTime().ToString("o")
 ) | Set-Content -Path $proof -Encoding utf8
 Write-Host "Exit to desktop left no Buddy or RetroArch process"
+
+# A real 3840x2160 desktop at 150% scaling, then the same frame check.
+$mode.dmPelsWidth = 3840
+$mode.dmPelsHeight = 2160
+$mode.dmBitsPerPel = 32
+$mode.dmFields = 0x1C0000
+$displayCode = [BuddyScreen]::ChangeDisplaySettings([ref]$mode, 0)
+Write-Host "ChangeDisplaySettings 3840x2160 -> $displayCode"
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public static class BuddyDpi {
+    [DllImport("user32.dll", SetLastError=true)]
+    public static extern bool SystemParametersInfo(uint uiAction, uint uiParam, System.IntPtr pvParam, uint fWinIni);
+}
+"@
+foreach ($dpiValue in 1, 2, 0) {
+    $ok = [BuddyDpi]::SystemParametersInfo(0x009F, 0, [System.IntPtr]$dpiValue, 3)
+    Write-Host "DPI override $dpiValue -> $ok"
+}
+New-ItemProperty -Path "HKCU:\Control Panel\Desktop" -Name LogPixels -Value 144 -PropertyType DWord -Force | Out-Null
+New-ItemProperty -Path "HKCU:\Control Panel\Desktop" -Name Win8DpiScaling -Value 1 -PropertyType DWord -Force | Out-Null
+$bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+Write-Host "Primary screen after 4K request $($bounds.Width)x$($bounds.Height)"
+if ($bounds.Width -ne 3840 -or $bounds.Height -ne 2160) {
+    throw "The runner display is $($bounds.Width)x$($bounds.Height), not 3840x2160."
+}
+@(
+    "resolution=$($bounds.Width)x$($bounds.Height)"
+    "requested_scale=150%"
+    "LogPixels=144"
+) | Set-Content -Path (Join-Path $shotDir "dpi-4k.txt") -Encoding utf8
+
+if (Test-Path $cmdFile) { Remove-Item $cmdFile -Force }
+if (Test-Path $ackFile) { Remove-Item $ackFile -Force }
+Write-Host "Opening Buddy again at 3840x2160"
+$play4k = Start-Process -FilePath $pythonw -ArgumentList @("-m", "backend.wizard_app", "--wizard") -WorkingDirectory $elsewhere -WindowStyle Hidden -PassThru
+$deadline = (Get-Date).AddSeconds(120)
+$ra = $null
+while ((Get-Date) -lt $deadline) {
+    $ra = Get-Process -Name "retroarch" -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($ra) { break }
+    Start-Sleep -Seconds 1
+}
+if (-not $ra) {
+    Write-BuddyLogs
+    throw "RetroArch did not start at 3840x2160"
+}
+Start-Sleep -Seconds 12
+Send-Smoke "snap"
+Start-Sleep -Seconds 1
+$fourK = Join-Path $shotDir "snes-frame-4k.jpg"
+Save-Screen $fourK
+Write-Host "4K screenshot $fourK"
+$env:BUDDY_SHOT = $fourK
+$env:BUDDY_MENU_OPEN = "0"
+$env:BUDDY_MENU_BOTTOM = "0"
+$env:BUDDY_EXPECT_GAME = "1"
+$env:BUDDY_EXPECT_SIZE = "3840x2160"
+& $python $smokePy prove
+$env:BUDDY_EXPECT_GAME = "0"
+$env:BUDDY_EXPECT_SIZE = ""
+if ($LASTEXITCODE -ne 0) {
+    Write-BuddyLogs
+    throw "The 3840x2160 frame did not fill the opening"
+}
+Send-Smoke "exit"
 Write-Host "Installed launch smoke passed"

@@ -540,6 +540,11 @@ def run_overlay(session) -> None:
             holder["menu_open"] = False
 
     def _click_buddy(event):
+        hx, hy, hw, hh = menu_ui.button_rect()
+        on_button = hx <= event.x <= hx + hw and hy <= event.y <= hy + hh
+        if on_button:
+            _toggle_menu()
+            return
         if menu_ui.open and not menu_ui.contains(event.x, event.y):
             _close_menu()
             return
@@ -634,6 +639,37 @@ def run_overlay(session) -> None:
                         menu_ui.toggle()
                         holder["menu_open"] = True
                     menu_ui.scroll_to_bottom()
+                elif command == "scroll-saves":
+                    menu_ui.open = True
+                    menu_ui.page = "main"
+                    menu_ui._rebuild()
+                    holder["menu_open"] = True
+                    menu_ui.place(design_box(holder))
+                    menu_ui.scroll_to_saves()
+                elif command == "save-load":
+                    if menu_ui.open:
+                        menu_ui.close()
+                        holder["menu_open"] = False
+                    saved = session.save_spot(1)
+                    loaded = session.load_spot(1)
+                    menu_ui._toast(f"{saved.message} {loaded.message}")
+                    log_path = os.environ.get("BUDDY_SAVE_LOG")
+                    if log_path:
+                        Path(log_path).write_text(
+                            "\n".join([
+                                f"save_ok={saved.ok}",
+                                f"save={saved.message}",
+                                f"load_ok={loaded.ok}",
+                                f"load={loaded.message}",
+                                "commands=STATE_SLOT_MINUS x16, STATE_SLOT_PLUS, SAVE_STATE, LOAD_STATE_SLOT 1",
+                            ]) + "\n",
+                            encoding="utf-8",
+                        )
+                elif command == "snap":
+                    hole = _screen_hole()
+                    hwnd = session._emulator_hwnd()
+                    if hwnd:
+                        session._place_hole(hwnd, hole)
                 elif command == "retroarch-menu":
                     session.open_retroarch_menu()
                 elif command == "controller":

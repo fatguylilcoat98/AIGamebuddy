@@ -89,7 +89,8 @@ def test_load_a_game_and_the_head_stay_in_the_buddy_box():
     cy = hole["y"] + hole["height"] // 2
     assert max(idle[cy, cx, :3]) < 40
     assert idle[cy, cx, 3] == 255
-    opening = idle[hole["y"] + 30:hole["y"] + 90, hole["x"] + 30:hole["x"] + 120]
+    # The middle of the opening stays empty. Scenery may cross the corners.
+    opening = idle[cy - 24:cy + 24, cx - 40:cx + 40]
     assert int((opening[:, :, 0] > 180).sum()) == 0
     for image, label in ((idle, "rest"), (talk, "talk")):
         head = image[well["y"]:well["y"] + well["height"], well["x"]:well["x"] + well["width"]]

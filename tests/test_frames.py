@@ -107,21 +107,29 @@ def test_head_is_centered_in_the_well():
 
 
 def test_scenery_nibbles_the_opening_without_a_hard_frame():
-    """Corners can hold scenery. A solid rectangular lip must not."""
+    """The drawn screen frame is gone. Scenery, not a rectangle, crosses the edge."""
     import numpy as np
-    from backend.frame_library import FRAME_DIR, FRAME_FILES, frame_record, punch_screen
+    from backend.frame_library import FRAME_DIR, FRAME_FILES, frame_record, measure_screen, punch_screen
     for frame_id, filename in FRAME_FILES.items():
         image = Image.open(FRAME_DIR / filename)
+        raw = measure_screen(image)
         screen = frame_record(frame_id)["screen"]
         punched = np.array(punch_screen(image, screen, frame_id=frame_id))
+        rgb = np.asarray(image.convert("RGB"))
+        # The bright rim just outside the black window is the drawn frame. It is transparent now.
+        cy = raw["y"] + raw["height"] // 2
+        for dx in range(1, 36):
+            pixel = rgb[cy, raw["x"] - dx]
+            if int(pixel.max()) > 140:
+                assert punched[cy, raw["x"] - dx, 3] == 0, (frame_id, dx)
+                break
+        else:
+            raise AssertionError(frame_id)
         x, y, w, h = screen["x"], screen["y"], screen["width"], screen["height"]
         alpha = punched[y:y + h, x:x + w, 3]
         assert int(alpha[h // 2, w // 2]) == 0
-        edge = np.concatenate([
-            alpha[:3, :].ravel(), alpha[-3:, :].ravel(), alpha[:, :3].ravel(), alpha[:, -3:].ravel(),
-        ])
-        # A drawn bezel would make this ring almost fully opaque.
-        assert float((edge > 200).mean()) < 0.85, frame_id
+        corner = alpha[:28, :28]
+        assert int((corner > 200).sum()) > 12, frame_id
 
 
 def test_neural_voices_follow_the_character():

@@ -1,8 +1,8 @@
 """Approved Buddy Overlay frames and the auto-lock geometry.
 
-Each console maps to one frame. The screen rectangle is measured from the
-black game window. The controller is allowed to overlap that window; only
-near-black pixels inside the window are punched out, so the controller stays.
+Each console maps to one frame. The screen rectangle is the irregular opening
+left after the rectangular frame is removed. Scenery overhangs that opening.
+The footer pad stays in front of the game.
 """
 from __future__ import annotations
 
@@ -110,15 +110,19 @@ def measure_screen(image: Image.Image, threshold: int = 14) -> dict[str, int]:
 
 
 # Design pixels on the 1280x720 art. 1080p is 1.5x these numbers.
-# The overhang is the frame's own bezel, drawn back on top of the hole.
-BEZEL_OVERHANG = 4
-# How far the hole grows past the measured black window, per frame.
-# NES and SNES were still the small original opening. Genesis was already wide.
-SIDE_GROW = {"genesis": 14, "nes": 28, "snes": 34}
-TOP_GROW = {"genesis": 4, "nes": 8, "snes": 4}
-# Controller pixels kept over the game. 7px at 720p is about 10px at 1080p.
-# Genesis was covering the game with most of the pad; NES and SNES were already thin.
-CONTROLLER_OVERLAP = {"genesis": 7, "nes": 8, "snes": 8}
+# How far the rectangular screen frame extends past the black opening.
+# The top band stays short so the title is left alone.
+FRAME_BAND = {
+    "genesis": {"left": 40, "right": 36, "top": 16, "bottom": 44},
+    "nes": {"left": 26, "right": 26, "top": 30, "bottom": 26},
+    "snes": {"left": 24, "right": 22, "top": 14, "bottom": 20},
+}
+# Footer pads in the approved art. The pad is restored; the frame behind it is not.
+CONTROLLER_RECT = {
+    "genesis": {"x": 518, "y": 648, "width": 296, "height": 54},
+    "nes": {"x": 448, "y": 576, "width": 382, "height": 108},
+    "snes": {"x": 452, "y": 562, "width": 364, "height": 132},
+}
 
 
 def _well_pixel(rgb: np.ndarray) -> np.ndarray:
@@ -213,77 +217,301 @@ def controller_top(image: Image.Image, screen: dict[str, int]) -> int:
     return found if found is not None else y + h - 1
 
 
-def enlarge_screen(image: Image.Image, frame_id: str, raw: dict[str, int] | None = None) -> dict[str, int]:
-    """Game opening: the black window plus its rectangular bezel, not the scenery.
+def _dilate(mask: np.ndarray) -> np.ndarray:
+    padded = np.pad(mask, 1, constant_values=False)
+    grown = np.zeros(mask.shape, dtype=bool)
+    for dy in (-1, 0, 1):
+        for dx in (-1, 0, 1):
+            grown |= padded[1 + dy:padded.shape[0] - 1 + dy, 1 + dx:padded.shape[1] - 1 + dx]
+    return grown
 
-    Buddy's box stays to the right. The controller only nicks the bottom edge.
+
+def _nearest_outside(inside: np.ndarray, limit: int = 48) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Distance to the nearest pixel that is not inside, and that pixel's coordinates."""
+    height, width = inside.shape
+    dist = np.where(inside, np.int16(9999), np.int16(0))
+    source_y = np.full((height, width), -1, np.int16)
+    source_x = np.full((height, width), -1, np.int16)
+    ys, xs = np.where(~inside)
+    source_y[ys, xs] = ys.astype(np.int16)
+    source_x[ys, xs] = xs.astype(np.int16)
+    neighbors = [(dy, dx) for dy in (-1, 0, 1) for dx in (-1, 0, 1) if dy or dx]
+    for _ in range(limit):
+        changed = False
+        for dy, dx in neighbors:
+            y0s, y1s = max(0, dy), height + min(0, dy)
+            x0s, x1s = max(0, dx), width + min(0, dx)
+            y0d, y1d = max(0, -dy), height + min(0, -dy)
+            x0d, x1d = max(0, -dx), width + min(0, -dx)
+            src = dist[y0s:y1s, x0s:x1s]
+            dst = dist[y0d:y1d, x0d:x1d]
+            better = src + 1 < dst
+            if not better.any():
+                continue
+            changed = True
+            dst[better] = src[better] + 1
+            dist[y0d:y1d, x0d:x1d] = dst
+            source_y[y0d:y1d, x0d:x1d][better] = source_y[y0s:y1s, x0s:x1s][better]
+            source_x[y0d:y1d, x0d:x1d][better] = source_x[y0s:y1s, x0s:x1s][better]
+        if not changed:
+            break
+    return dist, source_y, source_x
+
+
+def _protected(image: Image.Image, frame_id: str, raw: dict[str, int]) -> np.ndarray:
+    """Buddy's well, the menu, and the title letters stay opaque and clickable.
+
+    The sky between the title and the game is not protected, so the opening
+    can wander through it instead of stopping on a straight line.
     """
-    raw = raw or measure_screen(image)
-    width, height = image.size
+    height, width = image.size[1], image.size[0]
+    mask = np.zeros((height, width), dtype=bool)
+    rgb = np.asarray(image.convert("RGB"))
+    lum = rgb.max(axis=2)
+    letters = np.zeros_like(mask)
+    top = int(raw["y"]) + 2
+    bright = lum[:top, :] > 168
+    span = bright[:, int(raw["x"]):int(raw["x"]) + int(raw["width"])]
+    if span.shape[1]:
+        # The old frame's highlight is a bright row across the whole opening.
+        # Title letters never fill that much of a row. Clear the row and its edge.
+        hot = span.mean(axis=1) > 0.4
+        expanded = hot.copy()
+        for shift in (1, 2):
+            expanded[shift:] |= hot[:-shift]
+            expanded[:-shift] |= hot[shift:]
+        bright[expanded, :] = False
+    letters[:top, :] = bright
+    for _ in range(2):
+        letters = _dilate(letters)
+    # Only the letter shapes. A full-width band would put a straight edge under the title.
+    mask |= letters
     well = buddy_well_rect(image, frame_id)
     menu = PLACEMENTS[frame_id]["menu"]
-    control = controller_top(image, raw)
-    overlap = CONTROLLER_OVERLAP[frame_id]
-    # Eat the drawn screen frame. Stop before Buddy and the menu so those stay clickable.
-    grow = 36
-    x = max(4, raw["x"] - grow)
-    y = max(4, raw["y"] - 14)
-    right = min(width - 4, raw["x"] + raw["width"] + grow)
-    right = min(right, int(well["x"]) - 8, int(menu["x"]) - 4)
-    bottom = min(height - 4, control + overlap, int(menu["y"]) - 4)
-    if bottom <= y + 80:
-        bottom = min(height - 4, y + 80)
-    return {"x": int(x), "y": int(y), "width": int(max(40, right - x)), "height": int(bottom - y)}
+    for rect, pad in ((well, 8), (menu, 4)):
+        x0 = max(0, int(rect["x"]) - pad)
+        y0 = max(0, int(rect["y"]) - pad)
+        x1 = min(width, int(rect["x"]) + int(rect["width"]) + pad)
+        y1 = min(height, int(rect["y"]) + int(rect["height"]) + pad)
+        mask[y0:y1, x0:x1] = True
+    return mask
 
 
-def _organic_mask(height: int, width: int) -> np.ndarray:
-    """Irregular edge nibbles, thicker at the corners. About 1–3% of the opening."""
-    ys, xs = np.mgrid[0:height, 0:width]
-    left = xs
-    right = width - 1 - xs
-    top = ys
-    bottom = height - 1 - ys
-    edge = np.minimum(np.minimum(left, right), np.minimum(top, bottom)).astype(np.float32)
-    near_x = np.minimum(left, right) / max(1, width)
-    near_y = np.minimum(top, bottom) / max(1, height)
-    corner = np.clip(1.0 - (near_x + near_y) * 6.0, 0.0, 1.0)
-    wobble = 0.55 + 0.45 * np.sin(xs * 0.37 + 1.7) * np.sin(ys * 0.21 + 0.4)
-    span = float(min(height, width))
-    limit = span * (0.008 + 0.018 * corner) * wobble
-    return edge < limit
+def _controller_pixels(rgb: np.ndarray, frame_id: str) -> np.ndarray:
+    """The footer pad, not the black around it and not the frame it sits on."""
+    height, width = rgb.shape[:2]
+    rect = CONTROLLER_RECT[frame_id]
+    mask = np.zeros((height, width), dtype=bool)
+    x, y, w, h = rect["x"], rect["y"], rect["width"], rect["height"]
+    mask[y:y + h, x:x + w] = True
+    lum = rgb.max(axis=2)
+    mask &= lum > 28
+    return mask
 
 
-def cut_hole(image: Image.Image, screen: dict[str, int], lip: int = BEZEL_OVERHANG,
-             bottom_keep: int = 8) -> Image.Image:
-    """Open the game hole and lay nearby scenery over the edge.
+def opening_mask(image: Image.Image, frame_id: str, raw: dict[str, int] | None = None) -> np.ndarray:
+    """Transparent game opening: the black window, the rectangular frame, and a wavy bite.
 
-    The rectangular screen frame is not copied back. `lip` and `bottom_keep`
-    stay in the signature for older callers.
+    Scenery, the footer pad, Buddy, and the menu are not part of the mask.
     """
-    del lip, bottom_keep
+    rgb = np.asarray(image.convert("RGB"))
+    height, width = rgb.shape[:2]
+    raw = raw or measure_screen(image)
+    x, y, w, h = raw["x"], raw["y"], raw["width"], raw["height"]
+    lum = rgb.max(axis=2)
+    black = lum <= 18
+    near = np.zeros_like(black)
+    near[max(0, y - 2):min(height, y + h + 2), max(0, x - 2):min(width, x + w + 2)] = True
+    opening = black & near
+    opening[y:y + h, x:x + w] = True
+    dist, _oy, _ox = _nearest_outside(~opening, 52)
+    band = FRAME_BAND[frame_id]
+    ys, xs = np.mgrid[0:height, 0:width]
+    # Direction comes from the nearest black pixel, so each side uses its own thickness.
+    # `_nearest_outside(~opening)` points at the opening. Recover it with a second pass
+    # only where we need the side. The distance alone is not directional, so split by
+    # which edge of the measured window the pixel sits on.
+    left = xs < x
+    right = xs >= x + w
+    above = ys < y
+    below = ys >= y + h
+    limit = np.full(rgb.shape[:2], 0, np.int16)
+    limit[left] = band["left"]
+    limit[right] = band["right"]
+    limit[above & ~left & ~right] = band["top"]
+    limit[below & ~left & ~right] = band["bottom"]
+    # Corners take the larger neighboring band so the rounded frame is fully covered.
+    limit[above & left] = max(band["top"], band["left"])
+    limit[above & right] = max(band["top"], band["right"])
+    limit[below & left] = max(band["bottom"], band["left"])
+    limit[below & right] = max(band["bottom"], band["right"])
+    bezel = opening | ((dist > 0) & (dist <= limit))
+    protect = _protected(image, frame_id, raw)
+    pad = _controller_pixels(rgb, frame_id)
+    bezel &= ~protect & ~pad
+    outside, _, _ = _nearest_outside(~bezel, 24)
+    yy, xx = np.where(bezel)
+    if len(xx) == 0:
+        return bezel
+    x0, x1 = int(xx.min()), int(xx.max())
+    y0, y1 = int(yy.min()), int(yy.max())
+    bw = max(1, x1 - x0)
+    bh = max(1, y1 - y0)
+    nx = (xs - x0) / bw
+    ny = (ys - y0) / bh
+    corner = np.clip(1.0 - (np.minimum(nx, 1 - nx) + np.minimum(ny, 1 - ny)) * 3.8, 0, 1)
+    wave = 0.5 + 0.5 * (
+        0.45 * np.sin(xs * 0.05 + 0.6)
+        + 0.35 * np.sin(ys * 0.07 + 1.3)
+        + 0.20 * np.sin(xs * 0.16 + ys * 0.11 + 2.2)
+    )
+    bite = 7.0 + 16.0 * wave + 8.0 * corner
+    hole = bezel | ((outside > 0) & (outside <= bite) & ~protect & ~pad)
+    # The frame highlight is a bright row just above the black window.
+    # Leave the title above that row alone. The highlight itself is removed.
+    span = lum[:, x:x + w] > 140
+    frame_row = int(y)
+    seen_frame = False
+    for row in range(int(y), max(0, int(y) - 36), -1):
+        bright_row = bool(span.shape[1]) and float(span[row].mean()) > 0.45
+        if bright_row:
+            frame_row = row
+            seen_frame = True
+        elif seen_frame:
+            break
+    if seen_frame and frame_row < y:
+        x_lo = max(0, int(x) - 8)
+        x_hi = min(width, int(x) + int(w) + 8)
+        hole[:frame_row, x_lo:x_hi] = False
+    menu = PLACEMENTS[frame_id]["menu"]
+    well = buddy_well_rect(image, frame_id)
+    # The game rectangle has to stay off the menu. The menu sits on the right,
+    # so the opening stops a few pixels before it.
+    limit_x = min(int(menu["x"]), int(well["x"])) - 4
+    hole[:, limit_x:] = False
+    # Drop transparent specks that are not attached to the game opening.
+    seen = opening.copy()
+    frontier = opening
+    for _ in range(72):
+        nxt = _dilate(frontier) & hole & ~seen
+        if not nxt.any():
+            break
+        seen |= nxt
+        frontier = nxt
+    return seen
+
+
+def _scenery_overhang(rgb: np.ndarray, hole: np.ndarray, protect: np.ndarray) -> np.ndarray:
+    """Pull real scenery in over the opening. Dark sky and frame colors stay out."""
+    height, width = rgb.shape[:2]
+    inside, near_y, near_x = _nearest_outside(hole, 32)
+    inside = np.where(hole, inside, 0)
+    ys, xs = np.where(hole)
+    if len(xs) == 0:
+        return hole, ys, xs
+    x0, x1 = int(xs.min()), int(xs.max())
+    y0, y1 = int(ys.min()), int(ys.max())
+    grid_y, grid_x = np.mgrid[0:height, 0:width]
+    nx = (grid_x - x0) / max(1, x1 - x0)
+    ny = (grid_y - y0) / max(1, y1 - y0)
+    corner = np.clip(1.0 - (np.minimum(nx, 1 - nx) + np.minimum(ny, 1 - ny)) * 3.8, 0, 1)
+    wave = 0.5 + 0.5 * (
+        0.45 * np.sin(grid_x * 0.05 + 0.8)
+        + 0.35 * np.sin(grid_y * 0.08 + 0.4)
+        + 0.20 * np.sin(grid_x * 0.15 + grid_y * 0.1)
+    )
+    span = float(min(x1 - x0, y1 - y0))
+    depth = np.clip(span * (0.010 + 0.016 * corner) * (0.45 + 0.55 * wave), 5, 20)
+    red = rgb[:, :, 0].astype(np.int16)
+    green = rgb[:, :, 1].astype(np.int16)
+    blue = rgb[:, :, 2].astype(np.int16)
+    lum = np.maximum(np.maximum(red, green), blue)
+    scenic = (lum >= 64) | ((green > 75) & (green > blue + 12)) | ((red > 100) & (red > blue + 18))
+    # Screen-frame glow is blue-dominant or purple. Waterfalls stay, they are bright green too.
+    frame_blue = (blue > red + 12) & (blue > green + 8) & (blue > 55) & (green < 150)
+    frame_purple = (red > 110) & (blue > 100) & (green + 25 < red) & (green + 15 < blue)
+    scenic &= ~frame_blue & ~frame_purple
+    overhang = hole & (inside > 0) & (inside <= depth) & (near_y >= 0) & ~protect
+    step = np.clip(depth - inside, 0, 16)
+    mag = np.maximum(inside, 1).astype(np.float32)
+    ux = (near_x.astype(np.float32) - grid_x) / mag
+    uy = (near_y.astype(np.float32) - grid_y) / mag
+    sample_x = np.clip(np.rint(near_x + ux * step).astype(np.int32), 0, width - 1)
+    sample_y = np.clip(np.rint(near_y + uy * step).astype(np.int32), 0, height - 1)
+    ok = (~hole[sample_y, sample_x]) & scenic[sample_y, sample_x] & ~protect[sample_y, sample_x]
+    paint = overhang & ok
+    return paint, sample_y, sample_x
+
+
+def enlarge_screen(image: Image.Image, frame_id: str, raw: dict[str, int] | None = None) -> dict[str, int]:
+    """Bounding box of the transparent opening. The pad and the menu stay outside it."""
+    raw = raw or measure_screen(image)
+    hole = opening_mask(image, frame_id, raw)
+    ys, xs = np.where(hole)
+    if len(xs) == 0:
+        return raw
+    x0, x1 = int(xs.min()), int(xs.max())
+    y0, y1 = int(ys.min()), int(ys.max())
+    return {"x": x0, "y": y0, "width": x1 - x0 + 1, "height": y1 - y0 + 1}
+
+
+def cut_hole(image: Image.Image, screen: dict[str, int], lip: int = 0,
+             bottom_keep: int = 0, frame_id: str | None = None) -> Image.Image:
+    """Remove the rectangular screen frame and lay scenery over the irregular edge.
+
+    `screen`, `lip`, and `bottom_keep` stay in the signature for older callers.
+    The opening is measured from the art. There is no drawn bezel to paint back.
+    """
+    del screen, lip, bottom_keep
+    if frame_id is None:
+        frame_id = "genesis"
     original = np.array(image.convert("RGBA"))
+    rgb = original[:, :, :3]
+    raw = measure_screen(image)
+    hole = opening_mask(image, frame_id, raw)
+    protect = _protected(image, frame_id, raw)
     output = original.copy()
-    x, y, w, h = int(screen["x"]), int(screen["y"]), int(screen["width"]), int(screen["height"])
-    height, width = original.shape[:2]
-    output[y:y + h, x:x + w, 3] = 0
-    mask = _organic_mask(h, w)
-    ys, xs = np.where(mask)
-    for py, px in zip(ys.tolist(), xs.tolist()):
-        if px < w * 0.5 and px <= py and px <= (h - 1 - py):
-            sx, sy = x - 1, y + py
-        elif (w - 1 - px) < w * 0.5 and (w - 1 - px) <= py and (w - 1 - px) <= (h - 1 - py):
-            sx, sy = x + w, y + py
-        elif py < h * 0.5:
-            sx, sy = x + px, y - 1
-        else:
-            sx, sy = x + px, y + h
-        if not (0 <= sx < width and 0 <= sy < height):
-            continue
-        pixel = original[sy, sx]
-        if int(pixel[:3].max()) < 20:
-            continue
-        output[y + py, x + px] = pixel
+    output[hole, 3] = 0
+    paint, sample_y, sample_x = _scenery_overhang(rgb, hole, protect)
+    output[paint, :3] = rgb[sample_y[paint], sample_x[paint]]
+    output[paint, 3] = 255
+    _cover_frame_beside_buddy(output, image, frame_id, raw)
     return Image.fromarray(output, "RGBA")
+
+
+def _cover_frame_beside_buddy(output: np.ndarray, image: Image.Image, frame_id: str,
+                              raw: dict[str, int]) -> None:
+    """The menu starts where the old right-hand frame still is. Paint that strip with scenery.
+
+    The opening itself stops before the menu so the game rectangle cannot cover it.
+    """
+    menu = PLACEMENTS[frame_id]["menu"]
+    well = buddy_well_rect(image, frame_id)
+    limit_x = min(int(menu["x"]), int(well["x"])) - 4
+    stop = int(well["x"]) - 2
+    if limit_x >= stop:
+        return
+    red = output[:, :, 0].astype(np.int16)
+    green = output[:, :, 1].astype(np.int16)
+    blue = output[:, :, 2].astype(np.int16)
+    chrome = (blue > red + 12) & (blue > green + 8) & (blue > 70)
+    purple = (red > 110) & (blue > 100) & (green + 20 < red) & (green + 10 < blue)
+    frame = chrome | purple
+    cy = int(raw["y"] + raw["height"] // 2)
+    donor = None
+    for x in range(limit_x + 8, stop):
+        if not frame[cy, x]:
+            donor = x
+            break
+    if donor is None:
+        return
+    take = frame[:, limit_x:donor]
+    if not take.any():
+        return
+    copied = output[:, donor, :].copy()
+    for x in range(limit_x, donor):
+        column = take[:, x - limit_x]
+        output[column, x] = copied[column]
 
 
 def scale_rect(rect: dict[str, int], target: tuple[int, int]) -> dict[str, int]:
@@ -329,15 +557,13 @@ def paste_head(image: Image.Image, head: Image.Image, box: dict[str, int]) -> Im
 
 def punch_screen(image: Image.Image, screen: dict[str, int], threshold: int = 18,
                  frame_id: str | None = None) -> Image.Image:
-    """Cut the game window, then lay the frame's own bezel back over the edge.
+    """Cut the rectangular screen frame out and let scenery overhang the opening.
 
-    `threshold` is kept so older callers stay valid. The hole itself is cleared
-    fully. A few pixels of this frame's bezel are painted back on every side,
-    and the controller overlap stays along the bottom.
+    `threshold` and `screen` stay so older callers remain valid. The frame art
+    is not painted back.
     """
     del threshold
-    keep = CONTROLLER_OVERLAP.get(frame_id, 8) if frame_id else 8
-    return cut_hole(image, screen, BEZEL_OVERHANG, keep)
+    return cut_hole(image, screen, frame_id=frame_id or "genesis")
 
 
 def build_metadata() -> dict:

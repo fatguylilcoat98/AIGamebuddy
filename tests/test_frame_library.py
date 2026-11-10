@@ -5,14 +5,11 @@ from PIL import Image
 
 from backend.frame_library import (
     ASPECT_RATIO_CUSTOM,
-    CONTROLLER_OVERLAP,
-    SIDE_GROW,
     FRAME_DIR,
     FRAME_FILES,
     SYSTEM_ALIASES,
     buddy_well_rect,
     clear_painted_head,
-    controller_top,
     enlarge_screen,
     frame_for_system,
     hologram_blue_pixels,
@@ -64,8 +61,10 @@ def test_measured_screen_matches_metadata_and_keeps_the_controller():
         alpha = hole[:, :, 3]
         inner = alpha[int(h * 0.2):int(h * 0.8), int(w * 0.2):int(w * 0.8)]
         assert int((inner > 16).sum()) == 0
-        opaque = int((alpha > 200).sum())
-        assert 0 < opaque < int(w * h * 0.08)
+        # The pad may cover the bottom edge. Scenery above that stays a thin overhang.
+        above = alpha[:int(h * 0.82), :]
+        opaque = int((above > 200).sum())
+        assert 0 < opaque < int(above.size * 0.15)
         buddy = metadata["frames"][frame_id]["buddy"]
         menu = metadata["frames"][frame_id]["menu"]
         assert buddy["y"] + buddy["height"] <= menu["y"] + 8

@@ -144,12 +144,23 @@ while ((Get-Date) -lt $deadline) {
     if ($ra) { break }
     Start-Sleep -Seconds 1
 }
+function Write-BuddyLogs {
+    foreach ($log in @(
+        (Join-Path $env:LOCALAPPDATA "Buddy\logs\buddy.log"),
+        (Join-Path $env:LOCALAPPDATA "Buddy\logs\startup.log"),
+        (Join-Path $env:LOCALAPPDATA "VideoGameWingman\buddy.log")
+    )) {
+        if (Test-Path $log) {
+            Write-Host "---- $log ----"
+            Get-Content $log -Tail 50
+        }
+    }
+}
 if (-not $ra) {
-    $log = Join-Path $env:LOCALAPPDATA "Buddy\logs\buddy.log"
-    if (Test-Path $log) { Get-Content $log -Tail 40 }
+    Write-BuddyLogs
     throw "RetroArch did not start with the Super NES test ROM"
 }
-Start-Sleep -Seconds 8
+Start-Sleep -Seconds 12
 $gameShot = Join-Path $shotDir "snes-frame-retroarch.jpg"
 Save-Screen $gameShot
 Write-Host "Frame screenshot $gameShot"
@@ -183,7 +194,10 @@ Write-Host "RetroArch menu screenshot $raShot"
 $env:BUDDY_GAME_SHOT = $gameShot
 $env:BUDDY_MENU_SHOT = $raShot
 & $python $smokePy compare
-if ($LASTEXITCODE -ne 0) { throw "RetroArch menu was not visible in the opening" }
+if ($LASTEXITCODE -ne 0) {
+    Write-BuddyLogs
+    throw "RetroArch menu was not visible in the opening"
+}
 
 Send-Smoke "exit"
 $limit = (Get-Date).AddSeconds(25)

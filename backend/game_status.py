@@ -153,8 +153,10 @@ def runtime_cfg_lines(retroarch_exe: str) -> list[str]:
     from .retroarch_menu import QUICK_MENU_LINES
     lines.extend(QUICK_MENU_LINES)
     if os.environ.get("BUDDY_SMOKE_CMD"):
-        # The Windows runner draws with Direct3D. Chris's PC keeps RetroArch's own driver.
-        lines.append('video_driver = "d3d11"')
+        # The Windows runner has no dependable GPU driver. GDI still opens a window.
+        # Chris's PC keeps RetroArch's own driver.
+        lines.append('video_driver = "gdi"')
+        lines.append('video_vsync = "false"')
     if retroarch_exe:
         relative = shader_relative(Path(retroarch_exe).resolve().parent)
         if relative:

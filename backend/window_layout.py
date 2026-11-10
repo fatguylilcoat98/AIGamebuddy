@@ -156,6 +156,45 @@ def strip_window_decorations(hwnd: int) -> str:
         return "failed"
 
 
+def visible_hwnd_for_pid(pid: int) -> int | None:
+    """Largest visible top-level window owned by `pid`. Used when the class name is odd."""
+    if os.name != "nt" or not pid:
+        return None
+    try:
+        import ctypes
+        from ctypes import wintypes
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+
+        class RECT(ctypes.Structure):
+            _fields_ = [("left", wintypes.LONG), ("top", wintypes.LONG),
+                        ("right", wintypes.LONG), ("bottom", wintypes.LONG)]
+
+        best = [0, 0]
+
+        @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+        def visit(hwnd, _lparam):
+            if not user32.IsWindowVisible(hwnd):
+                return True
+            owner = wintypes.DWORD()
+            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(owner))
+            if int(owner.value) != int(pid):
+                return True
+            rect = RECT()
+            if not user32.GetWindowRect(hwnd, ctypes.byref(rect)):
+                return True
+            area = max(0, int(rect.right) - int(rect.left)) * max(0, int(rect.bottom) - int(rect.top))
+            if area > best[0]:
+                best[0] = area
+                best[1] = int(hwnd)
+            return True
+
+        user32.EnumWindows(visit, 0)
+        return int(best[1]) or None
+    except Exception as exc:
+        log.warning("Could not find a window for pid %s: %s", pid, exc)
+        return None
+
+
 def list_window_details() -> list[tuple[int, str, str]]:
     """(hwnd, executable, class name) for visible top-level windows."""
     if os.name != "nt":

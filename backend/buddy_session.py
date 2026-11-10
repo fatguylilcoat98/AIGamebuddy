@@ -623,8 +623,14 @@ class BuddySession:
 
     def _emulator_hwnd(self) -> int | None:
         from .retroarch_finder import select_game_hwnd
+        from .window_layout import visible_hwnd_for_pid
         windows = self.window_source() if self.window_source else list_window_details()
-        return select_game_hwnd(windows, self.overlay_hwnds)
+        found = select_game_hwnd(windows, self.overlay_hwnds)
+        if found:
+            return found
+        if self.retroarch_pid:
+            return visible_hwnd_for_pid(self.retroarch_pid)
+        return None
 
     def _window_rect(self, hwnd: int):
         if self.rect_source:

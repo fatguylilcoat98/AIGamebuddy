@@ -78,11 +78,21 @@ def test_foreground_window_is_not_moved():
 
 def test_load_a_game_and_the_head_stay_in_the_buddy_box():
     import numpy as np
-    from backend.frame_library import PLACEMENTS
+    from backend.frame_library import DESIGN, frame_record
     from backend.overlay_view import compose_overlay
-    from backend.frame_library import frame_record
-    well = frame_record("snes")["well"]
-    hole = frame_record("snes")["screen"]
+    sx = 1280 / DESIGN["width"]
+    sy = 720 / DESIGN["height"]
+
+    def place(rect):
+        return {
+            "x": int(round(rect["x"] * sx)),
+            "y": int(round(rect["y"] * sy)),
+            "width": int(round(rect["width"] * sx)),
+            "height": int(round(rect["height"] * sy)),
+        }
+
+    well = place(frame_record("snes")["well"])
+    hole = place(frame_record("snes")["screen"])
     idle = np.array(compose_overlay("snes", (1280, 720), expression="idle", game_running=False))
     talk = np.array(compose_overlay("snes", (1280, 720), expression="talk", mouth=0.9, game_running=False))
     cx = hole["x"] + hole["width"] // 2

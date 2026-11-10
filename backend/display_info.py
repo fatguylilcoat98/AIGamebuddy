@@ -112,14 +112,15 @@ def window_covers_monitor(window: dict, monitor: dict, tolerance: int = 8) -> bo
 def hole_screen_rect(frame_screen: dict, monitor: tuple[int, int, int, int]) -> tuple[int, int, int, int]:
     """Game hole in physical screen pixels.
 
-    `monitor` is (left, top, width, height). The 1280x720 screen rect is scaled
-    with the same letterbox transform as the overlay art.
+    `monitor` is (left, top, width, height). The screen rect is in design pixels
+    and uses the same letterbox transform as the overlay art.
     """
     from .capture_safety import fit_frame
+    from .frame_library import DESIGN
     left, top, width, height = monitor
     origin_x, origin_y, frame_w, frame_h = fit_frame((width, height))
-    sx = frame_w / 1280
-    sy = frame_h / 720
+    sx = frame_w / DESIGN["width"]
+    sy = frame_h / DESIGN["height"]
     return (
         int(left + origin_x + round(frame_screen["x"] * sx)),
         int(top + origin_y + round(frame_screen["y"] * sy)),

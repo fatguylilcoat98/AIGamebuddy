@@ -27,9 +27,9 @@ MUTED = (170, 164, 186)
 RED = (255, 132, 122)
 GREEN = (128, 214, 156)
 FRAME_FILES = {
-    "genesis": "genesis-16bit.jpg",
-    "nes": "nes-8bit-dungeon.jpg",
-    "snes": "snes-sky-kingdom.jpg",
+    "genesis": "genesis-16bit.png",
+    "nes": "nes-8bit-dungeon.png",
+    "snes": "snes-sky-kingdom.png",
 }
 
 SHOTS = (

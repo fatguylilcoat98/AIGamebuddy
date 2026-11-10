@@ -24,9 +24,9 @@ METADATA_PATH = FRAME_DIR / "metadata.json"
 # Aliases are the system id Buddy already detects, plus the names Chris uses.
 # Add a console by appending a frame entry and its aliases. See the README.
 FRAME_FILES = {
-    "genesis": "genesis-16bit.jpg",
-    "nes": "nes-8bit-dungeon.jpg",
-    "snes": "snes-sky-kingdom.jpg",
+    "genesis": "genesis-16bit.png",
+    "nes": "nes-8bit-dungeon.png",
+    "snes": "snes-sky-kingdom.png",
 }
 
 SYSTEM_ALIASES = {
@@ -41,26 +41,24 @@ SYSTEM_ALIASES = {
     "super famicom": "snes",
 }
 
-# Portrait and menu, in source pixels. Tuned to the approved art so the live
-# head covers the baked face and the menu sits on the pixel bar under it.
+# Portrait and menu, in source pixels of the 2560x1440 art. The live head fills
+# the black well. The menu bar sits under it, off the game opening.
 PLACEMENTS = {
-    # buddy is the inner well only. The bezel and its glow stay outside this rect.
     "genesis": {
-        "buddy": {"x": 1032, "y": 348, "width": 208, "height": 232},
-        "menu": {"x": 1004, "y": 616, "width": 254, "height": 94},
+        "buddy": {"x": 2070, "y": 1024, "width": 412, "height": 224},
+        "menu": {"x": 2070, "y": 1260, "width": 412, "height": 64},
     },
     "nes": {
-        "buddy": {"x": 1036, "y": 356, "width": 200, "height": 220},
-        "menu": {"x": 1004, "y": 606, "width": 260, "height": 102},
+        "buddy": {"x": 2072, "y": 1112, "width": 336, "height": 182},
+        "menu": {"x": 2072, "y": 1306, "width": 336, "height": 64},
     },
     "snes": {
-        # Inside the black well. x>=1236 and y>=576 are the glowing bezel.
-        "buddy": {"x": 1036, "y": 340, "width": 196, "height": 232},
-        "menu": {"x": 996, "y": 598, "width": 264, "height": 110},
+        "buddy": {"x": 2166, "y": 1046, "width": 294, "height": 178},
+        "menu": {"x": 2166, "y": 1236, "width": 294, "height": 64},
     },
 }
 
-DESIGN = {"width": 1280, "height": 720}
+DESIGN = {"width": 2560, "height": 1440}
 OUTPUTS = {"720p": (1280, 720), "1080p": (1920, 1080)}
 # RetroArch's Custom aspect entry. Confirmed as index 23 in current releases.
 ASPECT_RATIO_CUSTOM = 23
@@ -125,70 +123,33 @@ CONTROLLER_RECT = {
 }
 
 
-def _well_pixel(rgb: np.ndarray) -> np.ndarray:
-    """Dark plate, hologram glow, or the white GB letters. Not the brick bezel."""
-    red = rgb[:, :, 0].astype(np.int16)
-    green = rgb[:, :, 1].astype(np.int16)
-    blue = rgb[:, :, 2].astype(np.int16)
-    peak = np.maximum(np.maximum(red, green), blue)
-    dark = peak <= 58
-    glow = (blue > 85) & (blue > red + 40) & (green > 25)
-    letters = (red > 185) & (green > 185) & (blue > 185)
-    return dark | glow | letters
-
-
 def buddy_well_rect(image: Image.Image, frame_id: str) -> dict[str, int]:
-    """Inner plate of Buddy's box, expanded until the bezel. The bezel stays."""
-    rgb = np.asarray(image.convert("RGB"))
-    well = _well_pixel(rgb)
+    """The black portrait plate. It stays the authored rectangle so it cannot swallow the opening."""
     box = PLACEMENTS[frame_id]["buddy"]
-    x0, y0 = int(box["x"]), int(box["y"])
-    x1, y1 = x0 + int(box["width"]), y0 + int(box["height"])
-    height, width = well.shape
-
-    def edge_ok(side: str, nx0: int, ny0: int, nx1: int, ny1: int) -> bool:
-        if side == "left":
-            strip = well[ny0:ny1, nx0]
-        elif side == "right":
-            strip = well[ny0:ny1, nx1 - 1]
-        elif side == "top":
-            strip = well[ny0, nx0:nx1]
-        else:
-            strip = well[ny1 - 1, nx0:nx1]
-        return bool(strip.size) and float(strip.mean()) > 0.72
-
-    for _ in range(48):
-        grew = False
-        if x0 > 1 and edge_ok("left", x0 - 1, y0, x1, y1):
-            x0 -= 1
-            grew = True
-        if x1 < width - 1 and edge_ok("right", x0, y0, x1 + 1, y1):
-            x1 += 1
-            grew = True
-        if y0 > 1 and edge_ok("top", x0, y0 - 1, x1, y1):
-            y0 -= 1
-            grew = True
-        if y1 < height - 1 and edge_ok("bottom", x0, y0, x1, y1 + 1):
-            y1 += 1
-            grew = True
-        if not grew:
-            break
-    return {"x": x0, "y": y0, "width": x1 - x0, "height": y1 - y0}
+    width, height = image.size
+    x = max(0, min(int(box["x"]), width - 1))
+    y = max(0, min(int(box["y"]), height - 1))
+    return {
+        "x": x,
+        "y": y,
+        "width": max(1, min(int(box["width"]), width - x)),
+        "height": max(1, min(int(box["height"]), height - y)),
+    }
 
 
 def clear_painted_head(image: Image.Image, frame_id: str) -> Image.Image:
-    """Replace the baked hologram with the well's dark plate. The bezel stays."""
-    rgb = np.asarray(image.convert("RGB")).copy()
+    """Replace a baked hologram with the well's dark plate. The opening's alpha stays."""
+    rgba = np.array(image.convert("RGBA")).copy()
     rect = buddy_well_rect(image, frame_id)
     x, y, w, h = rect["x"], rect["y"], rect["width"], rect["height"]
-    sample = rgb[y:y + h, x:x + w]
+    sample = rgba[y:y + h, x:x + w, :3]
     dark = sample.max(axis=2) <= 40
     if dark.any():
         color = np.median(sample[dark], axis=0).astype(np.uint8)
     else:
         color = np.array([0, 0, 10], dtype=np.uint8)
-    rgb[y:y + h, x:x + w] = color
-    return Image.fromarray(rgb, "RGB")
+    rgba[y:y + h, x:x + w, :3] = color
+    return Image.fromarray(rgba, "RGBA")
 
 
 def hologram_blue_pixels(image: Image.Image, rect: dict[str, int]) -> int:
@@ -443,16 +404,34 @@ def _scenery_overhang(rgb: np.ndarray, hole: np.ndarray, protect: np.ndarray) ->
     return paint, sample_y, sample_x
 
 
+def authored_opening(image: Image.Image) -> np.ndarray | None:
+    """The transparent game hole, when the art already has one."""
+    if image.mode != "RGBA":
+        return None
+    hole = np.asarray(image)[:, :, 3] < 16
+    if int(hole.sum()) < int(hole.size * 0.15):
+        return None
+    return hole
+
+
+def _bbox(mask: np.ndarray) -> dict[str, int]:
+    ys, xs = np.where(mask)
+    x0, x1 = int(xs.min()), int(xs.max())
+    y0, y1 = int(ys.min()), int(ys.max())
+    return {"x": x0, "y": y0, "width": x1 - x0 + 1, "height": y1 - y0 + 1}
+
+
 def enlarge_screen(image: Image.Image, frame_id: str, raw: dict[str, int] | None = None) -> dict[str, int]:
     """Bounding box of the transparent opening. The pad and the menu stay outside it."""
+    authored = authored_opening(image)
+    if authored is not None:
+        return _bbox(authored)
     raw = raw or measure_screen(image)
     hole = opening_mask(image, frame_id, raw)
     ys, xs = np.where(hole)
     if len(xs) == 0:
         return raw
-    x0, x1 = int(xs.min()), int(xs.max())
-    y0, y1 = int(ys.min()), int(ys.max())
-    return {"x": x0, "y": y0, "width": x1 - x0 + 1, "height": y1 - y0 + 1}
+    return _bbox(hole)
 
 
 def cut_hole(image: Image.Image, screen: dict[str, int], lip: int = 0,
@@ -557,12 +536,13 @@ def paste_head(image: Image.Image, head: Image.Image, box: dict[str, int]) -> Im
 
 def punch_screen(image: Image.Image, screen: dict[str, int], threshold: int = 18,
                  frame_id: str | None = None) -> Image.Image:
-    """Cut the rectangular screen frame out and let scenery overhang the opening.
+    """Keep an authored alpha opening. Older art still gets the measured cut.
 
-    `threshold` and `screen` stay so older callers remain valid. The frame art
-    is not painted back.
+    `threshold` and `screen` stay so older callers remain valid.
     """
     del threshold
+    if authored_opening(image) is not None:
+        return image.convert("RGBA")
     return cut_hole(image, screen, frame_id=frame_id or "genesis")
 
 

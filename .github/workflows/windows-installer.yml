@@ -66,7 +66,7 @@ jobs:
           Write-Host "CTRANSLATE2"
           $ct2 | ForEach-Object { $_.FullName }
           if (-not $assets) { throw "assets were not bundled" }
-          if (-not ($assets | Where-Object { $_.Name -eq "nes-8bit-dungeon.jpg" })) { throw "frame art was not bundled" }
+          if (-not ($assets | Where-Object { $_.Name -eq "nes-8bit-dungeon.png" })) { throw "frame art was not bundled" }
           if (-not $portaudio) { throw "PortAudio DLL was not bundled" }
           if (-not $ct2) { throw "ctranslate2 binary was not bundled" }
       - name: Install Inno Setup

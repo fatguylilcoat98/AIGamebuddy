@@ -442,15 +442,13 @@ def brim_faces_left(image: Image.Image) -> bool:
 
 
 def frame_rest_pose() -> Image.Image:
-    """Unmirrored head from the approved SNES frame. The brim already points left.
+    """Unmirrored GB-cap head. The brim already points left.
 
-    The crop is the inner well only. The bezel and its glow stay out of the sprite.
+    The new frames leave the well empty, so this is the saved cut of that pose.
     """
-    from .frame_library import FRAME_DIR, PLACEMENTS
-    box = PLACEMENTS["snes"]["buddy"]
-    image = Image.open(FRAME_DIR / "snes-sky-kingdom.jpg").convert("RGB")
-    x, y, w, h = box["x"], box["y"], box["width"], box["height"]
-    return key_black(image.crop((x, y, x + w, y + h)))
+    from .config_loader import ROOT
+    image = Image.open(ROOT / "assets" / "hologram" / "male-rest-from-frame.png").convert("RGB")
+    return key_black(image)
 
 
 def get_art(character: str = "male") -> CharacterArt:

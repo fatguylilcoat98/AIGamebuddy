@@ -86,7 +86,8 @@ def test_hole_rect_uses_the_same_letterbox_as_the_overlay():
     scaled = scale_rect(screen, (1920, 1080))
     assert exact == (scaled["x"], scaled["y"], scaled["width"], scaled["height"])
     # 2560x1080 letterboxes a 1920x1080 frame. Independent x/y scale would be wrong.
-    wide = hole_screen_rect({"x": 40, "y": 20, "width": 800, "height": 600}, (1920, 0, 2560, 1080))
+    # Design pixels scale with the letterboxed frame, not with the raw monitor.
+    wide = hole_screen_rect({"x": 80, "y": 40, "width": 1600, "height": 1200}, (1920, 0, 2560, 1080))
     assert wide == (1920 + 320 + 60, 30, 1200, 900)
     assert not needs_replace((10, 20, 100, 80), (12, 21, 101, 82), tolerance=4)
     assert needs_replace(None, (0, 0, 10, 10))

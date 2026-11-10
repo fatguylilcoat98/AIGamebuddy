@@ -29,9 +29,9 @@ def self_test() -> int:
     print(f"resource_root={root}")
     required = [
         root / "assets" / "frames" / "metadata.json",
-        root / "assets" / "frames" / "nes-8bit-dungeon.jpg",
-        root / "assets" / "frames" / "snes-sky-kingdom.jpg",
-        root / "assets" / "frames" / "genesis-16bit.jpg",
+        root / "assets" / "frames" / "nes-8bit-dungeon.png",
+        root / "assets" / "frames" / "snes-sky-kingdom.png",
+        root / "assets" / "frames" / "genesis-16bit.png",
         root / "config" / "buddy.config.sample.json",
         root / "data" / "personalities" / "sassy" / "STYLE.md",
     ]

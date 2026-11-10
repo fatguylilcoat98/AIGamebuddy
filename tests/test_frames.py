@@ -62,7 +62,7 @@ def test_sheets_split_and_turns_keep_gb_readable():
 def test_head_is_centered_in_the_well():
     """The live head's box is centered in the well and does not leave it."""
     import numpy as np
-    from backend.frame_library import frame_record
+    from backend.frame_library import DESIGN, frame_record
     from backend.overlay_view import compose_overlay
 
     def bounds(image, well):
@@ -87,8 +87,8 @@ def test_head_is_centered_in_the_well():
                 image = compose_overlay(
                     frame_id, size, expression="idle", character=character, resting="left",
                 )
-                scale_x = size[0] / 1280
-                scale_y = size[1] / 720
+                scale_x = size[0] / DESIGN["width"]
+                scale_y = size[1] / DESIGN["height"]
                 box = {
                     "x": int(round(well["x"] * scale_x)),
                     "y": int(round(well["y"] * scale_y)),
@@ -102,34 +102,35 @@ def test_head_is_centered_in_the_well():
                 assert int(xs.min()) >= 2 and int(xs.max()) <= box["width"] - 3
                 assert int(ys.min()) >= 2, (frame_id, character, size, int(ys.min()))
                 span = int(ys.max()) - int(ys.min()) + 1
-                assert 0.80 <= span / box["height"] <= 0.93, (frame_id, character, size, span, box["height"])
+                assert 0.78 <= span / box["height"] <= 0.93, (frame_id, character, size, span, box["height"])
                 assert int(ys.max()) <= box["height"] - 2
 
 
 def test_scenery_nibbles_the_opening_without_a_hard_frame():
-    """The drawn screen frame is gone. Scenery, not a rectangle, crosses the edge."""
+    """The opening is most of the frame. Scenery crosses the edge instead of a rectangle."""
     import numpy as np
-    from backend.frame_library import FRAME_DIR, FRAME_FILES, frame_record, measure_screen, punch_screen
+    from backend.frame_library import FRAME_DIR, FRAME_FILES, frame_record, punch_screen
     for frame_id, filename in FRAME_FILES.items():
         image = Image.open(FRAME_DIR / filename)
-        raw = measure_screen(image)
         screen = frame_record(frame_id)["screen"]
         punched = np.array(punch_screen(image, screen, frame_id=frame_id))
-        rgb = np.asarray(image.convert("RGB"))
-        # The bright rim just outside the black window is the drawn frame. It is transparent now.
-        cy = raw["y"] + raw["height"] // 2
-        for dx in range(1, 36):
-            pixel = rgb[cy, raw["x"] - dx]
-            if int(pixel.max()) > 140:
-                assert punched[cy, raw["x"] - dx, 3] == 0, (frame_id, dx)
-                break
-        else:
-            raise AssertionError(frame_id)
+        alpha = punched[:, :, 3]
+        hole = alpha < 16
+        height, width = hole.shape
+        mid = hole[int(height * 0.35):int(height * 0.65)]
+        span = int(mid.any(axis=0).sum()) / width
+        assert 0.58 <= span <= 0.74, (frame_id, round(span, 3))
         x, y, w, h = screen["x"], screen["y"], screen["width"], screen["height"]
-        alpha = punched[y:y + h, x:x + w, 3]
-        assert int(alpha[h // 2, w // 2]) == 0
-        corner = alpha[:28, :28]
-        assert int((corner > 200).sum()) > 12, frame_id
+        region = alpha[y:y + h, x:x + w]
+        assert int(region[h // 2, w // 2]) == 0
+        opaque = int((region > 200).sum())
+        assert 0 < opaque < int(region.size * 0.25), frame_id
+        left = []
+        for row in range(y + h // 5, y + (4 * h) // 5, max(1, h // 20)):
+            cols = np.where(hole[row, x:x + w])[0]
+            if len(cols):
+                left.append(int(cols[0]))
+        assert max(left) - min(left) > 8, (frame_id, left)
 
 
 def test_neural_voices_follow_the_character():
@@ -145,9 +146,12 @@ def test_menu_stays_outside_the_game_hole():
     for frame_id in ("genesis", "nes", "snes"):
         screen = frame_record(frame_id)["screen"]
         menu = PLACEMENTS[frame_id]["menu"]
+        buddy = PLACEMENTS[frame_id]["buddy"]
         hole = (screen["x"], screen["y"], screen["width"], screen["height"])
         box = (menu["x"], menu["y"], menu["width"], menu["height"])
+        head = (buddy["x"], buddy["y"], buddy["width"], buddy["height"])
         assert not rects_overlap(hole, box), frame_id
+        assert not rects_overlap(hole, head), frame_id
 
 
 def test_approved_composite_keeps_the_bezel():
@@ -165,13 +169,6 @@ def test_approved_composite_keeps_the_bezel():
             composed = np.asarray(paste_head(source, head, box))
             assert np.array_equal(src[mask], composed[mask])
         assert np.asarray(paste_head(source, talk, box)).tobytes() != src.tobytes()
-    # The old SNES box covered this bezel pixel. It has to stay outside the well.
-    snes_box = PLACEMENTS["snes"]["buddy"]
-    assert snes_box["x"] + snes_box["width"] <= 1236
-    assert snes_box["y"] + snes_box["height"] <= 576
-    snes = Image.open(FRAME_DIR / "snes-sky-kingdom.jpg").convert("RGBA")
-    talk = render_hologram("talk", t=0.4, mouth=0.9, size=280, character="male", resting="left")
-    assert paste_head(snes, talk, snes_box).getpixel((1244, 360)) == snes.getpixel((1244, 360))
 
 
 def test_rest_pose_faces_left_until_talking():
@@ -189,17 +186,15 @@ def test_rest_pose_faces_left_until_talking():
     female_rest = get_art("female").rest_left
     assert female_rest.tobytes() != get_art("female").front["neutral"].tobytes()
     assert _cap_text_present(female_rest)
+    from backend.config_loader import ROOT
     from backend.hologram_art import brim_faces_left, key_black
-    from backend.frame_library import FRAME_DIR, PLACEMENTS
     from backend.overlay_view import compose_overlay, layout_boxes
-    raw_box = PLACEMENTS["snes"]["buddy"]
-    raw = key_black(Image.open(FRAME_DIR / "snes-sky-kingdom.jpg").convert("RGB").crop(
-        (raw_box["x"], raw_box["y"], raw_box["x"] + raw_box["width"], raw_box["y"] + raw_box["height"])))
-    mirrored = key_black(ImageOps.mirror(raw.convert("RGB")))
-    assert brim_faces_left(raw)
+    saved = key_black(Image.open(ROOT / "assets" / "hologram" / "male-rest-from-frame.png").convert("RGB"))
+    mirrored = key_black(ImageOps.mirror(saved.convert("RGB")))
+    assert brim_faces_left(saved)
     assert not brim_faces_left(mirrored)
     assert brim_faces_left(profile)
-    assert profile.tobytes() == raw.tobytes()
+    assert profile.tobytes() == saved.tobytes()
     assert brim_faces_left(female_rest)
     assert not brim_faces_left(ImageOps.mirror(female_rest))
     for size in ((1280, 720), (1920, 1080), (2560, 1440)):

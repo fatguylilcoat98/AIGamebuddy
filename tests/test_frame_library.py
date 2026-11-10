@@ -76,7 +76,7 @@ def test_viewports_and_retroarch_flags():
     for frame_id, record in metadata["frames"].items():
         view_720 = record["viewports"]["720p"]
         view_1080 = record["viewports"]["1080p"]
-        assert view_720 == record["screen"]
+        assert view_720 == scale_rect(record["screen"], (1280, 720))
         scaled = scale_rect(record["screen"], (1920, 1080))
         assert view_1080 == scaled
         cfg = (FRAME_DIR / "retroarch" / f"{frame_id}-1080p.cfg").read_text(encoding="utf-8")
@@ -115,4 +115,4 @@ def test_painted_head_clears_without_eating_the_corner():
         cleared = clear_painted_head(image, frame_id)
         well = buddy_well_rect(image, frame_id)
         assert hologram_blue_pixels(cleared, well) == 0
-        assert cleared.getpixel((2, 2)) == image.convert("RGB").getpixel((2, 2))
+        assert cleared.convert("RGB").getpixel((2, 2)) == image.convert("RGB").getpixel((2, 2))

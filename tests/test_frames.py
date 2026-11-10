@@ -71,7 +71,12 @@ def test_head_is_centered_in_the_well():
         red = crop[:, :, 0].astype(int)
         blue = crop[:, :, 2].astype(int)
         green = crop[:, :, 1].astype(int)
-        mask = (blue > 70) & (blue > red + 25) & (green > 15)
+        mask = (blue > 90) & (blue > red + 40) & (green > 30)
+        rim = max(4, crop.shape[0] // 18)
+        mask[:rim, :] = False
+        mask[-rim:, :] = False
+        mask[:, :rim] = False
+        mask[:, -rim:] = False
         ys, xs = np.where(mask)
         return xs, ys
 
@@ -95,25 +100,46 @@ def test_head_is_centered_in_the_well():
                 center = (int(xs.min()) + int(xs.max())) / 2
                 assert abs(center - box["width"] / 2) <= limit, (frame_id, character, size, center)
                 assert int(xs.min()) >= 2 and int(xs.max()) <= box["width"] - 3
-                assert int(ys.min()) >= 6, (frame_id, character, size, int(ys.min()))
-                assert int(ys.max()) <= box["height"] - 4
+                assert int(ys.min()) >= 2, (frame_id, character, size, int(ys.min()))
+                span = int(ys.max()) - int(ys.min()) + 1
+                assert 0.80 <= span / box["height"] <= 0.93, (frame_id, character, size, span, box["height"])
+                assert int(ys.max()) <= box["height"] - 2
 
 
-def test_bezel_overhangs_the_hole():
+def test_scenery_nibbles_the_opening_without_a_hard_frame():
+    """Corners can hold scenery. A solid rectangular lip must not."""
     import numpy as np
-    from backend.frame_library import BEZEL_OVERHANG, FRAME_DIR, FRAME_FILES, frame_record, punch_screen
+    from backend.frame_library import FRAME_DIR, FRAME_FILES, frame_record, punch_screen
     for frame_id, filename in FRAME_FILES.items():
         image = Image.open(FRAME_DIR / filename)
         screen = frame_record(frame_id)["screen"]
         punched = np.array(punch_screen(image, screen, frame_id=frame_id))
         x, y, w, h = screen["x"], screen["y"], screen["width"], screen["height"]
-        lip = BEZEL_OVERHANG
-        top = punched[y:y + lip, x + lip:x + w - lip, 3]
-        left = punched[y + lip:y + h - lip, x:x + lip, 3]
-        assert int((top > 200).sum()) > 10, frame_id
-        assert int((left > 200).sum()) > 10, frame_id
-        center = punched[y + h // 2, x + w // 2, 3]
-        assert int(center) == 0
+        alpha = punched[y:y + h, x:x + w, 3]
+        assert int(alpha[h // 2, w // 2]) == 0
+        edge = np.concatenate([
+            alpha[:3, :].ravel(), alpha[-3:, :].ravel(), alpha[:, :3].ravel(), alpha[:, -3:].ravel(),
+        ])
+        # A drawn bezel would make this ring almost fully opaque.
+        assert float((edge > 200).mean()) < 0.85, frame_id
+
+
+def test_neural_voices_follow_the_character():
+    from backend.audio_out import neural_voice
+    assert neural_voice("male") == "en-US-GuyNeural"
+    assert neural_voice("female") == "en-US-JennyNeural"
+    assert neural_voice("nope") == "en-US-GuyNeural"
+
+
+def test_menu_stays_outside_the_game_hole():
+    from backend.frame_library import PLACEMENTS, frame_record
+    from backend.overlay_view import rects_overlap
+    for frame_id in ("genesis", "nes", "snes"):
+        screen = frame_record(frame_id)["screen"]
+        menu = PLACEMENTS[frame_id]["menu"]
+        hole = (screen["x"], screen["y"], screen["width"], screen["height"])
+        box = (menu["x"], menu["y"], menu["width"], menu["height"])
+        assert not rects_overlap(hole, box), frame_id
 
 
 def test_approved_composite_keeps_the_bezel():

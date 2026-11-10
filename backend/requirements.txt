@@ -11,6 +11,8 @@ Pillow>=10,<13
 numpy>=1.26,<3
 sounddevice>=0.5,<1
 faster-whisper>=1.1,<2
+edge-tts>=6.1,<8
+miniaudio>=1.59,<2
 
 # Buddy's Windows speech output uses built-in PowerShell/System.Speech.
 # The vision and dialogue services use Python's standard-library HTTP client.

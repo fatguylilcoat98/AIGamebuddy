@@ -283,7 +283,7 @@ def run_overlay(session) -> None:
         menu_box = boxes["menu"]
         head_box = boxes["head"]
         menu.place(x=menu_box["x"], y=menu_box["y"], width=menu_box["width"], height=menu_box["height"])
-        head_label.place(x=head_box["x"], y=head_box["y"], width=head_box["width"], height=head_box["height"])
+        head_label.place_forget()
         if _show_find():
             button = band_slots(boxes)["button"]
             find_btn.place(x=button["x"], y=button["y"], width=button["width"], height=button["height"])
@@ -300,15 +300,13 @@ def run_overlay(session) -> None:
         menu.lift()
 
     def _rebuild_static():
-        image = static_frame(
+        holder["static"] = static_frame(
             _frame_id(), holder["target"], game_running=holder["game"], notice=session.retroarch_notice,
         )
-        if os.name == "nt" and holder["game"]:
-            image = chroma_key(image)
-        holder["photo"] = ImageTk.PhotoImage(image)
-        background.configure(image=holder["photo"])
         place_chrome()
         _cut_hole()
+        _keep_menu_clickable()
+        _present(_live_frame())
 
     def _browse_retroarch():
         logging.getLogger("buddy.overlay").info("Click: Find RetroArch")
@@ -335,25 +333,43 @@ def run_overlay(session) -> None:
         _rebuild_static()
         threading.Thread(target=work, daemon=True).start()
 
-    def _paint_head():
+    def _live_frame():
+        """One offscreen frame. The window image is updated in place, not rebuilt."""
+        base = holder.get("static")
+        if base is None:
+            return None
+        image = base.copy()
         boxes = layout_boxes(
             _frame_id(), holder["target"], game_running=holder["game"], reserve_button=_show_find(),
         )
-        head_box = boxes["head"]
+        well = boxes["buddy"]
         hud = session.hud()
         expression = hud["expression"]
-        mouth = hud["mouth"] if hud["mouth"] else (0.55 if expression == "talk" else 0.0)
+        mouth = hud["mouth"] if hud["mouth"] else (0.62 if expression == "talk" else 0.0)
         head = render_hologram(
             expression, t=session.clock.mono(), mouth=mouth, gaze=hud["gaze"],
-            size=max(head_box["width"], head_box["height"], 64),
+            size=max(well["width"], well["height"], 64),
             character=hud.get("buddy_character", "male"),
             resting=hud.get("resting_direction", "left"),
             from_expression=hud.get("from_expression"), blend=hud.get("expression_blend", 1.0),
         )
-        plate = Image.new("RGBA", (head_box["width"], head_box["height"]), (0, 0, 0, 255))
-        plate = paste_head(plate, head, {"x": 0, "y": 0, "width": head_box["width"], "height": head_box["height"]})
-        holder["head_photo"] = ImageTk.PhotoImage(plate)
-        head_label.configure(image=holder["head_photo"])
+        image = paste_head(image, head, well)
+        if os.name == "nt" and holder["game"]:
+            image = chroma_key(image)
+        return image
+
+    def _present(image):
+        if image is None:
+            return
+        photo = holder.get("photo")
+        if photo is None or photo.width() != image.width or photo.height() != image.height:
+            holder["photo"] = ImageTk.PhotoImage(image)
+            background.configure(image=holder["photo"])
+        else:
+            photo.paste(image)
+
+    def _paint_head():
+        _present(_live_frame())
 
     def animate():
         if session.closed:
@@ -364,6 +380,28 @@ def run_overlay(session) -> None:
             _rebuild_static()
         _paint_head()
         root.after(80, animate)
+
+    def _keep_menu_clickable():
+        """The game hole is the only click-through part. Buddy and the menu stay solid."""
+        if os.name != "nt":
+            return
+        try:
+            import ctypes
+            hwnd = int(root.winfo_id() or 0)
+            if not hwnd:
+                return
+            user32 = ctypes.windll.user32
+            pointer = ctypes.sizeof(ctypes.c_void_p) == 8
+            get_long = user32.GetWindowLongPtrW if pointer else user32.GetWindowLongW
+            set_long = user32.SetWindowLongPtrW if pointer else user32.SetWindowLongW
+            get_long.restype = ctypes.c_longlong if pointer else ctypes.c_long
+            set_long.restype = ctypes.c_longlong if pointer else ctypes.c_long
+            style = int(get_long(hwnd, -20))  # GWL_EXSTYLE
+            transparent = 0x20  # WS_EX_TRANSPARENT
+            if style & transparent:
+                set_long(hwnd, -20, style & ~transparent)
+        except Exception:
+            logging.getLogger("buddy.overlay").exception("Could not keep the menu clickable")
 
     def _cut_hole():
         if os.name != "nt" or not holder["game"] or session.layout != "full":

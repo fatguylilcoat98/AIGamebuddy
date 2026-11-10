@@ -80,8 +80,8 @@ def layout_boxes(frame_id: str, monitor: tuple[int, int], *, game_running: bool,
     origin_x, origin_y, frame_w, frame_h = fit_frame(monitor)
     buddy = _well_box(frame_id, (origin_x, origin_y), (frame_w, frame_h))
     menu = _box(frame_id, "menu", (origin_x, origin_y), (frame_w, frame_h))
-    fraction = 0.28 if reserve_button else 0.18
-    caption_h = 0 if game_running else max(18, int(buddy["height"] * fraction))
+    # The head uses the whole well. A find-RetroArch button is the only thing that borrows the bottom.
+    caption_h = 0 if (game_running or not reserve_button) else max(28, int(buddy["height"] * 0.22))
     head = {
         "x": buddy["x"],
         "y": buddy["y"],
@@ -136,18 +136,13 @@ def static_frame(frame_id: str, monitor: tuple[int, int], *, game_running: bool,
     array = np.array(canvas)
     array[origin_y:origin_y + frame_h, origin_x:origin_x + frame_w] = np.array(art)
     canvas = Image.fromarray(array, "RGBA")
-    # Cover the baked portrait so the live head and the prompt do not stack on it.
     boxes = layout_boxes(frame_id, monitor, game_running=game_running, reserve_button=show_button)
-    buddy = boxes["buddy"]
-    cleared = Image.new("RGBA", (buddy["width"], buddy["height"]), (0, 0, 0, 255))
-    canvas.paste(cleared, (buddy["x"], buddy["y"]))
     if not game_running:
         if show_button:
             slot = band_slots(boxes)["text"]
             _caption(canvas, slot, notice, slot["height"])
         else:
-            band = boxes["buddy"]["height"] - boxes["head"]["height"]
-            _caption(canvas, boxes["buddy"], notice or "Load a game", band)
+            _caption(canvas, boxes["menu"], notice or "", max(12, boxes["menu"]["height"] // 3))
     return canvas
 
 

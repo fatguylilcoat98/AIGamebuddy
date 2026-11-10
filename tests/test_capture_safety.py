@@ -80,24 +80,23 @@ def test_load_a_game_and_the_head_stay_in_the_buddy_box():
     import numpy as np
     from backend.frame_library import PLACEMENTS
     from backend.overlay_view import compose_overlay
-    box = PLACEMENTS["snes"]["buddy"]
-    hole = (320 + 200, 178 + 160)
+    from backend.frame_library import frame_record
+    well = frame_record("snes")["well"]
+    hole = frame_record("snes")["screen"]
     idle = np.array(compose_overlay("snes", (1280, 720), expression="idle", game_running=False))
     talk = np.array(compose_overlay("snes", (1280, 720), expression="talk", mouth=0.9, game_running=False))
-    assert max(idle[hole[1], hole[0], :3]) < 40
-    assert idle[hole[1], hole[0], 3] == 255
-    band = idle[box["y"] + box["height"] - 12:box["y"] + box["height"] - 2, box["x"]:box["x"] + box["width"]]
-    assert int((band[:, :, 0] > 180).sum()) > 10
-    # The prompt is not painted across the game opening.
-    opening = idle[178:178 + 80, 320:320 + 200]
+    cx = hole["x"] + hole["width"] // 2
+    cy = hole["y"] + hole["height"] // 2
+    assert max(idle[cy, cx, :3]) < 40
+    assert idle[cy, cx, 3] == 255
+    opening = idle[hole["y"] + 30:hole["y"] + 90, hole["x"] + 30:hole["x"] + 120]
     assert int((opening[:, :, 0] > 180).sum()) == 0
     for image, label in ((idle, "rest"), (talk, "talk")):
-        head = image[box["y"]:box["y"] + int(box["height"] * 0.78), box["x"]:box["x"] + box["width"]]
+        head = image[well["y"]:well["y"] + well["height"], well["x"]:well["x"] + well["width"]]
         bright = head.max(axis=2) > 70
         rows = np.where(bright.any(axis=1))[0]
         assert len(rows) > 10, label
-        assert rows[0] < head.shape[0] * 0.22, label
-        assert rows[-1] > head.shape[0] * 0.75, label
+        assert rows[-1] - rows[0] > well["height"] * 0.7, label
 
 
 def test_maintain_layout_refuses_to_shrink_the_overlay(tmp_path):

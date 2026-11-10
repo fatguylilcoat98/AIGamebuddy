@@ -214,49 +214,75 @@ def controller_top(image: Image.Image, screen: dict[str, int]) -> int:
 
 
 def enlarge_screen(image: Image.Image, frame_id: str, raw: dict[str, int] | None = None) -> dict[str, int]:
-    """Grow the game window into the bezel. The controller only nicks the bottom.
+    """Game opening: the black window plus its rectangular bezel, not the scenery.
 
-    The right edge stops short of Buddy's well. The top stops short of the title.
+    Buddy's box stays to the right. The controller only nicks the bottom edge.
     """
     raw = raw or measure_screen(image)
     width, height = image.size
     well = buddy_well_rect(image, frame_id)
+    menu = PLACEMENTS[frame_id]["menu"]
     control = controller_top(image, raw)
     overlap = CONTROLLER_OVERLAP[frame_id]
-    x = max(8, raw["x"] - SIDE_GROW[frame_id])
-    y = max(8, raw["y"] - TOP_GROW[frame_id])
-    right = min(width - 8, raw["x"] + raw["width"] + SIDE_GROW[frame_id])
-    right = min(right, int(well["x"]) - 12)
-    bottom = min(height - 4, control + overlap)
-    if bottom <= y + 40:
-        bottom = y + 40
-    return {"x": int(x), "y": int(y), "width": int(right - x), "height": int(bottom - y)}
+    # Eat the drawn screen frame. Stop before Buddy and the menu so those stay clickable.
+    grow = 36
+    x = max(4, raw["x"] - grow)
+    y = max(4, raw["y"] - 14)
+    right = min(width - 4, raw["x"] + raw["width"] + grow)
+    right = min(right, int(well["x"]) - 8, int(menu["x"]) - 4)
+    bottom = min(height - 4, control + overlap, int(menu["y"]) - 4)
+    if bottom <= y + 80:
+        bottom = min(height - 4, y + 80)
+    return {"x": int(x), "y": int(y), "width": int(max(40, right - x)), "height": int(bottom - y)}
+
+
+def _organic_mask(height: int, width: int) -> np.ndarray:
+    """Irregular edge nibbles, thicker at the corners. About 1–3% of the opening."""
+    ys, xs = np.mgrid[0:height, 0:width]
+    left = xs
+    right = width - 1 - xs
+    top = ys
+    bottom = height - 1 - ys
+    edge = np.minimum(np.minimum(left, right), np.minimum(top, bottom)).astype(np.float32)
+    near_x = np.minimum(left, right) / max(1, width)
+    near_y = np.minimum(top, bottom) / max(1, height)
+    corner = np.clip(1.0 - (near_x + near_y) * 6.0, 0.0, 1.0)
+    wobble = 0.55 + 0.45 * np.sin(xs * 0.37 + 1.7) * np.sin(ys * 0.21 + 0.4)
+    span = float(min(height, width))
+    limit = span * (0.008 + 0.018 * corner) * wobble
+    return edge < limit
 
 
 def cut_hole(image: Image.Image, screen: dict[str, int], lip: int = BEZEL_OVERHANG,
              bottom_keep: int = 8) -> Image.Image:
-    """Open the game hole, then put a few pixels of this frame's bezel back on top.
+    """Open the game hole and lay nearby scenery over the edge.
 
-    The lip is the art that was already on that edge, not a new shape.
+    The rectangular screen frame is not copied back. `lip` and `bottom_keep`
+    stay in the signature for older callers.
     """
+    del lip, bottom_keep
     original = np.array(image.convert("RGBA"))
     output = original.copy()
     x, y, w, h = int(screen["x"]), int(screen["y"]), int(screen["width"]), int(screen["height"])
+    height, width = original.shape[:2]
     output[y:y + h, x:x + w, 3] = 0
-    if lip <= 0 or w <= lip * 2 or h <= lip * 2:
-        return Image.fromarray(output, "RGBA")
-    source = original[y:y + h, x:x + w]
-    colored = source[:, :, :3].max(axis=2) > 30
-    ring = np.zeros((h, w), dtype=bool)
-    ring[:lip, :] = True
-    band = max(lip, int(bottom_keep))
-    ring[-band:, :] = True
-    ring[:, :lip] = True
-    ring[:, -lip:] = True
-    keep = ring & colored
-    region = output[y:y + h, x:x + w]
-    region[keep] = source[keep]
-    output[y:y + h, x:x + w] = region
+    mask = _organic_mask(h, w)
+    ys, xs = np.where(mask)
+    for py, px in zip(ys.tolist(), xs.tolist()):
+        if px < w * 0.5 and px <= py and px <= (h - 1 - py):
+            sx, sy = x - 1, y + py
+        elif (w - 1 - px) < w * 0.5 and (w - 1 - px) <= py and (w - 1 - px) <= (h - 1 - py):
+            sx, sy = x + w, y + py
+        elif py < h * 0.5:
+            sx, sy = x + px, y - 1
+        else:
+            sx, sy = x + px, y + h
+        if not (0 <= sx < width and 0 <= sy < height):
+            continue
+        pixel = original[sy, sx]
+        if int(pixel[:3].max()) < 20:
+            continue
+        output[y + py, x + px] = pixel
     return Image.fromarray(output, "RGBA")
 
 
@@ -280,21 +306,23 @@ def paste_head(image: Image.Image, head: Image.Image, box: dict[str, int]) -> Im
     x, y, w, h = int(box["x"]), int(box["y"]), int(box["width"]), int(box["height"])
     if w < 2 or h < 2:
         return canvas
-    # Drop the baked portrait. This rect is the inner well, so the bezel stays.
-    canvas.paste(Image.new("RGBA", (w, h), (0, 0, 0, 255)), (x, y))
     sprite = head.convert("RGBA")
     box_px = sprite.getbbox()
     trimmed = sprite.crop(box_px) if box_px else sprite
-    side = max(6, w // 12)
-    top = max(8, h // 9)
-    bottom = max(8, h // 11)
-    trimmed.thumbnail((max(1, w - side * 2), max(1, h - top - bottom)), Image.Resampling.LANCZOS)
+    # Fill most of the well height. A wide profile is center-cropped, not shrunk away.
+    target_h = max(8, int(round(h * 0.88)))
+    scale = target_h / max(1, trimmed.height)
+    resized = trimmed.resize(
+        (max(1, int(round(trimmed.width * scale))), target_h),
+        Image.Resampling.LANCZOS,
+    )
+    if resized.width > w:
+        left = (resized.width - w) // 2
+        resized = resized.crop((left, 0, left + w, resized.height))
     layer = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-    ox = (w - trimmed.width) // 2
-    oy = h - bottom - trimmed.height
-    if oy < top:
-        oy = top
-    layer.alpha_composite(trimmed, (ox, oy))
+    ox = (w - resized.width) // 2
+    oy = (h - resized.height) // 2
+    layer.alpha_composite(resized, (ox, oy))
     canvas.alpha_composite(layer, (x, y))
     return canvas
 

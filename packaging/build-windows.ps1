@@ -63,6 +63,7 @@ function Fetch-Checked([string]$Id, [string]$Url, [string]$FileName) {
 }
 
 $retro = Fetch-Checked "retroarch" "https://buildbot.libretro.com/stable/1.22.1/windows/x86_64/RetroArch.7z" "RetroArch-1.22.1.7z"
+$coresArchive = Fetch-Checked "cores" "https://buildbot.libretro.com/stable/1.22.1/windows/x86_64/RetroArch_cores.7z" "RetroArch_cores-1.22.1.7z"
 $pythonZip = Fetch-Checked "python" "https://www.python.org/ftp/python/3.12.8/python-3.12.8-embed-amd64.zip" "python-3.12.8-embed-amd64.zip"
 $vc = Fetch-Checked "vcredist" "https://aka.ms/vs/17/release/vc_redist.x64.exe" "vc_redist.x64.exe"
 
@@ -87,6 +88,15 @@ Get-ChildItem $runtime -Filter "python*._pth" | ForEach-Object {
     $text = $text -replace "#import site", "import site"
     Set-Content -Path $_.FullName -Value $text -Encoding ascii
 }
+$py = Join-Path $runtime "python.exe"
+$getPip = Join-Path $cache "get-pip.py"
+if (-not (Test-Path $getPip)) {
+    Invoke-WebRequest -Uri "https://bootstrap.pypa.io/get-pip.py" -OutFile $getPip
+}
+& $py $getPip
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+& $py -m pip install -r (Join-Path $PSScriptRoot "..\backend\requirements.txt")
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 Copy-Item (Join-Path $PSScriptRoot "..\vc_redist.x64.exe") -ErrorAction SilentlyContinue
 Copy-Item $vc (Join-Path $payload "vc_redist.x64.exe") -Force
@@ -111,10 +121,13 @@ if (-not (Test-Path $exe)) {
 $exeHash = (Get-FileHash -Algorithm SHA256 -Path $exe).Hash.ToLower()
 $coreDir = Join-Path $bundled "cores"
 New-Item -ItemType Directory -Force -Path $coreDir | Out-Null
+$coreUnpack = Join-Path $cache "cores-unpack"
+New-Item -ItemType Directory -Force -Path $coreUnpack | Out-Null
+& $sevenExe x $coresArchive "-o$coreUnpack" -y | Out-Host
 $wanted = @("fceumm_libretro.dll", "bsnes_libretro.dll", "blastem_libretro.dll")
 $checksums = @{ "retroarch.exe" = $exeHash }
 foreach ($dll in $wanted) {
-    $found = Get-ChildItem -Path $bundled -Filter $dll -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+    $found = Get-ChildItem -Path $bundled, $coreUnpack -Filter $dll -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
     if (-not $found) {
         Write-Host "Missing $dll in the RetroArch archive. Buddy did not package a substitute."
         exit 1
@@ -137,11 +150,19 @@ $isccExe = if ($iscc -is [string]) { $iscc } else { $iscc.Source }
 & $isccExe (Join-Path $PSScriptRoot "Buddy.iss")
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-$setup = Join-Path $PSScriptRoot "..\dist\Buddy-Setup.exe"
+$setup = Join-Path $PSScriptRoot "..\dist\BuddySetup.exe"
+if (-not (Test-Path $setup)) {
+    $alt = Join-Path $PSScriptRoot "..\dist\Buddy-Setup.exe"
+    if (Test-Path $alt) { Move-Item $alt $setup -Force }
+}
 if ($env:BUDDY_SIGNTOOL -and $env:BUDDY_SIGN_PFX) {
-    Write-Host "Signing Buddy-Setup.exe"
+    Write-Host "Signing BuddySetup.exe"
     & $env:BUDDY_SIGNTOOL sign /fd SHA256 /f $env:BUDDY_SIGN_PFX $setup
 } else {
     Write-Host "Not signed. Set BUDDY_SIGNTOOL and BUDDY_SIGN_PFX when the certificate is ready."
+}
+if (-not (Test-Path $setup)) {
+    Write-Host "BuddySetup.exe was not produced."
+    exit 1
 }
 Write-Host "Built $setup"

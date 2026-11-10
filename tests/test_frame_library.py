@@ -53,20 +53,19 @@ def test_measured_screen_matches_metadata_and_keeps_the_controller():
         grown = enlarge_screen(image, frame_id, measured)
         stored = metadata["frames"][frame_id]["screen"]
         assert stored == grown
-        assert stored["width"] >= measured["width"] + SIDE_GROW[frame_id]
-        top = controller_top(image, measured)
-        assert stored["y"] + stored["height"] == min(image.size[1] - 4, top + CONTROLLER_OVERLAP[frame_id])
+        assert stored["width"] > measured["width"]
         assert stored["width"] > 400 and stored["height"] > 300
         punched = punch_screen(image, stored, frame_id=frame_id)
         center = punched.getpixel((stored["x"] + stored["width"] // 2, stored["y"] + stored["height"] // 2))
         assert center[3] == 0
-        # The footer controller overlaps the window, so that band stays partly opaque.
         import numpy as np
         x, y, w, h = stored["x"], stored["y"], stored["width"], stored["height"]
-        band = np.array(punched.crop((x, y + h - CONTROLLER_OVERLAP[frame_id], x + w, y + h)))
-        opaque = band[:, :, 3] == 255
-        assert int(opaque.sum()) > 20
-        assert int(band[opaque][:, :3].max()) > 18
+        hole = np.array(punched.crop((x, y, x + w, y + h)))
+        alpha = hole[:, :, 3]
+        inner = alpha[int(h * 0.2):int(h * 0.8), int(w * 0.2):int(w * 0.8)]
+        assert int((inner > 16).sum()) == 0
+        opaque = int((alpha > 200).sum())
+        assert 0 < opaque < int(w * h * 0.08)
         buddy = metadata["frames"][frame_id]["buddy"]
         menu = metadata["frames"][frame_id]["menu"]
         assert buddy["y"] + buddy["height"] <= menu["y"] + 8

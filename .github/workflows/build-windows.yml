@@ -1,0 +1,60 @@
+name: Build Windows installer
+
+on:
+  push:
+    branches:
+      - cursor/buddy-windows-companion-25cc
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  buddy-setup:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Inno Setup and 7-Zip
+        run: choco install innosetup 7zip -y
+        shell: powershell
+
+      - name: Install screenshot dependencies
+        run: python -m pip install pillow numpy
+        shell: powershell
+
+      - name: Render overlay screenshots
+        run: python -m backend.windows_preview dist/screenshots
+        shell: powershell
+
+      - name: Build BuddySetup.exe
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File packaging/build-windows.ps1
+        shell: powershell
+
+      - name: Upload screenshots
+        uses: actions/upload-artifact@v4
+        with:
+          name: buddy-screenshots
+          path: dist/screenshots/**
+          if-no-files-found: error
+
+      - name: Upload BuddySetup.exe
+        uses: actions/upload-artifact@v4
+        with:
+          name: BuddySetup
+          path: dist/BuddySetup.exe
+          if-no-files-found: error
+
+      - name: Publish prerelease
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: buddy-v0.1.0-pre${{ github.run_number }}
+          name: Buddy 0.1.0 pre${{ github.run_number }}
+          prerelease: true
+          make_latest: false
+          generate_release_notes: false
+          body: |
+            Prerelease installer. Double-click BuddySetup.exe. It is not the latest stable release.
+          files: dist/BuddySetup.exe
+          fail_on_unmatched_files: true

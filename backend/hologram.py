@@ -207,13 +207,13 @@ def _blink_amount(t: float, expression: str) -> float:
 
 
 def _scanlines(image: Image.Image, t: float, burst: float) -> Image.Image:
+    """A moving shimmer. Brightness stays steady so the hologram does not flash."""
     array = np.array(image)
-    flicker = 0.9 + 0.1 * math.sin(t * 17.0)
-    if (t * 13.0) % 1.0 > 0.94:
-        flicker *= 0.86
-    array[:, :, :3] = np.clip(array[:, :, :3].astype(np.float32) * flicker, 0, 255).astype(np.uint8)
-    for y in range(0, array.shape[0], 3):
-        array[y, :, 3] = (array[y, :, 3].astype(np.float32) * 0.78).astype(np.uint8)
+    breathe = 0.98 + 0.02 * math.sin(t * 1.6)
+    array[:, :, :3] = np.clip(array[:, :, :3].astype(np.float32) * breathe, 0, 255).astype(np.uint8)
+    phase = int(t * 10.0) % 4
+    for y in range(phase, array.shape[0], 4):
+        array[y, :, 3] = (array[y, :, 3].astype(np.float32) * 0.86).astype(np.uint8)
     if burst > 0:
         array[:, :, 1] = np.clip(array[:, :, 1].astype(np.int16) + int(40 * burst), 0, 255)
         array[:, :, 2] = np.clip(array[:, :, 2].astype(np.int16) + int(55 * burst), 0, 255)
@@ -235,12 +235,14 @@ def _compose(expression: str, t: float, mouth: float, gaze: str, size: int,
              character: str, resting: str) -> Image.Image:
     yaw = yaw_at(t, expression, resting, gaze)
     sprite = _pose_sprite(character, expression, yaw, mouth)
-    # The frame cutout is already a side profile. Squash and parallax pull it back toward center.
-    if expression == "talk" or yaw > -0.75:
+    # Talking turns toward the player. Idle still floats, it does not freeze.
+    if expression == "talk" or abs(yaw) < 0.75:
         sprite = _squash_skew(sprite, yaw)
         sprite = _parallax(sprite, yaw, t)
+    else:
+        sprite = _parallax(sprite, yaw * 0.15, t)
     sprite = _blink(sprite, _blink_amount(t, expression))
-    bob = math.sin(t * 1.7) * size * 0.015
+    bob = math.sin(t * 1.7) * size * 0.02
     sway = math.sin(t * 0.8) * size * 0.012
     burst = 0.0
     scale = 1.0

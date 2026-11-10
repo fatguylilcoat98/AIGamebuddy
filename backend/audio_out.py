@@ -68,6 +68,51 @@ def list_sounddevice_devices() -> list[AudioDevice]:
     return found
 
 
+def neural_voice(character: str) -> str:
+    """Microsoft neural voices. Male and female follow Buddy's character setting."""
+    if str(character or "").lower() == "female":
+        return "en-US-JennyNeural"
+    return "en-US-GuyNeural"
+
+
+def synthesize_edge_wav(text: str, character: str = "male") -> bytes | None:
+    """Natural speech. Returns WAV bytes, or None when the network voice is unavailable."""
+    try:
+        import asyncio
+        import edge_tts
+        import miniaudio
+    except ImportError:
+        return None
+    fd, mp3_path = tempfile.mkstemp(suffix=".mp3", prefix="buddy-voice-")
+    os.close(fd)
+    wav_path = ""
+    try:
+        async def _save() -> None:
+            await edge_tts.Communicate(text[:1500], neural_voice(character)).save(mp3_path)
+        asyncio.run(_save())
+        if not Path(mp3_path).exists() or Path(mp3_path).stat().st_size < 64:
+            return None
+        decoded = miniaudio.decode_file(mp3_path, output_format=miniaudio.SampleFormat.SIGNED16)
+        wav_fd, wav_path = tempfile.mkstemp(suffix=".wav", prefix="buddy-voice-")
+        os.close(wav_fd)
+        with wave.open(wav_path, "wb") as handle:
+            handle.setnchannels(decoded.nchannels)
+            handle.setsampwidth(2)
+            handle.setframerate(decoded.sample_rate)
+            handle.writeframes(decoded.samples)
+        return Path(wav_path).read_bytes()
+    except Exception as exc:
+        logging.getLogger("buddy.audio").info("Neural voice unavailable, falling back. %s", exc)
+        return None
+    finally:
+        for leftover in (mp3_path, wav_path):
+            if leftover:
+                try:
+                    os.remove(leftover)
+                except OSError:
+                    pass
+
+
 def synthesize_windows_wav(text: str, rate: int) -> bytes | None:
     if sys.platform != "win32":
         return None
@@ -142,7 +187,8 @@ def play_wav_sounddevice(wav_bytes: bytes, volume: float, device: AudioDevice | 
 
 class AudioOutput:
     def __init__(self, *, synthesizer=None, player=None, device_lister=None):
-        self.synthesizer = synthesizer or synthesize_windows_wav
+        self.character = "male"
+        self.synthesizer = synthesizer or self._synthesize
         self.player = player or play_wav_sounddevice
         self.device_lister = device_lister or list_sounddevice_devices
         self._lock = threading.Lock()
@@ -165,8 +211,15 @@ class AudioOutput:
     def devices(self) -> list[dict]:
         return [{"index": device.index, "name": device.name} for device in self.device_lister()]
 
+    def _synthesize(self, text: str, rate: int) -> bytes | None:
+        neural = synthesize_edge_wav(text, self.character)
+        if neural:
+            return neural
+        return synthesize_windows_wav(text, rate)
+
     def speak(self, text: str, *, volume: int, rate: int, device_name: str, mute: bool,
-              on_level=None) -> ActionResult:
+              on_level=None, character: str = "male") -> ActionResult:
+        self.character = character if character in {"male", "female"} else "male"
         try:
             return self._speak(text, volume=volume, rate=rate, device_name=device_name, mute=mute, on_level=on_level)
         except Exception as exc:

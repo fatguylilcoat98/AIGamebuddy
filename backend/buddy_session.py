@@ -1091,6 +1091,7 @@ class BuddySession:
         heard = self.audio.speak(
             text, volume=self.volume, rate=int(self.config.get("voice", "rate") or 0),
             device_name=self.output_device, mute=self.muted, on_level=on_level,
+            character=self.buddy_character,
         )
         if not heard.ok:
             self.mouth = 0.0

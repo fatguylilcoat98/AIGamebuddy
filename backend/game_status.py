@@ -110,12 +110,10 @@ def query_status(host: str, port: int, timeout: float = 0.25) -> str:
 
 
 def shader_relative(retroarch_dir: Path) -> str:
-    """Prefer CRT-Guest-Advanced NTSC. Fall back to crt-geom. Empty if neither exists."""
+    """Sharp bilinear on an HD TV. CRT scanlines stay off unless someone turns them on."""
     root = Path(retroarch_dir)
-    if (root / GUEST_SHADER).is_file():
-        return GUEST_SHADER
-    if (root / LIGHT_SHADER).is_file():
-        return LIGHT_SHADER
+    if (root / "shaders/shaders_slang/interpolation/sharp-bilinear.slangp").is_file():
+        return "shaders/shaders_slang/interpolation/sharp-bilinear.slangp"
     return ""
 
 
@@ -148,12 +146,15 @@ def runtime_cfg_lines(retroarch_exe: str) -> list[str]:
     lines = [
         'network_cmd_enable = "true"',
         'network_cmd_port = "55355"',
+        'video_smooth = "true"',
+        'video_shader_enable = "false"',
     ]
     if retroarch_exe:
         relative = shader_relative(Path(retroarch_exe).resolve().parent)
         if relative:
+            lines = [line for line in lines if not line.startswith("video_shader_enable")]
             lines.append('video_shader_enable = "true"')
             lines.append(f'video_shader = "{relative}"')
         else:
-            log.info("Shader files were not next to RetroArch, so the append-config leaves them off.")
+            log.info("Sharp-bilinear is not installed. Video smoothing stays on and CRT stays off.")
     return lines

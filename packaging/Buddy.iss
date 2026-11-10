@@ -19,7 +19,7 @@ DefaultDirName={localappdata}\Buddy
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 OutputDir=..\dist
-OutputBaseFilename=Buddy-Setup
+OutputBaseFilename=BuddySetup
 Compression=lzma2
 SolidCompression=yes
 ArchitecturesAllowed=x64compatible
@@ -37,7 +37,7 @@ Name: "{autodesktop}\Buddy"; Filename: "{app}\{#MyAppExe}"; WorkingDir: "{app}"
 Name: "{autoprograms}\Repair Buddy"; Filename: "{srcexe}"
 
 [Run]
-Filename: "{app}\{#MyAppExe}"; Description: "Set up Buddy"; Flags: postinstall nowait skipifsilent
+Filename: "{app}\{#MyAppExe}"; Description: "Launch Buddy"; Flags: postinstall nowait skipifsilent
 
 [UninstallDelete]
 Type: files; Name: "{localappdata}\Buddy\logs\install.log"

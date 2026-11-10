@@ -90,17 +90,13 @@ def test_portable_install_copies_only_matching_gpl_cores(tmp_path):
     assert installed == [core.filename for core in default_cores()]
     assert any("Snes9x" in item for item in skipped)
     assert not (dest / "cores" / "snes9x_libretro.dll").exists()
-    guest = dest / "shaders" / "shaders_slang" / "crt" / "crt-guest-advanced-ntsc.slangp"
-    guest.parent.mkdir(parents=True)
-    guest.write_text("guest", encoding="utf-8")
-    assert shader_relative(dest).endswith("crt-guest-advanced-ntsc.slangp")
-    assert write_core_shader_presets(dest).endswith("crt-guest-advanced-ntsc.slangp")
-    guest.unlink()
-    light = dest / "shaders" / "shaders_slang" / "crt" / "crt-geom.slangp"
-    light.parent.mkdir(parents=True, exist_ok=True)
-    light.write_text("geom", encoding="utf-8")
-    assert shader_relative(dest).endswith("crt-geom.slangp")
-    light.unlink()
+    sharp = dest / "shaders" / "shaders_slang" / "interpolation" / "sharp-bilinear.slangp"
+    sharp.parent.mkdir(parents=True)
+    sharp.write_text("sharp", encoding="utf-8")
+    assert shader_relative(dest).endswith("sharp-bilinear.slangp")
+    assert "crt" not in shader_relative(dest)
+    assert write_core_shader_presets(dest).endswith("sharp-bilinear.slangp")
+    sharp.unlink()
     assert shader_relative(dest) == ""
 
 

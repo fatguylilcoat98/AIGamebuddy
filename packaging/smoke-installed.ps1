@@ -78,19 +78,8 @@ function Stop-BuddyProcesses {
 $pre10 = Join-Path $env:TEMP "BuddySetup-pre10.exe"
 Write-Host "Downloading pre10"
 $pre10Url = "https://github.com/fatguylilcoat98/AIGamebuddy/releases/download/buddy-v0.1.0-pre10/BuddySetup.exe"
-$gotPre10 = $false
-foreach ($try in 1..4) {
-    try {
-        Invoke-WebRequest -UseBasicParsing -Uri $pre10Url -OutFile $pre10
-        $gotPre10 = $true
-        break
-    } catch {
-        Write-Host "pre10 download failed: $($_.Exception.Message)"
-        if (Test-Path $pre10) { Remove-Item $pre10 -Force }
-        Start-Sleep -Seconds (5 * $try)
-    }
-}
-if (-not $gotPre10) { throw "Could not download the pre10 installer" }
+& curl.exe -L --fail --retry 8 --retry-all-errors --retry-delay 5 -o $pre10 $pre10Url
+if ($LASTEXITCODE -ne 0 -or -not (Test-Path $pre10)) { throw "Could not download the pre10 installer" }
 Install-BuddySetup $pre10
 $staleDir = Join-Path $env:LOCALAPPDATA "VideoGameWingman"
 New-Item -ItemType Directory -Force -Path $staleDir | Out-Null

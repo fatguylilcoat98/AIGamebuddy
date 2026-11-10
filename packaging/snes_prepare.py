@@ -28,7 +28,7 @@ def main() -> int:
     if not (bundle / "retroarch.exe").is_file():
         print("Bundled retroarch.exe is missing", file=sys.stderr)
         return 1
-    checksums = json.loads(pins.read_text(encoding="utf-8")) if pins.is_file() else {}
+    checksums = json.loads(pins.read_text(encoding="utf-8-sig")) if pins.is_file() else {}
     base = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
     dest = Path(base) / "Buddy" / "RetroArch"
     error = install_portable(bundle, dest, checksums, lambda *_args: None)

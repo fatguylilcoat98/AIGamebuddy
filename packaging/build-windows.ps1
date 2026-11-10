@@ -187,7 +187,9 @@ foreach ($dll in $wanted) {
     Copy-Item $found.FullName (Join-Path $coreDir $dll) -Force
     $checksums[$dll] = (Get-FileHash -Algorithm SHA256 -Path (Join-Path $coreDir $dll)).Hash.ToLower()
 }
-$checksums | ConvertTo-Json | Set-Content (Join-Path $payload "bundled\checksums.json") -Encoding utf8
+$checksumPath = Join-Path $payload "bundled\checksums.json"
+$utf8 = New-Object System.Text.UTF8Encoding $false
+[System.IO.File]::WriteAllText($checksumPath, (($checksums | ConvertTo-Json) + "`n"), $utf8)
 
 $iscc = Get-Command ISCC.exe -ErrorAction SilentlyContinue
 if (-not $iscc) {

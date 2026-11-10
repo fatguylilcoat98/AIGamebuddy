@@ -69,6 +69,7 @@ def test_shipped_package_can_import_backend_and_does_not_reinstall():
     assert "tcl86t.dll" in build
     assert "python-3.12.8-amd64.zip" in build
     assert "snes9x_libretro.dll" in build
+    assert "UTF8Encoding" in build
     assert "fceumm_libretro.dll" not in build
     pins = (ROOT / "packaging/checksums.pinned.json").read_text(encoding="utf-8")
     assert "python-full" in pins

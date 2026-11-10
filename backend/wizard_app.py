@@ -217,7 +217,7 @@ def run_wizard(state_file: Path | None = None) -> dict:
         pin_path = ROOT / "bundled" / "checksums.json"
         checksums = {}
         if pin_path.is_file():
-            checksums = json.loads(pin_path.read_text(encoding="utf-8"))
+            checksums = json.loads(pin_path.read_text(encoding="utf-8-sig"))
         base = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
         dest = Path(base) / "Buddy" / "RetroArch"
 

@@ -68,4 +68,5 @@ jobs:
             dist/screenshots/snes-frame-retroarch.jpg
             dist/screenshots/menu-open.jpg
             dist/screenshots/retroarch-menu.jpg
+            dist/screenshots/exit-no-processes.txt
           fail_on_unmatched_files: true

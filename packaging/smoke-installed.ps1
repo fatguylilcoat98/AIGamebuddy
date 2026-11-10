@@ -90,29 +90,11 @@ Write-Host "wizard python pid $pythonPid"
 $shotDir = Join-Path (Split-Path -Parent $PSScriptRoot) "dist\screenshots"
 New-Item -ItemType Directory -Force -Path $shotDir | Out-Null
 $shot = Join-Path $shotDir "wizard-after-install.jpg"
-$env:BUDDY_WIZARD_SHOT = $shot
-& $python -c @'
-import os, time, ctypes
-from pathlib import Path
-from PIL import ImageGrab
-user32 = ctypes.windll.user32
-deadline = time.time() + 20
-hwnd = 0
-while time.time() < deadline:
-    hwnd = user32.FindWindowW(None, "Buddy Setup")
-    if hwnd:
-        break
-    time.sleep(0.5)
-if not hwnd:
-    raise SystemExit("Buddy Setup window was not found")
-user32.ShowWindow(hwnd, 9)
-user32.SetForegroundWindow(hwnd)
-time.sleep(1)
-image = ImageGrab.grab()
-path = Path(os.environ["BUDDY_WIZARD_SHOT"])
-image.convert("RGB").save(path, quality=90)
-print(f"wizard-window hwnd={hwnd} shot={path} size={image.size}")
-'@
+$smokePy = Join-Path $PSScriptRoot "smoke_windows.py"
+$env:BUDDY_SHOT = $shot
+$env:BUDDY_WINDOW_TITLE = "Buddy Setup"
+$env:BUDDY_WINDOW_TIMEOUT = "20"
+& $python $smokePy window
 if ($LASTEXITCODE -ne 0) { throw "Wizard window did not appear" }
 if (-not (Test-Path $shot)) { throw "Wizard screenshot was not written" }
 Write-Host "Wizard screenshot $shot"
@@ -128,15 +110,7 @@ if ($proc -and -not $proc.HasExited) {
 
 function Save-Screen([string]$Path) {
     $env:BUDDY_SHOT = $Path
-    & $python -c @'
-import os
-from pathlib import Path
-from PIL import ImageGrab
-image = ImageGrab.grab()
-path = Path(os.environ["BUDDY_SHOT"])
-image.convert("RGB").save(path, quality=90)
-print(f"shot {path} {image.size}")
-'@
+    & $python $smokePy grab
     if ($LASTEXITCODE -ne 0) { throw "Could not save $Path" }
 }
 
@@ -156,28 +130,10 @@ if (Test-Path $ackFile) { Remove-Item $ackFile -Force }
 Write-Host "Opening the Play screen"
 $play = Start-Process -FilePath $python -ArgumentList @("-m", "backend.wizard_app", "--wizard") -WorkingDirectory $elsewhere -PassThru
 $playShot = Join-Path $shotDir "wizard-play.jpg"
-$env:BUDDY_WIZARD_SHOT = $playShot
-& $python -c @'
-import os, time, ctypes
-from pathlib import Path
-from PIL import ImageGrab
-user32 = ctypes.windll.user32
-deadline = time.time() + 18
-hwnd = 0
-while time.time() < deadline:
-    hwnd = user32.FindWindowW(None, "Buddy Setup")
-    if hwnd:
-        break
-    time.sleep(0.4)
-if not hwnd:
-    raise SystemExit("Play screen was not found")
-user32.ShowWindow(hwnd, 9)
-time.sleep(0.8)
-image = ImageGrab.grab()
-path = Path(os.environ["BUDDY_WIZARD_SHOT"])
-image.convert("RGB").save(path, quality=90)
-print(f"play-window hwnd={hwnd} shot={path}")
-'@
+$env:BUDDY_SHOT = $playShot
+$env:BUDDY_WINDOW_TITLE = "Buddy Setup"
+$env:BUDDY_WINDOW_TIMEOUT = "18"
+& $python $smokePy window
 if ($LASTEXITCODE -ne 0) { throw "Play screen did not appear" }
 Write-Host "Play screenshot $playShot"
 
@@ -226,19 +182,7 @@ Write-Host "RetroArch menu screenshot $raShot"
 
 $env:BUDDY_GAME_SHOT = $gameShot
 $env:BUDDY_MENU_SHOT = $raShot
-& $python -c @'
-import os
-from PIL import Image
-game = Image.open(os.environ["BUDDY_GAME_SHOT"]).convert("RGB")
-menu = Image.open(os.environ["BUDDY_MENU_SHOT"]).convert("RGB")
-x, y = game.size[0] // 2, game.size[1] // 2
-a = game.getpixel((x, y))
-b = menu.getpixel((x, y))
-delta = sum(abs(a[i] - b[i]) for i in range(3))
-print(f"center game={a} menu={b} delta={delta}")
-if delta < 30:
-    raise SystemExit("RetroArch menu did not change the picture in the Super NES opening")
-'@
+& $python $smokePy compare
 if ($LASTEXITCODE -ne 0) { throw "RetroArch menu was not visible in the opening" }
 
 Send-Smoke "exit"
@@ -259,5 +203,11 @@ if ($left.Count -ne 0) {
     $left | ForEach-Object { Write-Host "still running $($_.Name) $($_.ProcessId) $($_.CommandLine)" }
     throw "Exit to desktop left Buddy or RetroArch running"
 }
+$proof = Join-Path $shotDir "exit-no-processes.txt"
+@(
+    "Exit to desktop left no Buddy python process and no retroarch.exe."
+    "Checked: runtime\python.exe, backend.launcher, backend.wizard_app, backend.overlay_app, retroarch.exe."
+    (Get-Date).ToUniversalTime().ToString("o")
+) | Set-Content -Path $proof -Encoding utf8
 Write-Host "Exit to desktop left no Buddy or RetroArch process"
 Write-Host "Installed launch smoke passed"

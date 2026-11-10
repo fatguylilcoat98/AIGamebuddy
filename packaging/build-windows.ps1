@@ -78,6 +78,11 @@ if (-not $seven) {
 }
 $sevenExe = if ($seven -is [string]) { $seven } else { $seven.Source }
 & $sevenExe x $retro "-o$bundled" -y | Out-Host
+$nested = Get-ChildItem -Path $bundled -Filter retroarch.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($nested -and $nested.DirectoryName -ne (Resolve-Path $bundled).Path) {
+    Write-Host "Moving RetroArch up from $($nested.DirectoryName)"
+    Copy-Item (Join-Path $nested.DirectoryName "*") $bundled -Recurse -Force
+}
 
 $runtime = Join-Path $payload "runtime"
 if (Test-Path $runtime) { Remove-Item -Recurse -Force $runtime }

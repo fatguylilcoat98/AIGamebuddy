@@ -12,15 +12,16 @@ Voice, the microphone, the transparent overlay, and emulator windows still need 
 4. Check **Add python.exe to PATH**.
 5. Finish the install.
 
-## 2. Install Buddy
+## 2. Start Buddy
 
 1. Copy this project folder onto the PC (or clone the repo).
-2. Double-click `install.bat`.
-3. Wait until it says `Installed.`
-4. If a window says Python is missing, repeat step 1 and make sure PATH was checked.
+2. Double-click `Start-Buddy.bat`.
 
-That creates a `.venv` folder and installs the Python packages.
-It also copies `config/buddy.config.sample.json` to `config/buddy.config.json` the first time.
+The first time, and again whenever `backend\requirements.txt` changes, that installs the Python packages into `.venv` and then opens Buddy. You do not run a separate installer first. It also copies `config/buddy.config.sample.json` to `config/buddy.config.json` the first time.
+
+`install.bat` is still there if an install breaks and you want to repair it by hand.
+
+If the window says Python is missing, finish step 1 and make sure PATH was checked, then double-click `Start-Buddy.bat` again.
 
 ## 3. Choose how Buddy thinks
 

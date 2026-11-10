@@ -11,9 +11,9 @@ What was actually tested: [VERIFICATION.md](VERIFICATION.md).
 ## Install
 
 1. Install Python 3.11 or newer and check **Add python.exe to PATH**.
-2. Double-click `install.bat`.
-3. Edit `config\buddy.config.json` if you use Ollama or want to point at RetroArch.
-4. Double-click `Start-Buddy.bat`.
+2. Double-click `Start-Buddy.bat`. The first time, and whenever `backend\requirements.txt` changes, it installs into `.venv` and then opens Buddy.
+3. Edit `config\buddy.config.json` if you use Ollama or want to point at RetroArch, then start Buddy again.
+4. `install.bat` is only for a manual repair.
 
 F9 is push-to-talk. F8 focuses the menu under Buddy. Arrow keys and Enter move through it. Ctrl+Shift+Q quits. Buddy speaks. Lines are not drawn over the game window.
 

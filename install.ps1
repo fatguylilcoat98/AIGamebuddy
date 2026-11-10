@@ -25,7 +25,8 @@ if ($launcher -eq "py") {
 
 $venv = Join-Path $PSScriptRoot ".venv\Scripts\python.exe"
 & $venv -m pip install --upgrade pip
-& $venv -m pip install -r (Join-Path $PSScriptRoot "backend\requirements.txt")
+$requirements = Join-Path $PSScriptRoot "backend\requirements.txt"
+& $venv -m pip install -r $requirements
 & $venv -m backend.frame_library --install
 if ($LASTEXITCODE -ne 0) {
     Write-Host "Could not write RetroArch configs for this display."
@@ -36,6 +37,8 @@ if (-not (Test-Path $config)) {
     Copy-Item (Join-Path $PSScriptRoot "config\buddy.config.sample.json") $config
     Write-Host "Created config\buddy.config.json from the sample."
 }
+$hash = (Get-FileHash -Algorithm SHA256 -Path $requirements).Hash
+Set-Content -Path (Join-Path $PSScriptRoot ".venv\requirements.sha256") -Value $hash -NoNewline -Encoding ascii
 Write-Host ""
 Write-Host "Installed."
 Write-Host "1. Edit config\buddy.config.json if you want Ollama or your emulator paths."

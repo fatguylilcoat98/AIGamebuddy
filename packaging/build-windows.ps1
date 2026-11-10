@@ -42,8 +42,20 @@ function Save-Pin([string]$Id, [string]$Hash) {
 function Fetch-Checked([string]$Id, [string]$Url, [string]$FileName) {
     $dest = Join-Path $cache $FileName
     if (-not (Test-Path $dest)) {
-        Write-Host "Downloading $Url"
-        Invoke-WebRequest -Uri $Url -OutFile $dest
+        $downloaded = $false
+        foreach ($try in 1..4) {
+            try {
+                Write-Host "Downloading $Url (try $try)"
+                Invoke-WebRequest -Uri $Url -OutFile $dest -UseBasicParsing
+                $downloaded = $true
+                break
+            } catch {
+                Write-Host "Download failed: $($_.Exception.Message)"
+                if (Test-Path $dest) { Remove-Item $dest -Force }
+                Start-Sleep -Seconds (5 * $try)
+            }
+        }
+        if (-not $downloaded) { throw "Could not download $Url" }
     }
     $hash = (Get-FileHash -Algorithm SHA256 -Path $dest).Hash.ToLower()
     $pinned = (Get-Pinned $Id).ToLower()

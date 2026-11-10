@@ -399,17 +399,32 @@ def build_character(character: str) -> CharacterArt:
     # The right-side front views are the same pictures; keep one set.
     art = CharacterArt(character, front_aligned, left_turns, right_turns, left_expr, right_expr, notes=notes)
     if character == "male":
-        # The turn sheet never reaches a side profile. The approved frames do.
+        # The turn sheet never reaches a side profile. The approved frames do,
+        # but that baked portrait looks toward the right bezel. face_left
+        # mirrors it so the nose points at the game, and redraws GB.
         art.rest_left = frame_rest_pose()
-        art.notes.append("male rest pose is the left profile cut from the approved frame.")
+        art.notes.append("male rest pose is the approved-frame profile, mirrored to face left.")
     else:
-        art.rest_left = left_turns[-1][1]
+        art.rest_left = face_left(left_turns[-1][1])
         art.notes.append("female rest pose is the left-facing turn profile.")
     return art
 
 
+def face_left(image: Image.Image) -> Image.Image:
+    """Return a profile whose nose is left of the neck, toward the game window.
+
+    Positive nose_offset means the nose points screen-right, at the bezel.
+    Mirroring that flips the nose toward the game hole. GB is redrawn so the
+    cap does not show reversed letters.
+    """
+    rgb = image.convert("RGB")
+    if nose_offset(rgb) > 0:
+        rgb = mirror_fix_gb(rgb)
+    return key_black(rgb)
+
+
 def frame_rest_pose() -> Image.Image:
-    """Left-profile head from the approved SNES frame. GB is the original art.
+    """Rest head from the approved SNES frame, nose toward the game hole.
 
     The crop is the inner well only. The bezel and its glow stay out of the sprite.
     """
@@ -417,7 +432,7 @@ def frame_rest_pose() -> Image.Image:
     box = PLACEMENTS["snes"]["buddy"]
     image = Image.open(FRAME_DIR / "snes-sky-kingdom.jpg").convert("RGB")
     x, y, w, h = box["x"], box["y"], box["width"], box["height"]
-    return key_black(image.crop((x, y, x + w, y + h)))
+    return face_left(image.crop((x, y, x + w, y + h)))
 
 
 def get_art(character: str = "male") -> CharacterArt:

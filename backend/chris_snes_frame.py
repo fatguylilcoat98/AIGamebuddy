@@ -56,6 +56,64 @@ def _flood(mask: np.ndarray, seed: tuple[int, int]) -> np.ndarray:
     return seen.astype(bool)
 
 
+def _bbox(mask: np.ndarray) -> dict[str, int] | None:
+    ys, xs = np.where(mask)
+    if len(xs) == 0:
+        return None
+    x0, x1 = int(xs.min()), int(xs.max())
+    y0, y1 = int(ys.min()), int(ys.max())
+    return {"x": x0, "y": y0, "width": x1 - x0 + 1, "height": y1 - y0 + 1}
+
+
+def _opening_window(mask: np.ndarray, seed: dict[str, int] | None, buddy_limit: int) -> dict[str, int] | None:
+    """Grow the inscribed opening until the black runs into the art.
+
+    The window is the black opening, not the smaller rectangle that fits inside
+    every jagged edge. Art still overlaps the last few pixels.
+    """
+    if seed is None:
+        return None
+    height, width = mask.shape
+    x, y, w, h = seed["x"], seed["y"], seed["width"], seed["height"]
+    right_stop = buddy_limit
+
+    def strip_ok(column: bool, pos: int) -> bool:
+        if column:
+            if pos < 0 or pos >= width or pos >= right_stop:
+                return False
+            return float(mask[y:y + h, pos].mean()) >= 0.72
+        if pos < 0 or pos >= height:
+            return False
+        return float(mask[pos, x:x + w].mean()) >= 0.72
+
+    for _ in range(96):
+        moved = False
+        if strip_ok(False, y - 1):
+            y -= 1
+            h += 1
+            moved = True
+        if strip_ok(False, y + h):
+            h += 1
+            moved = True
+        if strip_ok(True, x - 1):
+            x -= 1
+            w += 1
+            moved = True
+        if x + w < right_stop and strip_ok(True, x + w):
+            w += 1
+            moved = True
+        if not moved:
+            break
+    # A few pixels of art stay on top of the picture, the way the frame is drawn.
+    inset = 6
+    return {
+        "x": x + inset,
+        "y": y + inset,
+        "width": max(1, w - 2 * inset),
+        "height": max(1, h - 2 * inset),
+    }
+
+
 def _largest_rect(mask: np.ndarray, min_side: int = 40) -> dict[str, int] | None:
     height, width = mask.shape
     columns = np.zeros(width, dtype=np.int32)
@@ -123,17 +181,20 @@ def measure_snes_art(image: Image.Image) -> dict[str, dict[str, int]]:
     authored = alpha < 16
     if int(authored.sum()) > int(authored.size * 0.08):
         hole = authored
+        game = _bbox(hole)
+        if game is None:
+            raise ValueError("Chris's SNES frame has no game opening")
     else:
         dark = lum <= 18
         hole = _flood(dark, (height // 2, width // 2))
-    game = _largest_rect(hole)
-    if game is None:
-        raise ValueError("Chris's SNES frame has no game opening")
-    # Keep the art's irregular edge, and drop dark gutters far from that opening
-    # (the cracks around the BUDDY plaque must not become the game hole).
-    near = _dilate(_rect_mask((height, width), game, pad=0), 42) | _rect_mask((height, width), game)
-    hole = hole & near
-    game = _largest_rect(hole) or game
+        inscribed = _largest_rect(hole)
+        if inscribed is None:
+            raise ValueError("Chris's SNES frame has no game opening")
+        game = _opening_window(hole, inscribed, buddy_limit=int(width * 0.78)) or inscribed
+        # Drop gutters that leak toward the BUDDY plaque. The picture stays in the opening.
+        near = _dilate(_rect_mask((height, width), game, pad=8), 4)
+        hole = hole & near
+        game = _bbox(hole) or game
     blocked = _rect_mask((height, width), game, pad=8)
     blocked |= _rect_mask((height, width), HAMBURGER, pad=4)
     search = np.zeros_like(hole)
@@ -173,12 +234,12 @@ def render_snes_frame(source: Image.Image | None = None) -> tuple[Image.Image, d
     lum = rgb.max(axis=2)
     height, width = lum.shape
     hole = _flood(lum <= 18, (height // 2, width // 2))
-    game = _largest_rect(hole)
-    if game is None:
+    inscribed = _largest_rect(hole)
+    if inscribed is None:
         raise ValueError("No game opening after scaling")
-    near = _dilate(_rect_mask((height, width), game), 42)
+    game = _opening_window(hole, inscribed, buddy_limit=int(width * 0.78)) or inscribed
+    near = _dilate(_rect_mask((height, width), game, pad=8), 4)
     hole = hole & near
-    game = _largest_rect(hole) or game
     alpha = _feather(rgb, hole)
     # The Buddy well stays opaque black so the hologram has a plate to sit on.
     out = np.dstack([rgb, alpha])
@@ -189,6 +250,8 @@ def render_snes_frame(source: Image.Image | None = None) -> tuple[Image.Image, d
 
 def write_snes_frame(path: Path | None = None) -> dict:
     image, measured = render_snes_frame()
+    from .menu_button_art import paint_menu_button
+    image = paint_menu_button(image)
     dest = path or (ROOT / "assets" / "frames" / "snes-sky-kingdom.png")
     dest.parent.mkdir(parents=True, exist_ok=True)
     image.save(dest, format="PNG", optimize=True)

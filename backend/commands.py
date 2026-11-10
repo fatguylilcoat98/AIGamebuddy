@@ -27,7 +27,10 @@ def match_intent(text: str) -> Intent | None:
     patterns: list[tuple[str, str]] = [
         (r"^(stop insulting me|stop roasting me|stop roasting|be nice|no more insults|dont insult me|do not insult me)$", "stop_insults"),
         (r"^(you can roast me|insults ok|roasting ok|you can insult me)$", "allow_insults"),
-        (r"^(mute|mute yourself|be quiet)$", "mute"),
+        (r"^(mute|mute yourself)$", "mute"),
+        (r"^(be quiet|stop until i call|quiet until i call)$", "quiet_until_called"),
+        (r"^(youre talking too much|you are talking too much|talking too much|talk less)$", "talk_less"),
+        (r"^(you can talk more|talk more)$", "talk_more"),
         (r"^(unmute|unmute yourself|talk again)$", "unmute"),
         (r"^volume (\d{1,3})$", "volume_set"),
         (r"^volume (up|down)$", "volume_step"),

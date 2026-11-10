@@ -12,7 +12,10 @@ import time
 from pathlib import Path
 
 from .config_loader import SAMPLE_PATH, Config
-from .frame_library import ASPECT_RATIO_CORE
+from .frame_library import ASPECT_RATIO_CUSTOM
+
+# Super NES is shown at 4:3. The picture fills the window on the short side.
+SNES_DISPLAY_ASPECT = 4 / 3
 
 log = logging.getLogger("buddy.retroarch")
 
@@ -225,18 +228,32 @@ def hole_append_config(rect: tuple[int, int, int, int]) -> str:
     RetroArch's own frame overlay stays off. Buddy already draws the scenery.
     """
     x, y, width, height = (int(v) for v in rect)
+    # Viewport is inside the window, in the window's own pixels, at 4:3.
+    # A viewport the size of the window would stretch. A 3x core scale would
+    # leave the picture in the middle, which is what showed up on the TV.
+    vx, vy, vw, vh = fit_content_in_hole((0, 0, width, height), SNES_DISPLAY_ASPECT)
+    scale = max(width / 256.0, height / 224.0, 6.0)
     lines = [
         'video_fullscreen = "false"',
         'video_windowed_fullscreen = "false"',
         'video_window_show_decorations = "false"',
-        'video_window_save_positions = "false"',
+        # True makes RetroArch open AT video_window_width/height. False ignores
+        # those and opens at video_scale times the core size (usually 3x).
+        'video_window_save_positions = "true"',
         'ui_menubar_enable = "false"',
+        # Pause stays on. Clicking the frame pauses the game, and the pause
+        # mark stays. Chris likes that.
         f'video_window_x = "{x}"',
         f'video_window_y = "{y}"',
         f'video_window_width = "{width}"',
         f'video_window_height = "{height}"',
+        f'video_scale = "{scale:.3f}"',
         'video_scale_integer = "false"',
-        f'aspect_ratio_index = "{ASPECT_RATIO_CORE}"',
+        f'aspect_ratio_index = "{ASPECT_RATIO_CUSTOM}"',
+        f'custom_viewport_x = "{vx}"',
+        f'custom_viewport_y = "{vy}"',
+        f'custom_viewport_width = "{vw}"',
+        f'custom_viewport_height = "{vh}"',
         'input_overlay_enable = "false"',
     ]
     return "\n".join(lines) + "\n"

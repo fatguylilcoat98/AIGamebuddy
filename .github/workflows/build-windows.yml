@@ -78,20 +78,21 @@ jobs:
       - name: Publish prerelease
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: buddy-v0.1.0-pre10
-          name: Buddy 0.1.0 pre10
+          tag_name: buddy-v0.1.0-pre11
+          name: Buddy 0.1.0 pre11
           prerelease: true
           make_latest: false
           generate_release_notes: false
           body: |
             Prerelease installer for Super NES. Double-click BuddySetup.exe.
-            pre8 is broken. Do not use it. pre9 let the desktop show around the game.
+            pre8 is broken. pre10 left the game small in the middle of the opening. Use pre11.
             Snes9x is included for personal use. It is not the latest stable release.
           files: |
             dist/BuddySetup.exe
             dist/screenshots/wizard-first.jpg
             dist/screenshots/wizard-play.jpg
             dist/screenshots/snes-frame-retroarch.jpg
+            dist/screenshots/buddy-talk.jpg
             dist/screenshots/menu-open.jpg
             dist/screenshots/menu-bottom.jpg
             dist/screenshots/retroarch-menu.jpg

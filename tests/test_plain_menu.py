@@ -21,6 +21,11 @@ def test_menu_uses_plain_words_and_a_check():
     assert any("RetroArch settings" in title for title in titles)
     assert any("Exit to desktop" in title for title in titles)
     assert any("Pick a game" in title for title in titles)
+    assert any("How I talk to Buddy" in title for title in titles)
+    assert any("How much Buddy talks" in title and "Sometimes" in title for title in titles)
+    assert any("Save my spot" in title for title in titles)
+    assert any("Load my spot" in title for title in titles)
+    assert any("shoulder" in note.lower() for _title, note in rows)
     assert any("swears" in note.lower() for _title, note in rows)
 
 

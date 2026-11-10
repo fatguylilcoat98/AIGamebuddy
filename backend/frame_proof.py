@@ -89,8 +89,39 @@ def _menu_bottom(shot: np.ndarray, button: tuple[int, int, int, int], height: in
     return []
 
 
+def _content_span(shot: np.ndarray, game: tuple[int, int, int, int]) -> list[str]:
+    """The colored picture must fill the opening on its long side. A 3x core does not.
+
+    A thin rim is ignored because the painted frame overlaps the rectangle's corners.
+    """
+    x, y, w, h = game
+    rim_x = max(4, int(w * 0.04))
+    rim_y = max(4, int(h * 0.04))
+    region = _crop(shot, (x + rim_x, y + rim_y, max(1, w - 2 * rim_x), max(1, h - 2 * rim_y)))
+    if region.size == 0:
+        return ["the game opening is off the screen"]
+    center = region[region.shape[0] // 2, region.shape[1] // 2]
+    # The CI game is a solid blue screen. Real games are just not black.
+    if int(center[2]) > 180 and int(center[0]) < 80 and int(center[1]) < 80:
+        mask = (region[:, :, 2] > 180) & (region[:, :, 0] < 80) & (region[:, :, 1] < 80)
+    else:
+        mask = region.max(axis=2) > 28
+    if not mask.any():
+        return ["the game picture is missing from the opening"]
+    rows = np.where(mask.any(axis=1))[0]
+    cols = np.where(mask.any(axis=0))[0]
+    span_h = float(rows[-1] - rows[0] + 1) / mask.shape[0]
+    span_w = float(cols[-1] - cols[0] + 1) / mask.shape[1]
+    if max(span_w, span_h) < 0.90:
+        return [
+            f"the game only fills {span_w:.0%} of the opening width and {span_h:.0%} of its height"
+        ]
+    return []
+
+
 def prove_snes_screen(screenshot: Image.Image, *, menu_open: bool, frame_path: Path | None = None,
-                      expect_chrome: bool = True, menu_scrolled: bool = False) -> list[str]:
+                      expect_chrome: bool = True, menu_scrolled: bool = False,
+                      expect_game: bool = False) -> list[str]:
     """Empty list means the painting, Buddy, and the hamburger are actually on screen."""
     problems: list[str] = []
     shot = np.asarray(screenshot.convert("RGB"))
@@ -118,6 +149,8 @@ def prove_snes_screen(screenshot: Image.Image, *, menu_open: bool, frame_path: P
     game = _scale_box(record["screen"], (origin_x, origin_y), (frame_w, frame_h))
     problems.extend(_opening_ring(shot, game))
     problems.extend(_menubar(shot, game))
+    if expect_game:
+        problems.extend(_content_span(shot, game))
     buddy = _scale_box(record["buddy"], (origin_x, origin_y), (frame_w, frame_h))
     inset_x = buddy[0] + buddy[2] // 6
     inset_y = buddy[1] + buddy[3] // 6
@@ -136,7 +169,17 @@ def prove_snes_screen(screenshot: Image.Image, *, menu_open: bool, frame_path: P
         icon = _crop(shot, button)
         if icon.size:
             luma = icon.astype(np.int16).max(axis=2)
-            if float(luma.mean()) > 90 or int((luma > 200).sum()) < 8:
+            # Three bright bars, on the painting. A flat black box fails the median.
+            row_hit = (luma > 190).mean(axis=1)
+            peaks = 0
+            inside = False
+            for value in row_hit:
+                if value > 0.18 and not inside:
+                    peaks += 1
+                    inside = True
+                elif value < 0.06:
+                    inside = False
+            if peaks < 3 or float(np.median(luma)) < 28:
                 problems.append("the hamburger button is not visible in the top-left")
     if menu_scrolled and expect_chrome:
         problems.extend(_menu_bottom(shot, button, height, width))

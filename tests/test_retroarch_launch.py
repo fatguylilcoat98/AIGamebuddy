@@ -95,21 +95,45 @@ def test_hole_rect_uses_the_same_letterbox_as_the_overlay():
     assert needs_replace((0, 0, 10, 10), (30, 0, 10, 10))
 
 
+def test_picture_spans_the_opening_at_1080p_and_at_4k_150_percent():
+    """Same fraction at 100% and at 150% DPI, because the viewport uses the window's own pixels."""
+    from backend.display_info import dpi_aware_compat, hole_screen_rect
+    from backend.frame_library import frame_record
+    from backend.retroarch_finder import SNES_DISPLAY_ASPECT, fit_content_in_hole
+
+    screen = frame_record("snes")["screen"]
+    for size, dpi in (((1920, 1080), 1.0), ((3840, 2160), 1.5)):
+        hole = hole_screen_rect(screen, (0, 0, size[0], size[1]))
+        _x, _y, width, height = hole
+        _vx, _vy, vw, vh = fit_content_in_hole((0, 0, width, height), SNES_DISPLAY_ASPECT)
+        assert max(vw / width, vh / height) >= 0.90, (size, vw, vh, width, height)
+        assert abs((vw / vh) - SNES_DISPLAY_ASPECT) < 0.02
+        logical = fit_content_in_hole((0, 0, width / dpi, height / dpi), SNES_DISPLAY_ASPECT)
+        assert max(logical[2] / (width / dpi), logical[3] / (height / dpi)) >= 0.90
+    assert dpi_aware_compat("") == "~ HIGHDPIAWARE"
+    assert dpi_aware_compat("~ GDIDPISCALING") == "~ GDIDPISCALING HIGHDPIAWARE"
+    assert "HIGHDPIAWARE" in dpi_aware_compat("~ HIGHDPIAWARE")
+    assert dpi_aware_compat("~ HIGHDPIAWARE").count("HIGHDPIAWARE") == 1
+
+
 def test_hole_config_letterboxes_inside_the_opening(tmp_path):
     rect = (120, 80, 900, 700)
     text = hole_append_config(rect)
     assert 'video_fullscreen = "false"' in text
     assert 'video_windowed_fullscreen = "false"' in text
     assert 'video_window_show_decorations = "false"' in text
-    assert 'video_window_save_positions = "false"' in text
+    assert 'video_window_save_positions = "true"' in text
     assert 'ui_menubar_enable = "false"' in text
+    assert 'pause_nonactive' not in text
+    assert 'menu_enable_widgets' not in text
     assert 'video_scale_integer = "false"' in text
     assert 'video_window_x = "120"' in text
     assert 'video_window_width = "900"' in text
     assert 'video_window_height = "700"' in text
-    # Core provided. A custom viewport the size of the hole would stretch.
-    assert 'aspect_ratio_index = "22"' in text
-    assert "custom_viewport_" not in text
+    # 900x700 is taller than 4:3, so the picture uses the full width and does not stretch.
+    assert 'aspect_ratio_index = "23"' in text
+    assert 'custom_viewport_width = "900"' in text
+    assert 'custom_viewport_height = "675"' in text
     assert 'input_overlay_enable = "false"' in text
     # 4:3 in a wide hole keeps 4:3 and leaves bars on the sides.
     wide = fit_content_in_hole((0, 0, 1600, 900), 4 / 3)

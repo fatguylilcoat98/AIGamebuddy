@@ -125,6 +125,7 @@ def prove(path: Path, menu_open: bool) -> None:
         Image.open(path),
         menu_open=menu_open,
         menu_scrolled=os.environ.get("BUDDY_MENU_BOTTOM") == "1",
+        expect_game=os.environ.get("BUDDY_EXPECT_GAME") == "1",
     )
     for item in problems:
         print(item)

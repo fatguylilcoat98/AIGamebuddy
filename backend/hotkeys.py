@@ -56,6 +56,49 @@ def read_hotkey_state(user32) -> dict[str, bool]:
     }
 
 
+def read_shoulder_buttons() -> bool:
+    """Both shoulder buttons on a connected pad. False when XInput is missing."""
+    if os.name != "nt":
+        return False
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        class Gamepad(ctypes.Structure):
+            _fields_ = [
+                ("wButtons", wintypes.WORD),
+                ("bLeftTrigger", wintypes.BYTE),
+                ("bRightTrigger", wintypes.BYTE),
+                ("sThumbLX", wintypes.SHORT),
+                ("sThumbLY", wintypes.SHORT),
+                ("sThumbRX", wintypes.SHORT),
+                ("sThumbRY", wintypes.SHORT),
+            ]
+
+        class State(ctypes.Structure):
+            _fields_ = [("dwPacketNumber", wintypes.DWORD), ("Gamepad", Gamepad)]
+
+        for name in ("xinput1_4", "xinput1_3", "xinput9_1_0"):
+            try:
+                xinput = ctypes.WinDLL(name)
+            except OSError:
+                continue
+            get_state = xinput.XInputGetState
+            get_state.argtypes = [wintypes.DWORD, ctypes.POINTER(State)]
+            get_state.restype = wintypes.DWORD
+            for index in range(4):
+                state = State()
+                if get_state(index, ctypes.byref(state)) != 0:
+                    continue
+                buttons = int(state.Gamepad.wButtons)
+                if buttons & 0x0100 and buttons & 0x0200:
+                    return True
+            return False
+    except Exception:
+        return False
+    return False
+
+
 def start_windows_hotkeys(schedule, stop_event: threading.Event) -> None:
     """Poll global key state on Windows and hand events to `schedule`."""
     if os.name != "nt":
@@ -64,10 +107,18 @@ def start_windows_hotkeys(schedule, stop_event: threading.Event) -> None:
     def loop() -> None:
         import ctypes
         user32 = ctypes.windll.user32
+        from .talk_input import shoulder_hold
         previous = {"f8": False, "f9": False, "quit": False}
+        shoulders_down = False
+        held_for = 0.0
         while not stop_event.is_set():
             down = read_hotkey_state(user32)
             for event in poll_hotkey_events(previous, down):
+                schedule(event)
+            now_down = read_shoulder_buttons()
+            events, held_for = shoulder_hold(shoulders_down, now_down, held_for, 0.03)
+            shoulders_down = now_down or held_for > 0
+            for event in events:
                 schedule(event)
             previous = down
             stop_event.wait(0.03)

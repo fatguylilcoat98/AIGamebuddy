@@ -107,8 +107,8 @@ class BuddySession:
         self.speech_enabled = bool(config.get("voice", "enabled", default=True))
         self.output_device = str(config.get("voice", "output_device") or "")
         self.vision_enabled = bool(config.get("vision", "enabled"))
-        self.theme_mode = str(config.get("overlay", "theme") or "auto")
-        self.theme = self.theme_mode if self.theme_mode in {"nes", "snes", "genesis"} else "genesis"
+        self.theme_mode = str(config.get("overlay", "theme") or "snes")
+        self.theme = self.theme_mode if self.theme_mode in {"nes", "snes", "genesis"} else "snes"
         self.layout = str(config.get("overlay", "layout") or "full")
         self.corner = str(config.get("overlay", "corner") or "bottom-right")
         self.manage_window = bool(config.get("overlay", "manage_emulator_window", default=True))
@@ -147,6 +147,15 @@ class BuddySession:
         self._paused_since = None
         self._stuck_spoken = False
         self.status_query = None
+        self.talk_mode = "hold"
+        self.quiet_until_called = False
+        self.anim_yaw = -0.92
+        self._yaw_hold: tuple[float, float] | None = None
+        self._next_glance = 0.0
+        self._glance_until = 0.0
+        self.current_rom = ""
+        self.continue_on_launch = False
+        self.toast = ""
         self._load_ui()
 
     def _initial_personality(self) -> str:
@@ -161,12 +170,25 @@ class BuddySession:
         return self.data_dir / "ui-state.json"
 
     def _load_ui(self) -> None:
+        from .frame_migration import migrate_saved_theme, migrate_setup_state
         path = self._ui_path()
-        if not path.exists():
-            return
+        data: dict = {}
+        if path.exists():
+            try:
+                loaded = json.loads(path.read_text(encoding="utf-8"))
+                if isinstance(loaded, dict):
+                    data = loaded
+            except (OSError, json.JSONDecodeError):
+                data = {}
+        data = migrate_saved_theme(data, self.data_dir / "frame-revision.txt")
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
+            from .setup_flow import state_path
+            migrate_setup_state(state_path())
+        except Exception:
+            log.info("Setup state was left as it is.")
+        if not data:
+            self.theme = "snes"
+            self.theme_mode = "snes"
             return
         self.volume = int(data.get("volume", self.volume))
         self.muted = bool(data.get("muted", self.muted))
@@ -193,6 +215,9 @@ class BuddySession:
             except ValueError:
                 pass
         self.buddy_hidden = bool(data.get("buddy_hidden", False))
+        if data.get("talk_mode") in {"hold", "wake"}:
+            self.talk_mode = data["talk_mode"]
+        self.quiet_until_called = bool(data.get("quiet_until_called", False))
 
     def _save_ui(self) -> None:
         payload = {
@@ -204,6 +229,8 @@ class BuddySession:
             "buddy_character": self.buddy_character,
             "resting_direction": self.resting_direction,
             "buddy_hidden": self.buddy_hidden,
+            "talk_mode": self.talk_mode,
+            "quiet_until_called": self.quiet_until_called,
         }
         try:
             self._ui_path().write_text(json.dumps(payload, indent=2), encoding="utf-8")
@@ -219,8 +246,9 @@ class BuddySession:
             now = self.clock.unix()
             self.session_id = self.memory.start_session(now, self.personality)
             self.running = True
-            if self.config.get("wake_word"):
-                log.warning("Wake word is not implemented. Use F9 push-to-talk.")
+            if self.talk_mode == "wake" or self.config.get("wake_word"):
+                from .talk_input import start_wake_listener
+                start_wake_listener(self, lambda: self.closed)
             self.memory.set_profile("personality", self.personality, "system", now)
         greeting = self._maybe_greet()
         message = f"{self.character} is running."
@@ -268,6 +296,10 @@ class BuddySession:
                 "expression_blend": emotion["expression_blend"],
                 "gaze": emotion["gaze"],
                 "mouth": self.mouth,
+                "yaw": self.anim_yaw,
+                "talk_mode": self.talk_mode,
+                "quiet_until_called": self.quiet_until_called,
+                "toast": self.toast,
                 "last_text": self.last_text,
                 "last_reason": self.last_reason,
                 "game": self.identity.factual_line(),
@@ -278,10 +310,38 @@ class BuddySession:
                 "recording": bool(self._ears and self._ears.recording),
             }
 
+    def hold_pose(self, yaw: float, expression: str, mouth: float = 0.0, seconds: float = 6) -> None:
+        """Hold a head angle long enough for a screenshot. Speech still wins after it."""
+        moment = self.clock.mono()
+        self._yaw_hold = (float(yaw), moment + seconds)
+        self.anim_yaw = float(yaw)
+        self.mouth = mouth
+        self.emotion.set_expression(expression, moment, seconds)
+
     def tick_animation(self, now: float | None = None) -> None:
         moment = self.clock.mono() if now is None else now
         speaking = bool(getattr(self.audio, "speaking", False))
         self.emotion.tick(moment, speaking=speaking, mouth=self.mouth)
+        if speaking:
+            self.emotion.set_expression("talk", moment, 0.5)
+            self.mouth = self.mouth if self.mouth > 0 else 0.35
+        held = self._yaw_hold
+        if held and moment < held[1] and not speaking:
+            target = held[0]
+        elif speaking:
+            target = 0.0
+        elif moment < self._glance_until:
+            target = -0.2
+        else:
+            target = -0.92 if self.resting_direction != "right" else 0.9
+            if self._next_glance <= 0:
+                self._next_glance = moment + 8.0
+            if moment >= self._next_glance:
+                self._glance_until = moment + 0.85
+                self._next_glance = moment + 8.0 + self.rng.random() * 7.0
+                target = -0.2
+        from .hologram import step_yaw
+        self.anim_yaw = step_yaw(self.anim_yaw, target)
 
     def refresh_identity(self):
         found = self.detector.detect()
@@ -309,7 +369,12 @@ class BuddySession:
                 return ActionResult(result.ok, result.message, text=result.message, spoken=spoken,
                                     reason=result.reason, data=result.data, emotion=result.emotion)
             return result
-        return self._banter(player_text=cleaned, spontaneous=False, event="", priority=2, direct=True)
+        note = ""
+        if self._helper_ready():
+            note = self._screen_note()
+        return self._banter(
+            player_text=cleaned, spontaneous=False, event="", priority=2, direct=True, observation=note,
+        )
 
     def _dispatch(self, intent) -> ActionResult:
         name = intent.name
@@ -334,6 +399,12 @@ class BuddySession:
             self.brain.mark_spoken("player asked for quiet", now=self.clock.mono())
             self.brain.cooldown_seconds = max(self.brain.cooldown_seconds, 60)
             return self._show("I'll stay quiet for a bit.", category="status", emotion="idle")
+        if name == "quiet_until_called":
+            return self.be_quiet_until_called()
+        if name == "talk_less":
+            return self.talk_less()
+        if name == "talk_more":
+            return self.talk_more()
         if name == "frequency":
             return self.set_frequency(intent.args["level"])
         if name == "layout_compact":
@@ -448,14 +519,134 @@ class BuddySession:
         self._save_ui()
         return self._show("I'm here.", category="status", emotion="smile")
 
+    def set_talk_mode(self, mode: str) -> ActionResult:
+        if mode not in {"hold", "wake"}:
+            return ActionResult(False, "I did not change how you talk to me.", reason="bad_talk_mode")
+        self.talk_mode = mode
+        self._save_ui()
+        if mode == "hold":
+            text = "Hold the two shoulder buttons, or hold F9, when you want to talk."
+        else:
+            text = "Say Hey Buddy when you want me. F9 still works."
+        return self._show(text, category="status", emotion="talk")
+
+    def set_talk_amount(self, level: str) -> ActionResult:
+        mapped = {"ask": "off", "sometimes": "normal", "a lot": "chatty"}.get(level, level)
+        if mapped not in {"off", "normal", "chatty", "rare"}:
+            return ActionResult(False, "I did not change how much I talk.", reason="bad_talk_amount")
+        self.quiet_until_called = False
+        self.frequency = mapped
+        self.brain.cooldown_seconds = FREQ_COOLDOWN.get(mapped, 16)
+        self._save_ui()
+        labels = {"off": "only when you ask", "rare": "sometimes", "normal": "sometimes", "chatty": "a lot"}
+        return self._show(f"I'll talk {labels.get(mapped, mapped)}.", category="status", emotion="talk")
+
+    def talk_less(self) -> ActionResult:
+        order = ["chatty", "normal", "off"]
+        if self.frequency not in order:
+            self.frequency = "normal"
+        index = min(len(order) - 1, order.index(self.frequency) + 1)
+        self.frequency = order[index]
+        if self.frequency == "off":
+            self.quiet_until_called = True
+        self._save_ui()
+        self.brain.cooldown_seconds = FREQ_COOLDOWN.get(self.frequency, 18)
+        return self._show("I'll talk less.", category="status", emotion="idle")
+
+    def talk_more(self) -> ActionResult:
+        self.quiet_until_called = False
+        order = ["off", "normal", "chatty"]
+        current = self.frequency if self.frequency in order else "normal"
+        self.frequency = order[min(len(order) - 1, order.index(current) + 1)]
+        self._save_ui()
+        self.brain.cooldown_seconds = FREQ_COOLDOWN.get(self.frequency, 12)
+        return self._show("I can talk more.", category="status", emotion="smile")
+
+    def be_quiet_until_called(self) -> ActionResult:
+        self.quiet_until_called = True
+        self._save_ui()
+        return self._show("I'll be quiet until you call me.", category="status", emotion="idle")
+
+    def has_continue(self, rom: str) -> bool:
+        from .save_slots import has_continue, state_directory
+        return has_continue(state_directory(self.data_dir), rom)
+
+    def save_spot(self, slot: int) -> ActionResult:
+        from .retroarch_menu import send_commands
+        from .save_slots import remember_save, save_commands, save_line, state_directory
+        if not self.commands.enabled:
+            self.commands.enabled = True
+        error = send_commands(self.commands, save_commands(slot), pause=0.02, sleep=lambda _s: None)
+        if error:
+            self.toast = "I could not save your spot."
+            return ActionResult(False, self.toast, reason="save_failed")
+        folder = state_directory(self.data_dir)
+        remember_save(folder, self.current_rom or self._status_game or "game", slot)
+        self.toast = f"Saved your spot in slot {slot}."
+        line = save_line(self.personality, slot)
+        return self._show(line, category="status", emotion="smile")
+
+    def load_spot(self, slot: int) -> ActionResult:
+        from .retroarch_menu import send_commands
+        from .save_slots import has_slot, load_commands, load_line, state_directory
+        rom = self.current_rom or self._status_game or "game"
+        if not has_slot(state_directory(self.data_dir), rom, slot) and slot != 0:
+            self.toast = f"Slot {slot} is empty."
+            return ActionResult(False, self.toast, reason="empty_slot")
+        if not self.commands.enabled:
+            self.commands.enabled = True
+        error = send_commands(self.commands, load_commands(slot), pause=0.02, sleep=lambda _s: None)
+        if error:
+            self.toast = "I could not load that spot."
+            return ActionResult(False, self.toast, reason="load_failed")
+        self.toast = f"Loaded slot {slot}."
+        return self._show(load_line(slot), category="status", emotion="talk")
+
+    def _autosave_continue(self) -> None:
+        rom = self.current_rom or self._status_game
+        if not rom or not self.commands.enabled:
+            return
+        from .retroarch_menu import send_commands
+        from .save_slots import remember_save, save_commands, state_directory
+        error = send_commands(self.commands, save_commands(0), pause=0.01, sleep=lambda _s: None)
+        if error:
+            return
+        remember_save(state_directory(self.data_dir), rom, 0)
+        if os.name == "nt":
+            import time
+            time.sleep(0.35)
+
+    def _helper_ready(self) -> bool:
+        if os.environ.get("BUDDY_CHAT_API_KEY") or os.environ.get("BUDDY_META_API_KEY"):
+            return True
+        try:
+            from .setup_flow import SECRET_NAME, WindowsVault
+            return bool(WindowsVault().get(SECRET_NAME))
+        except Exception:
+            return False
+
+    def _screen_note(self) -> str:
+        """One look at the game when an online helper key is stored."""
+        was = self.vision_enabled
+        self.vision_enabled = True
+        try:
+            seen = self.observe_once(speak=False)
+        finally:
+            self.vision_enabled = was
+        if not seen.ok:
+            return ""
+        return str((seen.data or {}).get("summary") or seen.message or "")
+
     def close_game(self) -> ActionResult:
-        """Close RetroArch. The overlay stays."""
+        """Close RetroArch. The overlay stays. The continue spot is saved first."""
+        self._autosave_continue()
         self._force_close_retroarch()
         return ActionResult(True, "The game is closed. Buddy is still here.", reason="game_closed")
 
     def exit_to_desktop(self, list_pids=None, killer=None, stop_self=None) -> ActionResult:
         """Close RetroArch and every Buddy process."""
         from .process_exit import kill_pids, list_buddy_pids
+        self._autosave_continue()
         self._force_close_retroarch()
         pids = list_buddy_pids() if list_pids is None else list(list_pids())
         mine = os.getpid()
@@ -675,6 +866,8 @@ class BuddySession:
                 reason="retroarch_missing",
             )
         self.retroarch_notice = ""
+        from .display_info import mark_exe_dpi_aware
+        mark_exe_dpi_aware(path)
         if self._retro_launch_started and not force:
             existing = self._emulator_hwnd()
             if existing:
@@ -686,7 +879,11 @@ class BuddySession:
             os.path.isfile,
         )
         from .game_status import runtime_cfg_lines
-        cfg = write_hole_config(self.data_dir / "retroarch", rect, runtime_cfg_lines(path))
+        from .save_slots import config_lines, state_directory
+        extras = list(runtime_cfg_lines(path))
+        extras.extend(config_lines(state_directory(self.data_dir), auto_load=self.continue_on_launch))
+        self.continue_on_launch = False
+        cfg = write_hole_config(self.data_dir / "retroarch", rect, extras)
         self.commands.enabled = True
         self.commands.host = "127.0.0.1"
         self.commands.port = 55355
@@ -787,6 +984,7 @@ class BuddySession:
             self.theme = frame
         hole = self.game_hole or self._fallback_hole(frame)
         logging.getLogger("buddy.retroarch").info("Game list picked %s (%s)", rom, system)
+        self.current_rom = rom
         return self.launch_into_hole(hole, force=True, rom=rom, core=core, adopt=False)
 
     def poll_game_status(self, now: float | None = None) -> None:
@@ -825,10 +1023,16 @@ class BuddySession:
         if self._paused_since is None:
             self._paused_since = moment
             return
-        if (self.personality == "extreme" and not self._stuck_spoken
-                and moment - self._paused_since >= 40):
+        if (not self._stuck_spoken and moment - self._paused_since >= 40):
             self._stuck_spoken = True
-            self._show(stuck_line("extreme", status.game), category="stuck", emotion="smug")
+            if self._helper_ready():
+                note = self._screen_note()
+                self._banter(
+                    player_text="", spontaneous=True, event="stuck", priority=2, direct=False,
+                    observation=note or f"The game is paused on {status.game}.",
+                )
+            elif self.personality == "extreme":
+                self._show(stuck_line("extreme", status.game), category="stuck", emotion="smug")
 
     def load_game(self, query: str) -> ActionResult:
         found = search_games(list(self.config.get("libraries") or []), query)
@@ -938,7 +1142,7 @@ class BuddySession:
             )
         return self._place_hole(hwnd, rect)
 
-    def observe_once(self) -> ActionResult:
+    def observe_once(self, *, speak: bool = True) -> ActionResult:
         if self.closed or not self.safety.capture_enabled:
             return ActionResult(False, f"Capture is stopped. {self.safety.reason}".strip(), reason="capture_disabled")
         if not self.vision_enabled:
@@ -985,13 +1189,17 @@ class BuddySession:
             fact = f"I looked. I am not confident what is happening. Impression: {summary}" if summary else "I looked, and I am not confident what is happening."
         else:
             fact = f"I looked. {summary}" if summary else "I looked, and the vision model returned nothing I can use."
-        comment = self._banter(player_text="", spontaneous=True, event=event if event != "none" else "idle",
-                               priority=3 if event in {"death", "win", "lose_round"} else 1, direct=False,
-                               observation=summary if not uncertain else "")
-        shown = comment.text or ""
-        return ActionResult(True, fact, text=shown, spoken=comment.spoken, emotion=self.emotion.expression,
+        shown = ""
+        spoken = (False, "")
+        if speak:
+            comment = self._banter(player_text="", spontaneous=True, event=event if event != "none" else "idle",
+                                   priority=3 if event in {"death", "win", "lose_round"} else 1, direct=False,
+                                   observation=summary if not uncertain else "")
+            shown = comment.text or ""
+            spoken = comment.spoken
+        return ActionResult(True, fact, text=shown, spoken=spoken, emotion=self.emotion.expression,
                             reason="observed" if shown else "observed_quiet",
-                            data={"event": event, "uncertain": uncertain})
+                            data={"event": event, "uncertain": uncertain, "summary": summary})
 
     def start_talking(self) -> ActionResult:
         if self.closed:
@@ -1047,7 +1255,7 @@ class BuddySession:
             total = self.memory.count_events(category, self.identity.title)
             if total >= 3 and total % 4 == 0 and self._callbacks < 1:
                 allow_callback = True
-        if self.frequency == "off" and spontaneous:
+        if spontaneous and (self.frequency == "off" or self.quiet_until_called):
             return ActionResult(True, "", reason="frequency_off")
         if spontaneous and category == "idle" and self.rng.random() < 0.75:
             return ActionResult(True, "", reason="idle_skipped")

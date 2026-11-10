@@ -8,7 +8,10 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from .menu_copy import ATTITUDES, VOICES, attitude_line, voice_line
+from .menu_copy import (
+    ATTITUDES, SAVE_SLOTS, TALK_AMOUNTS, TALK_MODES, VOICES,
+    attitude_line, talk_amount_line, talk_mode_line, voice_line,
+)
 
 
 def design_box(holder) -> dict[str, int]:
@@ -36,11 +39,14 @@ class HamburgerMenu:
         self.open = False
         self.page = "main"
         self._box = {"x": 24, "y": 16, "width": 120, "height": 72}
+        self._face = None
         self.button = tk.Button(
-            root, text="☰", command=self.toggle,
-            bg="#1a1028", fg="#f6f1ff", activebackground="#2a1840", activeforeground="#ffffff",
-            font=("Segoe UI", 26, "bold"), relief="flat", bd=0, highlightthickness=2,
-            highlightbackground="#7ee7ff", cursor="hand2",
+            root, command=self.toggle, relief="flat", bd=0, highlightthickness=0,
+            cursor="hand2", bg="#1a1028", activebackground="#1a1028",
+        )
+        self.toast = tk.Label(
+            root, text="", bg="#140c1c", fg="#f6f1ff", font=("Segoe UI", 16, "bold"),
+            padx=14, pady=8,
         )
         self.panel = tk.Frame(root, bg="#140c1c", highlightthickness=3, highlightbackground="#7ee7ff")
         self.canvas = tk.Canvas(self.panel, bg="#140c1c", highlightthickness=0, bd=0)
@@ -80,8 +86,26 @@ class HamburgerMenu:
         self.panel.place_forget()
         self.on_change()
 
+    def _apply_face(self, box: dict[str, int]):
+        """Show the painted frame art on the button so it is not a black box."""
+        try:
+            from PIL import Image, ImageTk
+            from .capture_safety import fit_frame
+            from .config_loader import ROOT
+            from .frame_library import DESIGN
+            from .menu_button_art import button_face
+            art = Image.open(ROOT / "assets" / "frames" / "snes-sky-kingdom.png")
+            target = tuple(getattr(self, "_target", None) or (DESIGN["width"], DESIGN["height"]))
+            origin_x, origin_y, frame_w, frame_h = fit_frame(target)
+            face = button_face(art, (origin_x, origin_y), (frame_w, frame_h), box)
+            self._face = ImageTk.PhotoImage(face)
+            self.button.configure(image=self._face, width=box["width"], height=box["height"])
+        except Exception:
+            self.button.configure(text="|||")
+
     def place(self, box: dict[str, int]):
         self._box = box
+        self._apply_face(box)
         self.button.place(x=box["x"], y=box["y"], width=box["width"], height=box["height"])
         self.button.lift()
         if not self.open:
@@ -148,6 +172,10 @@ class HamburgerMenu:
         self._clear()
         if self.page == "settings":
             self._settings_page()
+        elif self.page == "save":
+            self._slot_page(saving=True)
+        elif self.page == "load":
+            self._slot_page(saving=False)
         else:
             self._main_page()
         self.canvas.yview_moveto(0)
@@ -162,6 +190,23 @@ class HamburgerMenu:
         self._note("Buddy talks again and shows his face.")
         self._button("Stop Buddy", self._stop)
         self._note("Buddy goes quiet and disappears. Your game keeps playing.")
+        talk_mode = getattr(self.session, "talk_mode", "hold")
+        talk_amount = getattr(self.session, "frequency", "normal")
+        if talk_amount not in {key for key, _label, _note in TALK_AMOUNTS}:
+            talk_amount = "normal"
+        self._title("How I talk to Buddy")
+        for key, _label, note in TALK_MODES:
+            self._button(talk_mode_line(key, talk_mode), lambda name=key: self._talk_mode(name))
+            self._note(note)
+        self._title("How much Buddy talks")
+        for key, _label, note in TALK_AMOUNTS:
+            self._button(talk_amount_line(key, talk_amount), lambda name=key: self._talk_amount(name))
+            self._note(note)
+        self._title("Your spot")
+        self._button("Save my spot", lambda: self._show_slots("save"))
+        self._note("Saves exactly where you are.")
+        self._button("Load my spot", lambda: self._show_slots("load"))
+        self._note("Goes back to your last save.")
         self._title("Buddy voice")
         for key, _label, note in VOICES:
             self._button(voice_line(key, voice), lambda name=key: self._voice(name))
@@ -204,6 +249,41 @@ class HamburgerMenu:
 
     def _show_main(self):
         self.page = "main"
+        self._rebuild()
+
+    def _show_slots(self, which: str):
+        self.page = which
+        self._rebuild()
+
+    def _slot_page(self, *, saving: bool):
+        self._title("Save my spot" if saving else "Load my spot")
+        self._note("Saves exactly where you are." if saving else "Goes back to your last save.")
+        self._button("Back", self._show_main)
+        for slot in SAVE_SLOTS:
+            label = f"Slot {slot}"
+            self._button(label, lambda number=slot, save=saving: self._slot(number, save))
+
+    def _slot(self, number: int, saving: bool):
+        if saving:
+            result = self.session.save_spot(number)
+        else:
+            result = self.session.load_spot(number)
+        self._toast(result.message)
+        self.on_change()
+
+    def _toast(self, text: str):
+        self.toast.configure(text=text)
+        box = self._box
+        self.toast.place(x=box["x"], y=box["y"] + box["height"] + 8)
+        self.toast.lift()
+        self.root.after(2600, self.toast.place_forget)
+
+    def _talk_mode(self, name: str):
+        self.session.set_talk_mode(name)
+        self._rebuild()
+
+    def _talk_amount(self, name: str):
+        self.session.set_talk_amount(name)
         self._rebuild()
 
     def _start(self):
@@ -249,10 +329,18 @@ class HamburgerMenu:
         )
         if not chosen:
             return
+        continue_spot = False
+        if self.session.has_continue(chosen):
+            import tkinter.messagebox as messagebox
+            continue_spot = bool(messagebox.askyesno(
+                "Buddy",
+                "Continue where you left off?",
+                parent=self.root,
+            ))
         self.close()
 
-        def work():
-            launch_owned_rom(self.session, chosen)
+        def work(resume: bool = continue_spot):
+            launch_owned_rom(self.session, chosen, continue_spot=resume)
         import threading
         threading.Thread(target=work, daemon=True).start()
 
@@ -316,7 +404,7 @@ class HamburgerMenu:
         self.close()
 
 
-def launch_owned_rom(session, path: str):
+def launch_owned_rom(session, path: str, continue_spot: bool = False):
     """Play one Super NES file the person already has."""
     from .setup_catalog import default_core_filename
     rom = str(path)
@@ -328,5 +416,7 @@ def launch_owned_rom(session, path: str):
             core = str(candidate)
     session.theme = "snes"
     session.theme_mode = "snes"
+    session.current_rom = rom
+    session.continue_on_launch = bool(continue_spot)
     hole = session.game_hole or session._fallback_hole("snes")
     return session.launch_into_hole(hole, force=True, rom=rom, core=core, adopt=False)

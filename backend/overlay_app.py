@@ -296,6 +296,7 @@ def run_overlay(session) -> None:
         head_box = boxes["head"]
         # Closed, the frame ends at the hologram and scenery shows below it.
         # F8 or a click on Buddy opens the menu inside that frame.
+        menu_ui._target = holder["target"]
         menu_ui.place(design_box(holder))
         if holder.get("menu_open"):
             menu.place_forget()
@@ -369,6 +370,7 @@ def run_overlay(session) -> None:
             character=hud.get("buddy_character", "male"),
             resting=hud.get("resting_direction", "left"),
             from_expression=hud.get("from_expression"), blend=hud.get("expression_blend", 1.0),
+            yaw=hud.get("yaw"),
         )
         if not hud.get("buddy_hidden"):
             image = paste_head(image, head, well)
@@ -577,6 +579,8 @@ def run_overlay(session) -> None:
         actions = {
             "talk_down": talk_down_once,
             "talk_up": talk_up_once,
+            "shoulders_talk_down": _once("shoulders", lambda: talk_down() if session.talk_mode == "hold" else None),
+            "shoulders_talk_up": lambda: talk_up() if session.talk_mode == "hold" else None,
             "menu": menu_once,
             "fullscreen": full_once,
             "quit": quit_once,
@@ -634,10 +638,15 @@ def run_overlay(session) -> None:
                     session.open_retroarch_menu()
                 elif command == "controller":
                     session.open_controller_setup()
+                elif command == "pose-talk":
+                    session.hold_pose(0.0, "talk", mouth=0.85, seconds=8)
+                elif command == "pose-rest":
+                    session.hold_pose(-0.92, "idle", mouth=0.0, seconds=8)
                 elif command == "exit":
                     session.exit_to_desktop()
         root.after(400, _poll_smoke)
 
+    menu_ui._target = holder["target"]
     menu_ui.place(design_box(holder))
     root.after(70, animate)
     root.after(400, _boot_retroarch)

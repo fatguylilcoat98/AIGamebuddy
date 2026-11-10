@@ -16,6 +16,21 @@ ATTITUDES = (
     ("extreme", "Savage-Extreme", "Swears. For adults."),
 )
 
+TALK_MODES = (
+    ("hold", "Hold a button to talk",
+     "Hold the two shoulder buttons for half a second, or hold F9. Select and Start still reach the game, so Buddy does not use those."),
+    ("wake", "Say Hey Buddy",
+     "Buddy listens for Hey Buddy, then you can talk. If the mic helper is not installed, hold F9."),
+)
+
+TALK_AMOUNTS = (
+    ("off", "Only when I ask", "Buddy stays quiet until you talk to him."),
+    ("normal", "Sometimes", "Buddy speaks once in a while."),
+    ("chatty", "A lot", "Buddy talks more often."),
+)
+
+SAVE_SLOTS = (1, 2, 3)
+
 # Words that do not belong on a TV menu without a plain explanation beside them.
 JARGON = ("cfg", "endpoint", "libretro", "dll", "json", "udp", "shader")
 
@@ -31,6 +46,20 @@ def voice_line(key: str, current: str) -> str:
     return ""
 
 
+def talk_mode_line(key: str, current: str) -> str:
+    for ident, label, _note in TALK_MODES:
+        if ident == key:
+            return f"{check_mark(current == key)}How I talk to Buddy: {label}"
+    return ""
+
+
+def talk_amount_line(key: str, current: str) -> str:
+    for ident, label, _note in TALK_AMOUNTS:
+        if ident == key:
+            return f"{check_mark(current == key)}How much Buddy talks: {label}"
+    return ""
+
+
 def attitude_line(key: str, current: str) -> str:
     for ident, label, _note in ATTITUDES:
         if ident == key:
@@ -38,12 +67,21 @@ def attitude_line(key: str, current: str) -> str:
     return ""
 
 
-def menu_lines(voice: str, attitude: str, volume: int, hidden: bool) -> list[tuple[str, str]]:
+def menu_lines(voice: str, attitude: str, volume: int, hidden: bool,
+               talk_mode: str = "hold", talk_amount: str = "normal") -> list[tuple[str, str]]:
     """(title, one-line explanation) for every row a person sees."""
     rows = [
         ("Start Buddy", "Buddy talks again and shows his face."),
         ("Stop Buddy", "Buddy goes quiet and disappears. Your game keeps playing."),
     ]
+    for key, _label, note in TALK_MODES:
+        rows.append((talk_mode_line(key, talk_mode), note))
+    for key, _label, note in TALK_AMOUNTS:
+        rows.append((talk_amount_line(key, talk_amount), note))
+    rows.extend([
+        ("Save my spot", "Saves exactly where you are."),
+        ("Load my spot", "Goes back to your last save."),
+    ])
     for key, _label, note in VOICES:
         rows.append((voice_line(key, voice), note))
     for key, _label, note in ATTITUDES:

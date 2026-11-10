@@ -230,7 +230,9 @@ Save-Screen $gameShot
 Write-Host "Frame screenshot $gameShot"
 $env:BUDDY_SHOT = $gameShot
 $env:BUDDY_MENU_OPEN = "0"
+$env:BUDDY_EXPECT_GAME = "1"
 & $python $smokePy prove
+$env:BUDDY_EXPECT_GAME = "0"
 if ($LASTEXITCODE -ne 0) {
     Write-BuddyLogs
     throw "The SNES frame, Buddy, or the hamburger is not on screen"
@@ -249,6 +251,14 @@ function Send-Smoke([string]$Command) {
     }
     throw "Buddy did not acknowledge $Command"
 }
+
+Send-Smoke "pose-talk"
+Start-Sleep -Seconds 2
+$talkShot = Join-Path $shotDir "buddy-talk.jpg"
+Save-Screen $talkShot
+Write-Host "Talk pose screenshot $talkShot"
+Send-Smoke "pose-rest"
+Start-Sleep -Seconds 1
 
 Send-Smoke "open-menu"
 Start-Sleep -Seconds 2

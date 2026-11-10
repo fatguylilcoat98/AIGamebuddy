@@ -231,9 +231,15 @@ def _fit(sprite: Image.Image, size: int, offset: tuple[float, float], scale: flo
     return canvas
 
 
+def step_yaw(current: float, target: float, rate: float = 0.28) -> float:
+    """Move the head part of the way toward `target` so the turn is smooth."""
+    now = float(current) + (float(target) - float(current)) * rate
+    return max(-1.0, min(1.0, now))
+
+
 def _compose(expression: str, t: float, mouth: float, gaze: str, size: int,
-             character: str, resting: str) -> Image.Image:
-    yaw = yaw_at(t, expression, resting, gaze)
+             character: str, resting: str, yaw_override: float | None = None) -> Image.Image:
+    yaw = yaw_at(t, expression, resting, gaze) if yaw_override is None else max(-1.0, min(1.0, float(yaw_override)))
     sprite = _pose_sprite(character, expression, yaw, mouth)
     # Talking turns toward the player. Idle still floats, it does not freeze.
     if expression == "talk" or abs(yaw) < 0.75:
@@ -267,14 +273,14 @@ def _compose(expression: str, t: float, mouth: float, gaze: str, size: int,
 def render_hologram(expression: str = "idle", t: float = 0.4, mouth: float = 0.0,
                     gaze: str = "center", size: int = 256, character: str = "male",
                     resting: str = "left", from_expression: str | None = None,
-                    blend: float = 1.0) -> Image.Image:
+                    blend: float = 1.0, yaw: float | None = None) -> Image.Image:
     if expression not in EXPRESSIONS:
         expression = "idle"
     character = character if character in {"male", "female"} else "male"
     resting = resting if resting in {"left", "right", "center"} else "left"
-    current = _compose(expression, t, mouth, gaze, size, character, resting)
+    current = _compose(expression, t, mouth, gaze, size, character, resting, yaw)
     amount = max(0.0, min(1.0, float(blend)))
     if from_expression and from_expression != expression and amount < 0.999:
-        previous = _compose(from_expression, t, mouth, gaze, size, character, resting)
+        previous = _compose(from_expression, t, mouth, gaze, size, character, resting, yaw)
         return Image.blend(previous, current, amount)
     return current

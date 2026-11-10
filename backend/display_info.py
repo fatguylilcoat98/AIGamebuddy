@@ -16,6 +16,41 @@ log = logging.getLogger("buddy.display")
 _PER_MONITOR_V2 = -4
 
 
+def mark_exe_dpi_aware(exe: str) -> str:
+    """Ask Windows to run this exe with physical pixels. No-op off Windows."""
+    if os.name != "nt" or not exe:
+        return "not_windows"
+    try:
+        import winreg
+        key_path = r"Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers"
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, key_path) as key:
+            try:
+                current, _ = winreg.QueryValueEx(key, exe)
+            except FileNotFoundError:
+                current = ""
+            updated = dpi_aware_compat(str(current or ""))
+            if updated != current:
+                winreg.SetValueEx(key, exe, 0, winreg.REG_SZ, updated)
+            return updated
+    except Exception as exc:
+        log.warning("Could not mark %s DPI aware: %s", exe, exc)
+        return "unchanged"
+
+
+def dpi_aware_compat(existing: str) -> str:
+    """Compat-flag string that makes RetroArch use the same physical pixels as Buddy.
+
+    An unaware RetroArch treats our window size as logical pixels. At 150% that
+    leaves the picture smaller than the opening.
+    """
+    text = (existing or "").strip()
+    upper = text.upper()
+    if "HIGHDPIAWARE" in upper or "PERMONITORV2" in upper:
+        return text if text.startswith("~") else f"~ {text}".strip()
+    body = f"{text} HIGHDPIAWARE".strip()
+    return body if body.startswith("~") else f"~ {body}"
+
+
 def enable_per_monitor_dpi() -> str:
     """Ask Windows for physical pixels. Safe to call more than once."""
     if os.name != "nt":

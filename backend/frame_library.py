@@ -429,8 +429,8 @@ def _bbox(mask: np.ndarray) -> dict[str, int]:
 def enlarge_screen(image: Image.Image, frame_id: str, raw: dict[str, int] | None = None) -> dict[str, int]:
     """Bounding box of the transparent opening. The pad and the menu stay outside it.
 
-    Chris's Super NES painting uses the largest rectangle inside the opening
-    so the game keeps its shape and the BUDDY box stays clickable.
+    Chris's Super NES painting uses the bounding box of the black opening so
+    the picture can fill it. The art's jagged edge sits on top of the game.
     """
     if frame_id == "snes":
         from .chris_snes_frame import measure_snes_art

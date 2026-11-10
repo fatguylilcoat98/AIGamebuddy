@@ -576,6 +576,8 @@ def run_overlay(session) -> None:
     app_state.request_quit = lambda: root.after(0, _quit)
     root.update_idletasks()
     session.note_overlay_hwnd(int(root.winfo_id()))
+    from .window_layout import toplevel_hwnd
+    session.note_overlay_hwnd(toplevel_hwnd(int(root.winfo_id())))
     affinity = exclude_window_from_capture(int(root.winfo_id()))
     logging.getLogger("buddy.overlay").info("Capture affinity for the overlay: %s", affinity)
     _refresh_labels()

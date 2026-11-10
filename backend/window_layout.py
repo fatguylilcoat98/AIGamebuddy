@@ -277,6 +277,7 @@ def exclude_window_from_capture(hwnd: int) -> str:
     """Keep this window out of screenshots. Returns the affinity that stuck."""
     if os.name != "nt" or not hwnd:
         return "not_windows"
+    hwnd = toplevel_hwnd(hwnd)
     try:
         import ctypes
         from ctypes import wintypes
@@ -301,6 +302,22 @@ def exclude_window_from_capture(hwnd: int) -> str:
         return "failed"
 
 
+def toplevel_hwnd(hwnd: int) -> int:
+    """Tk's winfo_id is often a child. Region and capture calls need the outer window."""
+    if os.name != "nt" or not hwnd:
+        return int(hwnd or 0)
+    try:
+        import ctypes
+        from ctypes import wintypes
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        user32.GetAncestor.argtypes = [wintypes.HWND, wintypes.UINT]
+        user32.GetAncestor.restype = wintypes.HWND
+        root = user32.GetAncestor(wintypes.HWND(int(hwnd)), 2)  # GA_ROOT
+        return int(root) if root else int(hwnd)
+    except Exception:
+        return int(hwnd)
+
+
 def apply_hole_region(hwnd: int, width: int, height: int, hole: tuple[int, int, int, int],
                       keep: tuple[tuple[int, int, int, int], ...] = ()) -> ActionResult:
     """Cut the game opening out of a window so clicks pass through. Windows only.
@@ -310,6 +327,7 @@ def apply_hole_region(hwnd: int, width: int, height: int, hole: tuple[int, int, 
     """
     if os.name != "nt":
         return ActionResult(False, "Click-through overlay holes require Windows.", reason="not_windows")
+    hwnd = toplevel_hwnd(hwnd)
     try:
         import ctypes
         gdi32 = ctypes.WinDLL("gdi32", use_last_error=True)

@@ -121,19 +121,25 @@ def scale_rect(rect: dict[str, int], target: tuple[int, int]) -> dict[str, int]:
 
 
 def paste_head(image: Image.Image, head: Image.Image, box: dict[str, int]) -> Image.Image:
-    """Composite a transparent head into the inner well. The bezel stays untouched."""
+    """Composite a transparent head into the inner well. The bezel stays untouched.
+
+    The pedestal ring sits on the bottom of the well, the same place it occupies
+    in the approved frame art. Centering the sprite left that ring on the neck.
+    """
     canvas = image.convert("RGBA")
     x, y, w, h = int(box["x"]), int(box["y"]), int(box["width"]), int(box["height"])
+    if w < 2 or h < 2:
+        return canvas
     # Drop the baked portrait. This rect is the inner well, so the bezel stays.
     canvas.paste(Image.new("RGBA", (w, h), (0, 0, 0, 255)), (x, y))
     sprite = head.convert("RGBA")
     trimmed = sprite.crop(sprite.getbbox()) if sprite.getbbox() else sprite
-    trimmed.thumbnail((max(1, int(w * 0.92)), max(1, int(h * 0.92))), Image.Resampling.LANCZOS)
+    margin = max(1, h // 48)
+    trimmed.thumbnail((max(1, w - margin * 2), max(1, h - margin * 2)), Image.Resampling.LANCZOS)
     layer = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-    layer.alpha_composite(
-        trimmed,
-        ((w - trimmed.width) // 2, max(0, (h - trimmed.height) // 2)),
-    )
+    ox = (w - trimmed.width) // 2
+    oy = max(0, h - trimmed.height - margin)
+    layer.alpha_composite(trimmed, (ox, oy))
     canvas.alpha_composite(layer, (x, y))
     return canvas
 

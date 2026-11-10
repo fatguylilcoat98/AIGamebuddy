@@ -31,7 +31,7 @@ from .prompts import build_messages
 from .providers import chat
 from .results import ActionResult, ModelResult
 from .takeover import InputSink, RetroArchCommandClient, evaluate_gate
-from .capture_safety import SafetySwitch, clamp_overlay_geometry
+from .capture_safety import OVERLAY_SIZE, SafetySwitch
 from .window_layout import list_toplevel_windows, position_hwnd, select_emulator_hwnd
 
 log = logging.getLogger("buddy.session")
@@ -128,6 +128,7 @@ class BuddySession:
         self.overlay_hwnds: set[int] = set()
         self.safety = SafetySwitch()
         self._last_capture = 0.0
+        self._placed: tuple | None = None
         self._load_ui()
 
     def _initial_personality(self) -> str:
@@ -579,36 +580,42 @@ class BuddySession:
             self.overlay_hwnds.add(int(hwnd))
 
     def maintain_layout(self, overlay_origin: tuple[int, int], overlay_size: tuple[int, int],
-                        now: float | None = None) -> ActionResult:
+                        now: float | None = None, monitor: tuple[int, int] | None = None) -> ActionResult:
         if self.closed or not self.safety.move_enabled:
             reason = self.safety.reason or "closed"
             return ActionResult(False, f"I am not moving windows. {reason}", reason="safety_stop")
         moment = time.monotonic() if now is None else now
-        clamped = clamp_overlay_geometry(overlay_size[0], overlay_size[1])
-        if clamped != (int(overlay_size[0]), int(overlay_size[1])):
-            self.safety.note_geometry((int(overlay_size[0]), int(overlay_size[1])), moment)
+        target = tuple(monitor) if monitor else OVERLAY_SIZE
+        size = (int(overlay_size[0]), int(overlay_size[1]))
+        if size[0] < target[0] - 24 or size[1] < target[1] - 24:
+            self.safety.note_geometry(size, moment, design=target)
             return ActionResult(
                 False,
-                "The overlay left 1280x720, so I clamped it and did not move any window.",
+                "The overlay shrank below the monitor, so I did not move any window.",
                 reason="geometry_clamped",
             )
         if self.layout != "full" or not self.manage_window:
             return ActionResult(False, "I am not managing the emulator window in this layout.", reason="layout_idle")
         from .frame_library import scaled_screen
         frame = self.theme if self.theme in {"nes", "snes", "genesis"} else "genesis"
-        hole = scaled_screen(frame, clamped)
+        hole = scaled_screen(frame, size)
         if hole is None:
             return ActionResult(False, "This frame has no screen rectangle, so I did not move the game.",
                                 reason="no_screen")
         hwnd = select_emulator_hwnd(list_toplevel_windows(), self.overlay_hwnds)
         if hwnd is None:
+            self._placed = None
             return ActionResult(
                 False,
                 "No RetroArch or EmulationStation window, so I did not move anything.",
                 reason="no_game",
             )
         rect = (overlay_origin[0] + hole[0], overlay_origin[1] + hole[1], hole[2], hole[3])
+        if self._placed == (hwnd, rect):
+            return ActionResult(True, "The game window is already in the hole.", reason="stable")
         result = position_hwnd(hwnd, rect, self.overlay_hwnds)
+        if result.ok:
+            self._placed = (hwnd, rect)
         self._layout_note = result.message
         return result
 

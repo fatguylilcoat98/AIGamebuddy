@@ -15,10 +15,11 @@ from pathlib import Path
 from PIL import Image
 
 from . import app_state
-from .capture_safety import OVERLAY_SIZE
-from .frame_library import frame_record, paste_head, punch_screen, scaled_box, scaled_screen
+from .capture_safety import OVERLAY_SIZE, fit_frame
+from .frame_library import paste_head
 from .hotkeys import QUIT_SEQUENCES, start_windows_hotkeys, tk_quit_event
-from .window_layout import exclude_window_from_capture
+from .overlay_view import layout_boxes, static_frame
+from .window_layout import exclude_window_from_capture, list_toplevel_windows, select_emulator_hwnd
 
 
 def run_menu_action(mutate, refresh, announce=None) -> None:
@@ -39,23 +40,12 @@ def run_menu_action(mutate, refresh, announce=None) -> None:
 
 def chroma_key(image, key=(255, 0, 255, 255)):
     """Replace transparent pixels with a color Windows can punch out."""
-    rgba = image.convert("RGBA")
-    out = []
-    for red, green, blue, alpha in rgba.getdata():
-        if alpha < 16:
-            out.append(key)
-        else:
-            out.append((red, green, blue, 255))
-    keyed = rgba.copy()
-    keyed.putdata(out)
-    return keyed
-
-
-def _prepared_frame(frame_id: str) -> Image.Image:
-    """Punch the game window only. The portrait bezel stays in the art."""
-    record = frame_record(frame_id)
-    source = Image.open(Path(__file__).resolve().parents[1] / "assets" / "frames" / record["file"])
-    return punch_screen(source, record["screen"])
+    import numpy as np
+    array = np.array(image.convert("RGBA"))
+    transparent = array[:, :, 3] < 16
+    array[transparent] = key
+    array[~transparent, 3] = 255
+    return Image.fromarray(array, "RGBA")
 
 
 def run_overlay(session) -> None:
@@ -70,18 +60,21 @@ def run_overlay(session) -> None:
     root.configure(bg="magenta")
     root.attributes("-topmost", True)
     root.overrideredirect(True)
-    width, height = OVERLAY_SIZE
-    root.geometry(f"{width}x{height}+40+40")
-    root.minsize(width, height)
-    root.maxsize(width, height)
     root.resizable(False, False)
+    screen = (root.winfo_screenwidth(), root.winfo_screenheight())
+    if screen[0] < 640 or screen[1] < 480:
+        screen = (1920, 1080)
     if os.name == "nt":
         # Magenta pixels are the game hole. They must not stay a visible pink box.
         root.wm_attributes("-transparentcolor", "magenta")
 
-    holder = {"photo": None, "base": None}
-    background = tk.Label(root, bd=0, bg="magenta")
+    holder = {
+        "photo": None, "head_photo": None, "fullscreen": True,
+        "monitor": screen, "target": screen, "game": False, "shown": None,
+    }
+    background = tk.Label(root, bd=0, bg="black")
     background.place(x=0, y=0, relwidth=1, relheight=1)
+    head_label = tk.Label(root, bd=0, bg="black")
 
     button_style = {
         "bg": "#12121a", "fg": "#f4f4f4", "activebackground": "#2c2c3a",
@@ -94,7 +87,8 @@ def run_overlay(session) -> None:
     voice = tk.Button(menu, text="Voice", command=lambda: _toggle_voice(), **button_style)
     settings = tk.Button(menu, text="Settings", command=lambda: _cycle_rest(), **button_style)
     sound = tk.Button(menu, text="Sound", command=lambda: _step_volume(), **button_style)
-    buttons = [toggle, mode, voice, settings, sound]
+    windowed = tk.Button(menu, text="Full", command=lambda: _toggle_fullscreen(), **button_style)
+    buttons = [toggle, mode, voice, settings, sound, windowed]
     focus_at = {"i": 0}
 
     def _toggle_character():
@@ -151,6 +145,7 @@ def run_overlay(session) -> None:
         voice.configure(text="Voice off" if session.muted else "Voice on")
         settings.configure(text=f"Rest: {hud.get('resting_direction', 'left')}")
         sound.configure(text=f"Sound {session.volume}")
+        windowed.configure(text="Full" if holder["fullscreen"] else "Window")
 
     def _focus(index: int):
         focus_at["i"] = index % len(buttons)
@@ -162,83 +157,107 @@ def run_overlay(session) -> None:
     toggle.pack(fill="x", padx=4, pady=(4, 2))
     row = tk.Frame(menu, bg="#12121a")
     row.pack(fill="both", expand=True, padx=2, pady=(0, 4))
-    for button in (mode, voice, settings, sound):
+    for button in (mode, voice, settings, sound, windowed):
         button.pack(in_=row, side="left", expand=True, fill="both", padx=2)
 
+    def _frame_id():
+        return session.theme if session.theme in {"nes", "snes", "genesis"} else "genesis"
+
+    def _apply_geometry():
+        if holder["fullscreen"]:
+            width, height = holder["monitor"]
+            root.geometry(f"{width}x{height}+0+0")
+            holder["target"] = (width, height)
+        else:
+            root.geometry(f"{OVERLAY_SIZE[0]}x{OVERLAY_SIZE[1]}+40+40")
+            holder["target"] = OVERLAY_SIZE
+        session._placed = None
+
+    def _toggle_fullscreen():
+        holder["fullscreen"] = not holder["fullscreen"]
+        _apply_geometry()
+        _rebuild_static()
+        _refresh_labels()
+
     def place_chrome():
-        width = max(root.winfo_width(), 1)
-        height = max(root.winfo_height(), 1)
-        frame_id = session.theme if session.theme in {"nes", "snes", "genesis"} else "genesis"
-        menu_box = scaled_box(frame_id, "menu", (width, height))
-        if menu_box:
-            menu.place(x=menu_box[0], y=menu_box[1], width=menu_box[2], height=menu_box[3])
-            menu.lift()
+        boxes = layout_boxes(_frame_id(), holder["target"], game_running=holder["game"])
+        menu_box = boxes["menu"]
+        head_box = boxes["head"]
+        menu.place(x=menu_box["x"], y=menu_box["y"], width=menu_box["width"], height=menu_box["height"])
+        head_label.place(x=head_box["x"], y=head_box["y"], width=head_box["width"], height=head_box["height"])
+        menu.lift()
 
-    def redraw_frame():
-        frame_id = session.theme if session.theme in {"nes", "snes", "genesis"} else "genesis"
-        # The approved frame is 1280x720. Do not scale it down to a shrinking window.
-        holder["base"] = _prepared_frame(frame_id)
-        _paint()
+    def _rebuild_static():
+        image = static_frame(_frame_id(), holder["target"], game_running=holder["game"])
+        if os.name == "nt" and holder["game"]:
+            image = chroma_key(image)
+        holder["photo"] = ImageTk.PhotoImage(image)
+        background.configure(image=holder["photo"])
+        place_chrome()
+        _cut_hole()
 
-    def _paint():
-        base = holder.get("base")
-        if base is None:
-            return
+    def _paint_head():
+        boxes = layout_boxes(_frame_id(), holder["target"], game_running=holder["game"])
+        head_box = boxes["head"]
         hud = session.hud()
         expression = hud["expression"]
         mouth = hud["mouth"] if hud["mouth"] else (0.55 if expression == "talk" else 0.0)
-        frame_id = session.theme if session.theme in {"nes", "snes", "genesis"} else "genesis"
-        buddy = scaled_box(frame_id, "buddy", base.size)
         head = render_hologram(
             expression, t=session.clock.mono(), mouth=mouth, gaze=hud["gaze"],
-            size=max(buddy[2], buddy[3], 64) if buddy else 64,
+            size=max(head_box["width"], head_box["height"], 64),
             character=hud.get("buddy_character", "male"),
             resting=hud.get("resting_direction", "left"),
             from_expression=hud.get("from_expression"), blend=hud.get("expression_blend", 1.0),
         )
-        frame = paste_head(base, head, {"x": buddy[0], "y": buddy[1], "width": buddy[2], "height": buddy[3]}) if buddy else base
-        if os.name == "nt":
-            frame = chroma_key(frame)
-        holder["photo"] = ImageTk.PhotoImage(frame)
-        background.configure(image=holder["photo"])
+        plate = Image.new("RGBA", (head_box["width"], head_box["height"]), (0, 0, 0, 255))
+        plate = paste_head(plate, head, {"x": 0, "y": 0, "width": head_box["width"], "height": head_box["height"]})
+        holder["head_photo"] = ImageTk.PhotoImage(plate)
+        head_label.configure(image=holder["head_photo"])
 
     def animate():
+        if session.closed:
+            return
         session.tick_animation()
-        _paint()
         if session.theme != holder.get("shown"):
             holder["shown"] = session.theme
-            redraw_frame()
-            place_chrome()
-            _cut_hole()
-        root.after(70, animate)
+            _rebuild_static()
+        _paint_head()
+        root.after(80, animate)
 
     def _cut_hole():
-        if os.name != "nt" or session.layout != "full":
+        if os.name != "nt" or not holder["game"] or session.layout != "full":
             return
         root.update_idletasks()
-        frame_id = session.theme if session.theme in {"nes", "snes", "genesis"} else "genesis"
-        hole = scaled_screen(frame_id, (root.winfo_width(), root.winfo_height()))
+        from .frame_library import scaled_screen
+        origin_x, origin_y, frame_w, frame_h = fit_frame(holder["target"])
+        hole = scaled_screen(_frame_id(), (frame_w, frame_h))
         if hole:
-            apply_hole_region(root.winfo_id(), root.winfo_width(), root.winfo_height(), hole)
-
-    def _clamp_geometry():
-        current = (root.winfo_width(), root.winfo_height())
-        if current == (1, 1) or current == (0, 0):
-            return
-        if current != OVERLAY_SIZE:
-            session.safety.note_geometry(current, time.monotonic())
-            root.geometry(f"{OVERLAY_SIZE[0]}x{OVERLAY_SIZE[1]}+{root.winfo_x()}+{root.winfo_y()}")
+            apply_hole_region(
+                root.winfo_id(), holder["target"][0], holder["target"][1],
+                (origin_x + hole[0], origin_y + hole[1], hole[2], hole[3]),
+            )
 
     def maintain():
         if session.closed:
             return
-        _clamp_geometry()
-        if session.layout == "full" and session.safety.move_enabled:
-            session.maintain_layout(
-                (root.winfo_x(), root.winfo_y()),
-                OVERLAY_SIZE,
-            )
-        root.after(1500, maintain)
+        current = (root.winfo_width(), root.winfo_height())
+        target = holder["target"]
+        if current not in {(0, 0), (1, 1)} and (
+            current[0] < target[0] - 24 or current[1] < target[1] - 24
+        ):
+            session.safety.note_geometry(current, time.monotonic(), design=target)
+            if session.safety.move_enabled and current != holder.get("snapped"):
+                holder["snapped"] = current
+                _apply_geometry()
+                _rebuild_static()
+        present = select_emulator_hwnd(list_toplevel_windows(), session.overlay_hwnds) is not None
+        if present != holder["game"]:
+            holder["game"] = present
+            session._placed = None
+            _rebuild_static()
+        if holder["game"] and session.layout == "full" and session.safety.move_enabled:
+            session.maintain_layout((root.winfo_x(), root.winfo_y()), target, monitor=target)
+        root.after(2000, maintain)
 
     def talk_down(_event=None):
         session.start_talking()
@@ -284,11 +303,13 @@ def run_overlay(session) -> None:
     talk_up_once = _once("talk_up", talk_up)
     menu_once = _once("menu", lambda: _focus(0))
     quit_once = _once("quit", _quit)
+    full_once = _once("fullscreen", _toggle_fullscreen)
     # bind_all still works when a menu button has focus. The lowercase q bind
     # does not: Tk's keysym for Shift+Q is Q.
     root.bind_all("<KeyPress-F9>", talk_down_once)
     root.bind_all("<KeyRelease-F9>", talk_up_once)
     root.bind_all("<F8>", menu_once)
+    root.bind_all("<F11>", full_once)
     for sequence in QUIT_SEQUENCES:
         root.bind_all(sequence, quit_once)
     root.bind_all("<KeyPress>", _maybe_quit)
@@ -304,6 +325,7 @@ def run_overlay(session) -> None:
             "talk_down": talk_down_once,
             "talk_up": talk_up_once,
             "menu": menu_once,
+            "fullscreen": full_once,
             "quit": quit_once,
         }
         action = actions.get(name)
@@ -318,8 +340,8 @@ def run_overlay(session) -> None:
     affinity = exclude_window_from_capture(int(root.winfo_id()))
     logging.getLogger("buddy.overlay").info("Capture affinity for the overlay: %s", affinity)
     _refresh_labels()
-    redraw_frame()
-    place_chrome()
+    _apply_geometry()
+    _rebuild_static()
     _focus(0)
     root.after(70, animate)
     root.after(1500, maintain)

@@ -97,15 +97,16 @@ For Buddy's own overlay hole, a 1280x720 window matches the frame. Do not turn o
 
 Double-click `Start-Buddy.bat`.
 
-You get one 1280x720 window:
+Buddy opens borderless on the whole monitor. The 1280x720 frame scales up to fit. On a 1920x1080 screen that is exactly the 1080p layout. A monitor that is not 16:9 gets black bars around the frame.
 
-- The center opening is clear so the game shows through (Windows only).
-- Buddy's hologram sits in the bottom-right box and rests looking left, toward the game. The name on screen stays whatever `character_name` says.
-- The menu is the button bar under that box. It is not a top-right button. The buttons are Buddy (Male / Female), Mode (casual, sassy, extreme), Voice, Settings (resting direction: left, center, right), and Sound (volume).
-- F8 focuses that menu. Arrow keys and Enter move through it.
+- The center opening is a dark screen that says nothing until a game is running. The words `Load a game` sit in Buddy's box, under his head, not on the game picture.
+- When RetroArch or EmulationStation is open, the opening goes clear so the game shows through (Windows only). Buddy places that window once. It does not keep shoving windows around.
+- Buddy's hologram sits in the bottom-right box, resting left toward the game, with the ring under his chin. The name on screen stays whatever `character_name` says.
+- The menu is the button bar under that box. It is not a top-right button. The buttons are Buddy (Male / Female), Mode (casual, sassy, extreme), Voice, Settings (resting direction), Sound, and Full/Window.
+- F8 focuses that menu. Arrow keys and Enter move through it. F11 toggles fullscreen and a 1280x720 window.
 - F9 is push-to-talk. Hold it, talk, let go. On Windows those keys are global, so they still work while the game is in front.
 - Ctrl+Shift+Q quits. Closing the black console window quits too, including the local API.
-- The overlay stays 1280x720. It does not shrink itself, and it does not draw screenshots. Capture is only for vision, only of the RetroArch or EmulationStation window, and only about once a second. If that window is not open, Buddy does not capture.
+- The overlay does not draw screenshots. Capture is only for vision, only of the game window, and only about once a second.
 
 Open your game from EmulationStation or RetroArch, then start Buddy.
 The frame follows the system that is running (NES, Super NES, or Genesis) when Buddy can tell. There is no menu button that swaps frames.

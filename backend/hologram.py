@@ -257,13 +257,8 @@ def _compose(expression: str, t: float, mouth: float, gaze: str, size: int,
         pad = int(size * (0.08 + 0.05 * burst))
         draw.ellipse((pad, pad, size - pad, size - pad), fill=(40, 170, 255, int(70 * burst)))
         fitted = Image.alpha_composite(glow, fitted)
-    pulse = 0.45 + 0.55 * (0.5 + 0.5 * math.sin(t * 2.2))
-    ring = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(ring)
-    cx, cy = size // 2, int(size * 0.78)
-    rx, ry = int(size * 0.22), int(size * 0.05)
-    draw.ellipse((cx - rx, cy - ry, cx + rx, cy + ry), outline=(80, 220, 255, int(180 * pulse)), width=max(1, size // 80))
-    fitted = Image.alpha_composite(fitted, ring)
+    # The sprite already has its pedestal ring. A second ellipse at 78% of the
+    # square sat on the neck instead of under the chin.
     return _scanlines(fitted, t, burst)
 
 

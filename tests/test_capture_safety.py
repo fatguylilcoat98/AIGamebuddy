@@ -15,11 +15,17 @@ def test_bgra_bytes_are_not_read_as_rgb():
     assert bgra_to_rgb(raw, 1, 1) == bytes([10, 0, 255])
 
 
-def test_overlay_geometry_clamps_back_to_the_frame():
-    assert clamp_overlay_geometry(1280, 720) == (1280, 720)
-    assert clamp_overlay_geometry(640, 360) == (1280, 720)
-    assert clamp_overlay_geometry(2, 2) == (1280, 720)
-    assert clamp_overlay_geometry(1920, 1080) == (1280, 720)
+def test_overlay_geometry_clamps_to_the_monitor():
+    from backend.capture_safety import fit_frame
+    assert clamp_overlay_geometry(1920, 1080, (1920, 1080)) == (1920, 1080)
+    assert clamp_overlay_geometry(640, 360, (1920, 1080)) == (1920, 1080)
+    assert clamp_overlay_geometry(1280, 720, (2560, 1440)) == (2560, 1440)
+    assert fit_frame((1920, 1080)) == (0, 0, 1920, 1080)
+    assert fit_frame((2560, 1440)) == (0, 0, 2560, 1440)
+    origin_x, origin_y, frame_w, frame_h = fit_frame((2560, 1080))
+    assert (frame_w, frame_h) == (1920, 1080)
+    assert origin_y == 0
+    assert origin_x == (2560 - 1920) // 2
 
 
 def test_repeated_shrink_disables_capture_and_moves():
@@ -68,6 +74,30 @@ def test_foreground_window_is_not_moved():
     moved = position_foreground_window((0, 0, 100, 100))
     assert moved.ok is False
     assert "did not" in moved.message.lower()
+
+
+def test_load_a_game_and_the_head_stay_in_the_buddy_box():
+    import numpy as np
+    from backend.frame_library import PLACEMENTS
+    from backend.overlay_view import compose_overlay
+    box = PLACEMENTS["snes"]["buddy"]
+    hole = (320 + 200, 178 + 160)
+    idle = np.array(compose_overlay("snes", (1280, 720), expression="idle", game_running=False))
+    talk = np.array(compose_overlay("snes", (1280, 720), expression="talk", mouth=0.9, game_running=False))
+    assert max(idle[hole[1], hole[0], :3]) < 40
+    assert idle[hole[1], hole[0], 3] == 255
+    band = idle[box["y"] + box["height"] - 12:box["y"] + box["height"] - 2, box["x"]:box["x"] + box["width"]]
+    assert int((band[:, :, 0] > 180).sum()) > 10
+    # The prompt is not painted across the game opening.
+    opening = idle[178:178 + 80, 320:320 + 200]
+    assert int((opening[:, :, 0] > 180).sum()) == 0
+    for image, label in ((idle, "rest"), (talk, "talk")):
+        head = image[box["y"]:box["y"] + int(box["height"] * 0.78), box["x"]:box["x"] + box["width"]]
+        bright = head.max(axis=2) > 70
+        rows = np.where(bright.any(axis=1))[0]
+        assert len(rows) > 10, label
+        assert rows[0] < head.shape[0] * 0.22, label
+        assert rows[-1] > head.shape[0] * 0.75, label
 
 
 def test_maintain_layout_refuses_to_shrink_the_overlay(tmp_path):

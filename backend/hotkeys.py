@@ -17,6 +17,7 @@ VK_CONTROL = 0x11
 VK_Q = 0x51
 VK_F8 = 0x77
 VK_F9 = 0x78
+VK_F11 = 0x7A
 
 
 def tk_quit_event(event) -> bool:
@@ -36,6 +37,8 @@ def poll_hotkey_events(previous: dict[str, bool], down: dict[str, bool]) -> list
         events.append("talk_up")
     if down.get("f8") and not previous.get("f8"):
         events.append("menu")
+    if down.get("f11") and not previous.get("f11"):
+        events.append("fullscreen")
     if down.get("quit") and not previous.get("quit"):
         events.append("quit")
     return events
@@ -48,6 +51,7 @@ def read_hotkey_state(user32) -> dict[str, bool]:
     return {
         "f8": down(VK_F8),
         "f9": down(VK_F9),
+        "f11": down(VK_F11),
         "quit": down(VK_Q) and down(VK_CONTROL) and down(VK_SHIFT),
     }
 

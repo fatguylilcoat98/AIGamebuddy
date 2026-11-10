@@ -19,12 +19,30 @@ def overlay_may_show_capture() -> bool:
     return False
 
 
-def clamp_overlay_geometry(width: int, height: int, design: tuple[int, int] = OVERLAY_SIZE) -> tuple[int, int]:
-    """The frame is a fixed size from the metadata. Never follow a shrinking window."""
+def clamp_overlay_geometry(width: int, height: int, monitor: tuple[int, int] = (1920, 1080)) -> tuple[int, int]:
+    """Fullscreen target is the monitor. A smaller size is the shrink bug, not a layout."""
+    del width, height
+    return int(monitor[0]), int(monitor[1])
+
+
+def fit_frame(monitor: tuple[int, int], design: tuple[int, int] = OVERLAY_SIZE) -> tuple[int, int, int, int]:
+    """Letterboxed 16:9 frame inside the monitor.
+
+    1920x1080 is exactly 1.5 times the 1280x720 art, which is the 1080p metadata.
+    Other sizes use the same uniform scale. A wider or taller monitor gets bars.
+    """
+    monitor_w, monitor_h = int(monitor[0]), int(monitor[1])
     design_w, design_h = design
-    if width != design_w or height != design_h:
-        return design
-    return design
+    if monitor_w < 2 or monitor_h < 2:
+        return 0, 0, design_w, design_h
+    scale = min(monitor_w / design_w, monitor_h / design_h)
+    frame_w = max(1, int(round(design_w * scale)))
+    frame_h = max(1, int(round(design_h * scale)))
+    if abs(monitor_w - 1920) <= 2 and abs(monitor_h - 1080) <= 2:
+        frame_w, frame_h = 1920, 1080
+    origin_x = max(0, (monitor_w - frame_w) // 2)
+    origin_y = max(0, (monitor_h - frame_h) // 2)
+    return origin_x, origin_y, frame_w, frame_h
 
 
 def bgra_to_rgb(raw: bytes, width: int, height: int) -> bytes:

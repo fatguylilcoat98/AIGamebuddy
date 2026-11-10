@@ -263,6 +263,20 @@ if ($LASTEXITCODE -ne 0) {
     throw "The menu panel is not visible over the SNES frame"
 }
 
+Send-Smoke "scroll-menu"
+Start-Sleep -Seconds 1
+$bottomShot = Join-Path $shotDir "menu-bottom.jpg"
+Save-Screen $bottomShot
+Write-Host "Menu bottom screenshot $bottomShot"
+$env:BUDDY_SHOT = $bottomShot
+$env:BUDDY_MENU_OPEN = "0"
+$env:BUDDY_MENU_BOTTOM = "1"
+& $python $smokePy prove
+if ($LASTEXITCODE -ne 0) {
+    Write-BuddyLogs
+    throw "The menu does not reach Exit to desktop"
+}
+
 Send-Smoke "retroarch-menu"
 Start-Sleep -Seconds 4
 $raShot = Join-Path $shotDir "retroarch-menu.jpg"

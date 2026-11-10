@@ -18,12 +18,34 @@ from .hologram import render_hologram
 _FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 
 
+def seal_opening(image: Image.Image, screen: dict[str, int]) -> Image.Image:
+    """Keep only the game rectangle clear. The rest of the opening is opaque black.
+
+    Transparent pixels outside that rectangle used to show the desktop.
+    """
+    import numpy as np
+    array = np.array(image.convert("RGBA"))
+    height, width = array.shape[:2]
+    x = max(0, int(screen["x"]))
+    y = max(0, int(screen["y"]))
+    x1 = min(width, x + max(1, int(screen["width"])))
+    y1 = min(height, y + max(1, int(screen["height"])))
+    transparent = array[:, :, 3] < 250
+    inside = np.zeros((height, width), dtype=bool)
+    inside[y:y1, x:x1] = True
+    array[transparent & ~inside] = (0, 0, 0, 255)
+    return Image.fromarray(array, "RGBA")
+
+
 def _frame_art(frame_id: str) -> Image.Image:
     record = frame_record(frame_id)
     source = Image.open(ROOT / "assets" / "frames" / record["file"])
     # The baked portrait is gone before the live sprite is drawn.
     source = clear_painted_head(source, frame_id)
-    return punch_screen(source, record["screen"], frame_id=frame_id)
+    art = punch_screen(source, record["screen"], frame_id=frame_id)
+    if frame_id == "snes":
+        art = seal_opening(art, record["screen"])
+    return art
 
 
 def _fill_hole(image: Image.Image, color: tuple[int, int, int, int] = (6, 8, 14, 255)) -> Image.Image:

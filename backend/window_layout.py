@@ -90,10 +90,81 @@ def _set_window_pos(hwnd: int, rect: tuple[int, int, int, int]) -> ActionResult:
         if not moved:
             return ActionResult(False, "Windows refused to move the emulator window, so I left it where it was.",
                                 reason="set_window_failed")
+        snap_client_area(int(hwnd), rect)
         return ActionResult(True, "Moved the emulator window into the game opening.",
                             reason="moved", data={"rect": [x, y, w, h], "hwnd": hwnd})
     except Exception as exc:
         return ActionResult(False, f"I could not move the window. {exc}", reason="window_error")
+
+
+def client_screen_rect(hwnd: int) -> tuple[int, int, int, int] | None:
+    """Client area in screen pixels. The menu bar is outside this rectangle."""
+    if os.name != "nt" or not hwnd:
+        return None
+    try:
+        import ctypes
+        from ctypes import wintypes
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+
+        class RECT(ctypes.Structure):
+            _fields_ = [("left", wintypes.LONG), ("top", wintypes.LONG),
+                        ("right", wintypes.LONG), ("bottom", wintypes.LONG)]
+
+        class POINT(ctypes.Structure):
+            _fields_ = [("x", wintypes.LONG), ("y", wintypes.LONG)]
+
+        rect = RECT()
+        user32.GetClientRect.argtypes = [wintypes.HWND, ctypes.POINTER(RECT)]
+        user32.GetClientRect.restype = wintypes.BOOL
+        user32.ClientToScreen.argtypes = [wintypes.HWND, ctypes.POINTER(POINT)]
+        user32.ClientToScreen.restype = wintypes.BOOL
+        if not user32.GetClientRect(int(hwnd), ctypes.byref(rect)):
+            return None
+        origin = POINT(0, 0)
+        if not user32.ClientToScreen(int(hwnd), ctypes.byref(origin)):
+            return None
+        return (
+            int(origin.x), int(origin.y),
+            int(rect.right - rect.left), int(rect.bottom - rect.top),
+        )
+    except Exception as exc:
+        log.warning("GetClientRect failed for %s: %s", hwnd, exc)
+        return None
+
+
+def snap_client_area(hwnd: int, target: tuple[int, int, int, int]) -> str:
+    """Move the outer window so its client area is exactly `target`."""
+    if os.name != "nt" or not hwnd:
+        return "not_windows"
+    outer = window_rect(hwnd)
+    client = client_screen_rect(hwnd)
+    if outer is None or client is None:
+        return "unmeasured"
+    tx, ty, tw, th = (int(v) for v in target)
+    ox, oy, ow, oh = outer
+    cx, cy, cw, ch = client
+    if cw < 1 or ch < 1:
+        return "empty"
+    nx = ox + (tx - cx)
+    ny = oy + (ty - cy)
+    nw = ow + (tw - cw)
+    nh = oh + (th - ch)
+    if (nx, ny, nw, nh) == outer:
+        return "exact"
+    try:
+        import ctypes
+        from ctypes import wintypes
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        user32.SetWindowPos.argtypes = [
+            wintypes.HWND, ctypes.c_void_p, ctypes.c_int, ctypes.c_int,
+            ctypes.c_int, ctypes.c_int, wintypes.UINT,
+        ]
+        user32.SetWindowPos.restype = wintypes.BOOL
+        ok = bool(user32.SetWindowPos(int(hwnd), ctypes.c_void_p(-2), int(nx), int(ny), int(nw), int(nh), 0x0040))
+        return "snapped" if ok else "failed"
+    except Exception as exc:
+        log.warning("Could not snap the client area: %s", exc)
+        return "failed"
 
 
 def window_rect(hwnd: int) -> tuple[int, int, int, int] | None:
@@ -139,25 +210,28 @@ def strip_window_decorations(hwnd: int) -> str:
         border = 0x00800000
         dialog = 0x00400000
         style = int(get_long(int(hwnd), style_index))
-        cleaned = style & ~caption & ~thick & ~border & ~dialog
-        if cleaned == style:
-            return "already_borderless"
-        set_long(int(hwnd), style_index, cleaned)
+        sysmenu = 0x00080000
+        cleaned = style & ~caption & ~thick & ~border & ~dialog & ~sysmenu
         user32.SetWindowPos.argtypes = [
             wintypes.HWND, ctypes.c_void_p, ctypes.c_int, ctypes.c_int,
             ctypes.c_int, ctypes.c_int, wintypes.UINT,
         ]
         user32.SetWindowPos.restype = wintypes.BOOL
-        # SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED
-        user32.SetWindowPos(int(hwnd), ctypes.c_void_p(0), 0, 0, 0, 0, 0x0020 | 0x0004 | 0x0002 | 0x0001)
-        # The GDI driver draws File / Command / Window as a real menu bar.
+        if cleaned != style:
+            set_long(int(hwnd), style_index, cleaned)
+            # SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED
+            user32.SetWindowPos(int(hwnd), ctypes.c_void_p(0), 0, 0, 0, 0, 0x0020 | 0x0004 | 0x0002 | 0x0001)
+        # The GDI driver draws File / Command / Window even when the frame is already gone.
         try:
             user32.SetMenu.argtypes = [wintypes.HWND, wintypes.HMENU]
             user32.SetMenu.restype = wintypes.BOOL
             user32.SetMenu(int(hwnd), None)
+            user32.DrawMenuBar.argtypes = [wintypes.HWND]
+            user32.DrawMenuBar.restype = wintypes.BOOL
+            user32.DrawMenuBar(int(hwnd))
         except Exception:
             pass
-        return "stripped"
+        return "stripped" if cleaned != style else "already_borderless"
     except Exception as exc:
         log.warning("Could not remove decorations on %s: %s", hwnd, exc)
         return "failed"

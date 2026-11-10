@@ -39,8 +39,58 @@ def _crop(image: np.ndarray, box: tuple[int, int, int, int]) -> np.ndarray:
     return image[y0:y1, x0:x1]
 
 
+def _opening_ring(shot: np.ndarray, game: tuple[int, int, int, int]) -> list[str]:
+    """The margin around the game window has to be black, never the desktop."""
+    x, y, w, h = game
+    height, width = shot.shape[:2]
+    samples = {
+        "top": shot[max(0, y - 14):max(0, y - 3), x + w // 5:x + (4 * w) // 5],
+        "right": shot[y + h // 5:y + (4 * h) // 5, min(width, x + w + 3):min(width, x + w + 14)],
+    }
+    problems = []
+    for name, region in samples.items():
+        if region.size == 0:
+            continue
+        red = region[:, :, 0].astype(np.int16)
+        green = region[:, :, 1].astype(np.int16)
+        blue = region[:, :, 2].astype(np.int16)
+        # Windows wallpaper is a pale blue. The game is pure blue. The art is not pale.
+        wallpaper = (blue > 150) & (green > 130) & (red > 90) & (red < 210) & (blue >= red) & (np.abs(blue - green) < 60)
+        if float(wallpaper.mean()) > 0.04:
+            problems.append(f"the desktop is showing along the {name} of the game opening")
+    return problems
+
+
+def _menubar(shot: np.ndarray, game: tuple[int, int, int, int]) -> list[str]:
+    """A light File / Command / Window strip means the window chrome is still there."""
+    x, y, w, h = game
+    bar = shot[y:y + 18, x + w // 2:x + w - 8]
+    if bar.size == 0:
+        return []
+    if float(bar.mean()) > 150:
+        return ["RetroArch's menu bar is visible on the game"]
+    return []
+
+
+def _menu_bottom(shot: np.ndarray, button: tuple[int, int, int, int], height: int, width: int) -> list[str]:
+    """Exit to desktop is a bright button at the bottom of the scrolled menu."""
+    top = button[1] + button[3] + 12
+    panel_h = max(240, min(height - top - 24, 920))
+    panel_w = min(760, max(420, button[2] * 4))
+    strip = _crop(shot, (button[0] + 16, top + panel_h - 88, min(panel_w - 32, width), 64))
+    if strip.size == 0:
+        return ["the bottom of the menu is off the screen"]
+    red = strip[:, :, 0].astype(np.int16)
+    green = strip[:, :, 1].astype(np.int16)
+    blue = strip[:, :, 2].astype(np.int16)
+    cyan = (blue > 180) & (green > 160) & (red < 180) & (green > red + 40)
+    if int(cyan.sum()) < 30:
+        return ["the menu is not scrolled to Exit to desktop"]
+    return []
+
+
 def prove_snes_screen(screenshot: Image.Image, *, menu_open: bool, frame_path: Path | None = None,
-                      expect_chrome: bool = True) -> list[str]:
+                      expect_chrome: bool = True, menu_scrolled: bool = False) -> list[str]:
     """Empty list means the painting, Buddy, and the hamburger are actually on screen."""
     problems: list[str] = []
     shot = np.asarray(screenshot.convert("RGB"))
@@ -65,6 +115,9 @@ def prove_snes_screen(screenshot: Image.Image, *, menu_open: bool, frame_path: P
         if score > 42:
             problems.append(f"{name} does not match Chris's frame (difference {score:.0f})")
     record = frame_record("snes")
+    game = _scale_box(record["screen"], (origin_x, origin_y), (frame_w, frame_h))
+    problems.extend(_opening_ring(shot, game))
+    problems.extend(_menubar(shot, game))
     buddy = _scale_box(record["buddy"], (origin_x, origin_y), (frame_w, frame_h))
     inset_x = buddy[0] + buddy[2] // 6
     inset_y = buddy[1] + buddy[3] // 6
@@ -85,7 +138,9 @@ def prove_snes_screen(screenshot: Image.Image, *, menu_open: bool, frame_path: P
             luma = icon.astype(np.int16).max(axis=2)
             if float(luma.mean()) > 90 or int((luma > 200).sum()) < 8:
                 problems.append("the hamburger button is not visible in the top-left")
-    if menu_open and expect_chrome:
+    if menu_scrolled and expect_chrome:
+        problems.extend(_menu_bottom(shot, button, height, width))
+    if menu_open and expect_chrome and not menu_scrolled:
         panel = (
             button[0] + 8,
             button[1] + button[3] + 28,

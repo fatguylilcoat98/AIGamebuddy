@@ -101,7 +101,8 @@ def test_hole_config_letterboxes_inside_the_opening(tmp_path):
     assert 'video_fullscreen = "false"' in text
     assert 'video_windowed_fullscreen = "false"' in text
     assert 'video_window_show_decorations = "false"' in text
-    assert 'video_window_save_positions = "true"' in text
+    assert 'video_window_save_positions = "false"' in text
+    assert 'ui_menubar_enable = "false"' in text
     assert 'video_scale_integer = "false"' in text
     assert 'video_window_x = "120"' in text
     assert 'video_window_width = "900"' in text

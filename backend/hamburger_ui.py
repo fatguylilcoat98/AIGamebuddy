@@ -67,6 +67,12 @@ class HamburgerMenu:
         self.place(self._box)
         self.on_change()
 
+    def scroll_to_bottom(self):
+        self.inner.update_idletasks()
+        self.canvas.update_idletasks()
+        self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+        self.canvas.yview_moveto(1.0)
+
     def close(self):
         if not self.open:
             return

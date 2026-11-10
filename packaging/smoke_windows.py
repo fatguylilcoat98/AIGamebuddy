@@ -121,7 +121,11 @@ def close_window(title: str) -> None:
 def prove(path: Path, menu_open: bool) -> None:
     from PIL import Image
     from backend.frame_proof import prove_snes_screen
-    problems = prove_snes_screen(Image.open(path), menu_open=menu_open)
+    problems = prove_snes_screen(
+        Image.open(path),
+        menu_open=menu_open,
+        menu_scrolled=os.environ.get("BUDDY_MENU_BOTTOM") == "1",
+    )
     for item in problems:
         print(item)
     if problems:

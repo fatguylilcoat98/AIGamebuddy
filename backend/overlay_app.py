@@ -625,6 +625,11 @@ def run_overlay(session) -> None:
                 if command == "open-menu" and not menu_ui.open:
                     menu_ui.toggle()
                     holder["menu_open"] = True
+                elif command == "scroll-menu":
+                    if not menu_ui.open:
+                        menu_ui.toggle()
+                        holder["menu_open"] = True
+                    menu_ui.scroll_to_bottom()
                 elif command == "retroarch-menu":
                     session.open_retroarch_menu()
                 elif command == "controller":

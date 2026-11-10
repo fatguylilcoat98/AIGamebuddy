@@ -23,8 +23,8 @@ def _test_pattern(image: Image.Image) -> Image.Image:
     height, width = hole.shape
     ys, xs = np.indices((height, width))
     colors = np.array([
-        [200, 200, 200], [200, 200, 40], [40, 200, 200], [40, 200, 40],
-        [200, 40, 200], [200, 40, 40], [40, 40, 200], [30, 30, 30],
+        [220, 170, 40], [40, 190, 210], [40, 190, 70], [190, 50, 190],
+        [200, 50, 50], [50, 70, 200], [230, 120, 40], [30, 30, 30],
     ], dtype=np.uint8)
     picture = colors[(xs * 8 // max(1, width)) % 8]
     grid = ((xs % 48) < 2) | ((ys % 48) < 2)
@@ -35,22 +35,33 @@ def _test_pattern(image: Image.Image) -> Image.Image:
 
 
 def _draw_menu(image: Image.Image, frame_id: str) -> Image.Image:
-    """The buttons Buddy shows inside the portrait when the menu is open."""
+    """The buttons Buddy shows beside the portrait when the menu is open."""
     canvas = image.convert("RGBA")
     menu = layout_boxes(frame_id, canvas.size, game_running=True)["menu"]
     draw = ImageDraw.Draw(canvas)
-    draw.rectangle(
+    draw.rounded_rectangle(
         (menu["x"], menu["y"], menu["x"] + menu["width"], menu["y"] + menu["height"]),
-        fill=(18, 18, 26, 230),
+        radius=10, fill=(18, 18, 26, 235),
     )
-    labels = ("Male", "Sassy", "Voice", "Rest", "Sound", "Games")
+    rows = (("Buddy: Male",), ("Sassy", "Voice", "Rest"), ("Sound", "Games", "Full"))
+    size = max(20, min(28, menu["height"] // 6))
     try:
-        font = ImageFont.truetype(_FONT, max(11, menu["height"] // 3))
+        font = ImageFont.truetype(_FONT, size)
     except OSError:
         font = ImageFont.load_default()
-    slot = max(1, menu["width"] // len(labels))
-    for index, label in enumerate(labels):
-        draw.text((menu["x"] + 6 + index * slot, menu["y"] + menu["height"] // 3), label, font=font, fill=(232, 244, 255, 255))
+    row_h = menu["height"] // len(rows)
+    for row_index, labels in enumerate(rows):
+        widths = []
+        for label in labels:
+            box = draw.textbbox((0, 0), label, font=font)
+            widths.append(box[2] - box[0])
+        gap = 14
+        total = sum(widths) + gap * (len(labels) - 1)
+        x = menu["x"] + max(8, (menu["width"] - total) // 2)
+        y = menu["y"] + row_index * row_h + max(2, (row_h - size) // 2)
+        for label, width in zip(labels, widths):
+            draw.text((x, y), label, font=font, fill=(232, 244, 255, 255))
+            x += width + gap
     return canvas
 
 

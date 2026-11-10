@@ -502,6 +502,32 @@ def _erase_lower_plate(rgb: np.ndarray, well: dict[str, int]) -> None:
         rgb[ys, xs] = rgb[ys, np.full(len(ys), donor_x)]
 
 
+def _cover_genesis_corner(rgb: np.ndarray, hole: np.ndarray) -> None:
+    """Jungle covers the hard notch beside the pad. The review box is a 1024-wide view."""
+    height, width = hole.shape
+    scale = width / 1024
+    x0 = int(round(75 * scale))
+    x1 = int(round(130 * scale)) + 6
+    y0 = int(round(20 * scale))
+    y1 = int(round(130 * scale)) + 6
+    leaf = rgb[220:268, 20:84]
+    if leaf.size == 0:
+        return
+    rows = np.arange(height)
+    extra = (8 + 6 * np.sin(rows * 0.15 + 0.4)).astype(int)
+    for y in range(max(0, y0), min(height, y1)):
+        right = min(width, x1 + int(extra[y]))
+        span = hole[y, x0:right]
+        if not span.any():
+            continue
+        sample = leaf[y % leaf.shape[0]]
+        colors = np.resize(sample, (right - x0, 3))
+        row = rgb[y, x0:right]
+        row[span] = colors[span]
+        rgb[y, x0:right] = row
+        hole[y, x0:right] = False
+
+
 def _draw_pad(image: Image.Image) -> None:
     """A small original three-button pad, sitting on the scenery."""
     from PIL import ImageDraw
@@ -603,6 +629,7 @@ def build_plate(frame_id: str) -> tuple[Image.Image, dict[str, dict[str, int]]]:
         rgb[y, x0:limit_x] = rgb[y, limit_x:limit_x + depth]
     if frame_id == "genesis":
         _remove_metal_bezel(rgb, hole, well)
+        _cover_genesis_corner(rgb, hole)
     if frame_id == "snes":
         _erase_lower_plate(rgb, well)
     alpha = np.full(hole.shape, 255, np.uint8)
@@ -624,11 +651,11 @@ def build_plate(frame_id: str) -> tuple[Image.Image, dict[str, dict[str, int]]]:
         sub_scale = 2 if _text_size(subtitle, 2)[1] <= bottom[3] else 1
         _draw_text(image, title, top, ink, title_scale)
         _draw_text(image, subtitle, bottom, ink, sub_scale)
-    # The menu opens inside the portrait. Nothing is painted under the frame.
-    menu_h = max(24, int(well["height"]) // 3)
+    # A tall menu sits above the portrait, in Buddy's column. Nothing is painted under the frame.
+    menu_h = 100
     menu = {
         "x": well["x"],
-        "y": well["y"] + well["height"] - menu_h,
+        "y": max(48, well["y"] - menu_h - 4),
         "width": well["width"],
         "height": menu_h,
     }

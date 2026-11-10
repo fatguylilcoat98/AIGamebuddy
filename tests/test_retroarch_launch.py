@@ -11,6 +11,7 @@ from backend.retroarch_finder import (
     append_arguments,
     common_exe_candidates,
     content_args,
+    fit_content_in_hole,
     hole_append_config,
     locate_retroarch,
     needs_replace,
@@ -94,7 +95,7 @@ def test_hole_rect_uses_the_same_letterbox_as_the_overlay():
     assert needs_replace((0, 0, 10, 10), (30, 0, 10, 10))
 
 
-def test_hole_config_is_borderless_and_fills_the_window(tmp_path):
+def test_hole_config_letterboxes_inside_the_opening(tmp_path):
     rect = (120, 80, 900, 700)
     text = hole_append_config(rect)
     assert 'video_fullscreen = "false"' in text
@@ -105,10 +106,20 @@ def test_hole_config_is_borderless_and_fills_the_window(tmp_path):
     assert 'video_window_x = "120"' in text
     assert 'video_window_width = "900"' in text
     assert 'video_window_height = "700"' in text
-    assert 'custom_viewport_x = "0"' in text
-    assert 'custom_viewport_width = "900"' in text
-    assert 'custom_viewport_height = "700"' in text
+    # Core provided. A custom viewport the size of the hole would stretch.
+    assert 'aspect_ratio_index = "22"' in text
+    assert "custom_viewport_" not in text
     assert 'input_overlay_enable = "false"' in text
+    # 4:3 in a wide hole keeps 4:3 and leaves bars on the sides.
+    wide = fit_content_in_hole((0, 0, 1600, 900), 4 / 3)
+    assert wide[3] == 900
+    assert abs(wide[2] / wide[3] - 4 / 3) < 0.02
+    assert wide[0] > 0
+    # 4:3 in a tall hole keeps 4:3 and leaves bars above and below.
+    tall = fit_content_in_hole((10, 20, 640, 800), 4 / 3)
+    assert tall[2] == 640
+    assert abs(tall[2] / tall[3] - 4 / 3) < 0.02
+    assert tall[1] > 20
     rom, core = content_args("", "", lambda _path: False)
     args = append_arguments(tmp_path / "buddy-hole.cfg", rom, core)
     assert args == ["--appendconfig", str(tmp_path / "buddy-hole.cfg")]

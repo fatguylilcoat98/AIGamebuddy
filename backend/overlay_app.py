@@ -85,7 +85,7 @@ def run_overlay(session) -> None:
     button_style = {
         "bg": "#12121a", "fg": "#f4f4f4", "activebackground": "#2c2c3a",
         "activeforeground": "#ffffff", "relief": "flat", "bd": 0,
-        "font": ("Segoe UI", 9), "highlightthickness": 1, "highlightbackground": "#3a3a48",
+        "font": ("Segoe UI", 18), "highlightthickness": 1, "highlightbackground": "#3a3a48",
     }
     menu = tk.Frame(root, bg="#12121a")
     toggle = tk.Button(menu, text="Buddy: Male", command=lambda: _toggle_character(), **button_style)
@@ -161,11 +161,12 @@ def run_overlay(session) -> None:
     def _move(delta: int):
         _focus(focus_at["i"] + delta)
 
-    toggle.pack(fill="x", padx=4, pady=(4, 2))
-    row = tk.Frame(menu, bg="#12121a")
-    row.pack(fill="both", expand=True, padx=2, pady=(0, 4))
-    for button in (mode, voice, settings, sound, games, windowed):
-        button.pack(in_=row, side="left", expand=True, fill="both", padx=2)
+    toggle.pack(fill="x", padx=6, pady=(6, 2))
+    for labels in ((mode, voice, settings), (sound, games, windowed)):
+        row = tk.Frame(menu, bg="#12121a")
+        row.pack(fill="both", expand=True, padx=4, pady=2)
+        for button in labels:
+            button.pack(in_=row, side="left", expand=True, fill="both", padx=3)
     games_frame = tk.Frame(root, bg="#000000")
     games_list = tk.Listbox(
         games_frame, bg="#000000", fg="#e8f4ff", selectbackground="#1c4a5a",

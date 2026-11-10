@@ -67,10 +67,11 @@ def test_measured_screen_matches_metadata_and_keeps_the_controller():
         assert 0 < opaque < int(above.size * 0.22)
         buddy = metadata["frames"][frame_id]["buddy"]
         menu = metadata["frames"][frame_id]["menu"]
-        # The menu lives inside Buddy's frame. Scenery continues underneath it.
-        assert menu["y"] >= buddy["y"]
-        assert menu["y"] + menu["height"] <= buddy["y"] + buddy["height"] + 2
+        # The menu is a panel above the portrait, in Buddy's column, not under it.
         assert menu["x"] >= buddy["x"] - 2
+        assert menu["x"] + menu["width"] <= buddy["x"] + buddy["width"] + 4
+        assert menu["y"] + menu["height"] <= buddy["y"] + 8
+        assert menu["height"] >= 160
         below = buddy["y"] + buddy["height"] + 20
         if below + 12 < image.size[1]:
             import numpy as np

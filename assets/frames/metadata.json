@@ -34,9 +34,9 @@
       },
       "menu": {
         "x": 2070,
-        "y": 1174,
+        "y": 816,
         "width": 412,
-        "height": 74
+        "height": 200
       },
       "viewports": {
         "720p": {
@@ -79,9 +79,9 @@
       },
       "menu": {
         "x": 2072,
-        "y": 1234,
+        "y": 904,
         "width": 336,
-        "height": 60
+        "height": 200
       },
       "viewports": {
         "720p": {
@@ -125,9 +125,9 @@
       },
       "menu": {
         "x": 2166,
-        "y": 1166,
+        "y": 838,
         "width": 294,
-        "height": 58
+        "height": 200
       },
       "viewports": {
         "720p": {

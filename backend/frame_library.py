@@ -46,21 +46,22 @@ SYSTEM_ALIASES = {
 PLACEMENTS = {
     "genesis": {
         "buddy": {"x": 2070, "y": 1024, "width": 412, "height": 224},
-        "menu": {"x": 2070, "y": 1174, "width": 412, "height": 74},
+        "menu": {"x": 2070, "y": 816, "width": 412, "height": 200},
     },
     "nes": {
         "buddy": {"x": 2072, "y": 1112, "width": 336, "height": 182},
-        "menu": {"x": 2072, "y": 1234, "width": 336, "height": 60},
+        "menu": {"x": 2072, "y": 904, "width": 336, "height": 200},
     },
     "snes": {
         "buddy": {"x": 2166, "y": 1046, "width": 294, "height": 178},
-        "menu": {"x": 2166, "y": 1166, "width": 294, "height": 58},
+        "menu": {"x": 2166, "y": 838, "width": 294, "height": 200},
     },
 }
 
 DESIGN = {"width": 2560, "height": 1440}
 OUTPUTS = {"720p": (1280, 720), "1080p": (1920, 1080)}
-# RetroArch's Custom aspect entry. Confirmed as index 23 in current releases.
+# RetroArch 1.19–1.22. Core provided keeps the picture's aspect. Custom stretches.
+ASPECT_RATIO_CORE = 22
 ASPECT_RATIO_CUSTOM = 23
 
 

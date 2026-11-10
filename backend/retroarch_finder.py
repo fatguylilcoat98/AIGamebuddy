@@ -12,7 +12,7 @@ import time
 from pathlib import Path
 
 from .config_loader import SAMPLE_PATH, Config
-from .frame_library import ASPECT_RATIO_CUSTOM
+from .frame_library import ASPECT_RATIO_CORE
 
 log = logging.getLogger("buddy.retroarch")
 
@@ -192,11 +192,37 @@ def locate_and_remember(config: Config) -> str:
     return found
 
 
+def fit_content_in_hole(hole: tuple[int, int, int, int], content_aspect: float) -> tuple[int, int, int, int]:
+    """Largest rectangle of `content_aspect` (width/height) inside the hole.
+
+    A wider hole gets bars on the left and right. A taller hole gets bars on
+    the top and bottom. The picture is never stretched.
+    """
+    x, y, width, height = (int(v) for v in hole)
+    if width < 1 or height < 1 or content_aspect <= 0:
+        return x, y, max(1, width), max(1, height)
+    if width / height > content_aspect:
+        content_h = height
+        content_w = max(1, int(round(height * content_aspect)))
+        content_w = min(content_w, width)
+        origin_x = x + (width - content_w) // 2
+        origin_y = y
+    else:
+        content_w = width
+        content_h = max(1, int(round(width / content_aspect)))
+        content_h = min(content_h, height)
+        origin_x = x
+        origin_y = y + (height - content_h) // 2
+    return origin_x, origin_y, content_w, content_h
+
+
 def hole_append_config(rect: tuple[int, int, int, int]) -> str:
     """Windowed borderless RetroArch whose client area is the hole.
 
-    The custom viewport is the whole window, so the picture fills the hole.
-    RetroArch's own frame overlay stays off. Buddy already draws the bezel.
+    The window is the opening. Aspect index 22 is RetroArch's "Core provided",
+    so the core's picture is fitted inside that window and the spare space is
+    a bar. A custom viewport the size of the window would stretch instead.
+    RetroArch's own frame overlay stays off. Buddy already draws the scenery.
     """
     x, y, width, height = (int(v) for v in rect)
     lines = [
@@ -209,11 +235,7 @@ def hole_append_config(rect: tuple[int, int, int, int]) -> str:
         f'video_window_width = "{width}"',
         f'video_window_height = "{height}"',
         'video_scale_integer = "false"',
-        f'aspect_ratio_index = "{ASPECT_RATIO_CUSTOM}"',
-        'custom_viewport_x = "0"',
-        'custom_viewport_y = "0"',
-        f'custom_viewport_width = "{width}"',
-        f'custom_viewport_height = "{height}"',
+        f'aspect_ratio_index = "{ASPECT_RATIO_CORE}"',
         'input_overlay_enable = "false"',
     ]
     return "\n".join(lines) + "\n"

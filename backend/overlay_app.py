@@ -14,8 +14,11 @@ from pathlib import Path
 
 from PIL import Image
 
+from . import app_state
+from .capture_safety import OVERLAY_SIZE
 from .frame_library import frame_record, paste_head, punch_screen, scaled_box, scaled_screen
 from .hotkeys import QUIT_SEQUENCES, start_windows_hotkeys, tk_quit_event
+from .window_layout import exclude_window_from_capture
 
 
 def run_menu_action(mutate, refresh, announce=None) -> None:
@@ -67,7 +70,14 @@ def run_overlay(session) -> None:
     root.configure(bg="magenta")
     root.attributes("-topmost", True)
     root.overrideredirect(True)
-    root.geometry("1280x720+40+40")
+    width, height = OVERLAY_SIZE
+    root.geometry(f"{width}x{height}+40+40")
+    root.minsize(width, height)
+    root.maxsize(width, height)
+    root.resizable(False, False)
+    if os.name == "nt":
+        # Magenta pixels are the game hole. They must not stay a visible pink box.
+        root.wm_attributes("-transparentcolor", "magenta")
 
     holder = {"photo": None, "base": None}
     background = tk.Label(root, bd=0, bg="magenta")
@@ -166,9 +176,8 @@ def run_overlay(session) -> None:
 
     def redraw_frame():
         frame_id = session.theme if session.theme in {"nes", "snes", "genesis"} else "genesis"
-        image = _prepared_frame(frame_id)
-        image = image.resize((max(root.winfo_width(), 2), max(root.winfo_height(), 2)))
-        holder["base"] = image
+        # The approved frame is 1280x720. Do not scale it down to a shrinking window.
+        holder["base"] = _prepared_frame(frame_id)
         _paint()
 
     def _paint():
@@ -212,9 +221,23 @@ def run_overlay(session) -> None:
         if hole:
             apply_hole_region(root.winfo_id(), root.winfo_width(), root.winfo_height(), hole)
 
+    def _clamp_geometry():
+        current = (root.winfo_width(), root.winfo_height())
+        if current == (1, 1) or current == (0, 0):
+            return
+        if current != OVERLAY_SIZE:
+            session.safety.note_geometry(current, time.monotonic())
+            root.geometry(f"{OVERLAY_SIZE[0]}x{OVERLAY_SIZE[1]}+{root.winfo_x()}+{root.winfo_y()}")
+
     def maintain():
-        if session.layout == "full":
-            session.maintain_layout((root.winfo_x(), root.winfo_y()), (root.winfo_width(), root.winfo_height()))
+        if session.closed:
+            return
+        _clamp_geometry()
+        if session.layout == "full" and session.safety.move_enabled:
+            session.maintain_layout(
+                (root.winfo_x(), root.winfo_y()),
+                OVERLAY_SIZE,
+            )
         root.after(1500, maintain)
 
     def talk_down(_event=None):
@@ -231,7 +254,18 @@ def run_overlay(session) -> None:
 
     def _quit(_event=None):
         stop_hotkeys.set()
-        root.destroy()
+        session.safety.disable("overlay quit", quiet=True)
+        try:
+            session.close()
+        except Exception:
+            logging.getLogger("buddy.overlay").exception("Close failed during quit")
+        server = app_state.api_server
+        if server is not None:
+            server.should_exit = True
+        try:
+            root.destroy()
+        except Exception:
+            pass
 
     def _once(name, fn):
         def wrapped(_event=None):
@@ -278,6 +312,11 @@ def run_overlay(session) -> None:
 
     start_windows_hotkeys(_schedule_hotkey, stop_hotkeys)
     root.protocol("WM_DELETE_WINDOW", _quit)
+    app_state.request_quit = lambda: root.after(0, _quit)
+    root.update_idletasks()
+    session.note_overlay_hwnd(int(root.winfo_id()))
+    affinity = exclude_window_from_capture(int(root.winfo_id()))
+    logging.getLogger("buddy.overlay").info("Capture affinity for the overlay: %s", affinity)
     _refresh_labels()
     redraw_frame()
     place_chrome()

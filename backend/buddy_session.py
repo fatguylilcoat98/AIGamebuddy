@@ -31,7 +31,8 @@ from .prompts import build_messages
 from .providers import chat
 from .results import ActionResult, ModelResult
 from .takeover import InputSink, RetroArchCommandClient, evaluate_gate
-from .window_layout import position_foreground_window
+from .capture_safety import SafetySwitch, clamp_overlay_geometry
+from .window_layout import list_toplevel_windows, position_hwnd, select_emulator_hwnd
 
 log = logging.getLogger("buddy.session")
 
@@ -124,6 +125,9 @@ class BuddySession:
         self._lock = threading.Lock()
         self._ears = None
         self._layout_note = ""
+        self.overlay_hwnds: set[int] = set()
+        self.safety = SafetySwitch()
+        self._last_capture = 0.0
         self._load_ui()
 
     def _initial_personality(self) -> str:
@@ -202,6 +206,7 @@ class BuddySession:
                 return
             self.closed = True
             self.running = False
+            self.safety.disable("session closed", quiet=True)
             session_id = self.session_id
         if session_id is not None:
             self.memory.end_session(session_id, self.clock.unix())
@@ -569,34 +574,65 @@ class BuddySession:
                               category="status", emotion="smile")
         return ActionResult(True, "I was not controlling the game. You already have the controls.", reason="release")
 
-    def maintain_layout(self, overlay_origin: tuple[int, int], overlay_size: tuple[int, int]) -> ActionResult:
+    def note_overlay_hwnd(self, hwnd: int) -> None:
+        if hwnd:
+            self.overlay_hwnds.add(int(hwnd))
+
+    def maintain_layout(self, overlay_origin: tuple[int, int], overlay_size: tuple[int, int],
+                        now: float | None = None) -> ActionResult:
+        if self.closed or not self.safety.move_enabled:
+            reason = self.safety.reason or "closed"
+            return ActionResult(False, f"I am not moving windows. {reason}", reason="safety_stop")
+        moment = time.monotonic() if now is None else now
+        clamped = clamp_overlay_geometry(overlay_size[0], overlay_size[1])
+        if clamped != (int(overlay_size[0]), int(overlay_size[1])):
+            self.safety.note_geometry((int(overlay_size[0]), int(overlay_size[1])), moment)
+            return ActionResult(
+                False,
+                "The overlay left 1280x720, so I clamped it and did not move any window.",
+                reason="geometry_clamped",
+            )
         if self.layout != "full" or not self.manage_window:
             return ActionResult(False, "I am not managing the emulator window in this layout.", reason="layout_idle")
         from .frame_library import scaled_screen
         frame = self.theme if self.theme in {"nes", "snes", "genesis"} else "genesis"
-        hole = scaled_screen(frame, overlay_size)
+        hole = scaled_screen(frame, clamped)
         if hole is None:
             return ActionResult(False, "This frame has no screen rectangle, so I did not move the game.",
                                 reason="no_screen")
+        hwnd = select_emulator_hwnd(list_toplevel_windows(), self.overlay_hwnds)
+        if hwnd is None:
+            return ActionResult(
+                False,
+                "No RetroArch or EmulationStation window, so I did not move anything.",
+                reason="no_game",
+            )
         rect = (overlay_origin[0] + hole[0], overlay_origin[1] + hole[1], hole[2], hole[3])
-        result = position_foreground_window(rect)
+        result = position_hwnd(hwnd, rect, self.overlay_hwnds)
         self._layout_note = result.message
         return result
 
     def observe_once(self) -> ActionResult:
+        if self.closed or not self.safety.capture_enabled:
+            return ActionResult(False, f"Capture is stopped. {self.safety.reason}".strip(), reason="capture_disabled")
         if not self.vision_enabled:
             return ActionResult(False, "Vision is off, so I did not capture the screen.", reason="vision_disabled")
-        if self.vision is None:
-            from .vision_service import VisionService
-            try:
-                result = VisionService().analyze("What is happening in this game? Reply as JSON.")
-            except Exception as exc:
-                return ActionResult(False, f"I could not look at the screen. {exc}", reason="vision_error")
-        else:
-            try:
+        now = time.monotonic()
+        if not self.safety.allow_capture(now, self._last_capture):
+            return ActionResult(False, "Capture is throttled to about one frame a second.", reason="capture_throttled")
+        self._last_capture = now
+        try:
+            if self.vision is None:
+                from .game_capture import GameCapture
+                from .vision_frames import VisionFrames
+                from .vision_service import VisionService
+                service = VisionService(VisionFrames(GameCapture(own_hwnds=set(self.overlay_hwnds))))
+                result = service.analyze("What is happening in this game? Reply as JSON.")
+            else:
                 result = self.vision.analyze("What is happening in this game?")
-            except Exception as exc:
-                return ActionResult(False, f"I could not look at the screen. {exc}", reason="vision_error")
+        except Exception as exc:
+            self.safety.note_error(str(exc), now)
+            return ActionResult(False, f"I could not look at the screen. {exc}", reason="vision_error")
         summary = getattr(result, "description", "") or ""
         uncertain = bool(getattr(result, "uncertain", True))
         event = getattr(result, "event", "none") or "none"

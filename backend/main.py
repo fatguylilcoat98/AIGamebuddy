@@ -11,9 +11,11 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import Response
 
+from . import app_state
 from .buddy_api import router as buddy_router
 from .buddy_api import stop
 from .config_loader import load_config
+from .game_capture import GameCapture
 from .screen_capture import ScreenCapture
 
 capture = ScreenCapture()
@@ -54,13 +56,19 @@ def monitors():
 
 @app.get("/frame")
 def frame(monitor: int = 1):
+    """JPEG of the game window only. Never the desktop, and never drawn on the overlay."""
+    del monitor
+    session = app_state.SESSION
+    own = set(getattr(session, "overlay_hwnds", set()) or set())
+    if session is not None and not session.safety.capture_enabled:
+        raise HTTPException(status_code=409, detail=f"Capture is stopped. {session.safety.reason}")
     try:
-        return Response(
-            content=capture.jpeg(monitor),
-            media_type="image/jpeg",
-            headers={"Cache-Control": "no-store"},
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        grabbed = GameCapture(own_hwnds=own).snapshot()
     except Exception as exc:
+        if session is not None:
+            session.safety.note_error(str(exc))
         raise HTTPException(status_code=503, detail=f"Screen capture failed: {exc}") from exc
+    if not grabbed:
+        raise HTTPException(status_code=409, detail="No game window, so nothing was captured")
+    _target, jpeg = grabbed
+    return Response(content=jpeg, media_type="image/jpeg", headers={"Cache-Control": "no-store"})

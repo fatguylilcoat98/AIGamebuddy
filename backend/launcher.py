@@ -10,6 +10,9 @@ from .buddy_session import BuddySession
 from .config_loader import load_config, default_data_dir
 from .overlay_app import run_overlay
 
+# Console control events that mean the window or the machine is going away.
+_CONSOLE_STOP = {0, 1, 2, 5, 6}
+
 
 def _dpi() -> None:
     if os.name != "nt":
@@ -30,7 +33,36 @@ def _serve(port: int) -> None:
     from .main import app
     config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="info")
     server = uvicorn.Server(config)
+    app_state.api_server = server
     server.run()
+
+
+def _install_console_stop() -> None:
+    """Closing the console, Ctrl+C, and logoff must stop the overlay thread too."""
+    if os.name != "nt":
+        return
+    try:
+        import ctypes
+        from ctypes import wintypes
+        handler_type = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.DWORD)
+
+        def _handle(ctrl_type):
+            if int(ctrl_type) not in _CONSOLE_STOP:
+                return False
+            quit_ui = app_state.request_quit
+            if quit_ui is not None:
+                try:
+                    quit_ui()
+                except Exception:
+                    os._exit(0)
+                return True
+            os._exit(0)
+
+        # Keep a reference so ctypes does not collect the callback.
+        _install_console_stop._callback = handler_type(_handle)
+        ctypes.windll.kernel32.SetConsoleCtrlHandler(_install_console_stop._callback, True)
+    except Exception:
+        logging.getLogger("buddy.launcher").warning("Could not install the console close handler.")
 
 
 def main() -> int:
@@ -49,6 +81,7 @@ def main() -> int:
     for warning in config.warnings:
         log.warning("%s", warning)
     _dpi()
+    _install_console_stop()
     session = BuddySession(config)
     app_state.SESSION = session
     started = session.start()
@@ -60,7 +93,12 @@ def main() -> int:
     try:
         run_overlay(session)
     finally:
+        session.safety.disable("launcher exit", quiet=True)
         session.close()
+        server = app_state.api_server
+        if server is not None:
+            server.should_exit = True
+        thread.join(timeout=2)
     return 0
 
 

@@ -104,7 +104,8 @@ You get one 1280x720 window:
 - The menu is the button bar under that box. It is not a top-right button. The buttons are Buddy (Male / Female), Mode (casual, sassy, extreme), Voice, Settings (resting direction: left, center, right), and Sound (volume).
 - F8 focuses that menu. Arrow keys and Enter move through it.
 - F9 is push-to-talk. Hold it, talk, let go. On Windows those keys are global, so they still work while the game is in front.
-- Ctrl+Shift+Q quits.
+- Ctrl+Shift+Q quits. Closing the black console window quits too, including the local API.
+- The overlay stays 1280x720. It does not shrink itself, and it does not draw screenshots. Capture is only for vision, only of the RetroArch or EmulationStation window, and only about once a second. If that window is not open, Buddy does not capture.
 
 Open your game from EmulationStation or RetroArch, then start Buddy.
 The frame follows the system that is running (NES, Super NES, or Genesis) when Buddy can tell. There is no menu button that swaps frames.
@@ -125,6 +126,7 @@ If a program did not start, the line says he did not launch it. That is the real
 
 - `install.bat` closes immediately: install Python and check PATH.
 - The window opens but the game is covered, or the picture sits outside the hole: RetroArch is exclusive fullscreen, or the window size does not match the append-config. Use the windowed-fullscreen cfg from install (the size is in the filename) and start Buddy again.
+- The overlay shrinks, flickers, or turns pink: that was Buddy moving its own window into the game hole. Quit with Ctrl+Shift+Q or close the console. Current builds refuse to move Buddy's window and do not draw captured frames on the overlay. If it still happens, the log under `%LOCALAPPDATA%\VideoGameWingman\buddy.log` will say `Safety stop`.
 - He does not speak: Windows voice needs this PC. Pick a device in the menu after you read STREAMING.md. Volume 0 and Mute both keep him quiet on purpose.
 - The microphone errors: another app has the mic, or the voice packages did not install. Run install.bat again and read the red text.
 - A log is written under `%LOCALAPPDATA%\VideoGameWingman\buddy.log` unless you set `data_dir` in the config.

@@ -1,14 +1,15 @@
-"""Connect foreground game detection to monitor capture (read-only).
+"""Capture the game window only.
 
-Place beside game_session.py and screen_capture.py. This module does not
-start the server or capture continuously. A caller requests each snapshot.
+The full desktop includes Buddy's overlay. Grabbing it and showing it again
+is the infinite-mirror loop. If RetroArch or EmulationStation is not open,
+this captures nothing.
 """
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 
-from .game_session import current_session
 from .screen_capture import ScreenCapture
+from .window_layout import list_toplevel_windows, select_emulator_hwnd
 
 
 @dataclass(frozen=True)
@@ -19,57 +20,72 @@ class CaptureTarget:
     is_known_emulator: bool
     window_rect: tuple[int, int, int, int] | None
     reason: str
+    hwnd: int = 0
 
     def to_dict(self) -> dict:
         return asdict(self)
 
 
 class GameCapture:
-    """Select a monitor containing the foreground window, then capture it."""
+    """Capture one emulator window. Never the whole monitor."""
 
-    def __init__(self, capture: ScreenCapture | None = None):
+    def __init__(self, capture: ScreenCapture | None = None, own_hwnds: set[int] | None = None):
         self.capture = capture if capture is not None else ScreenCapture()
+        self.own_hwnds = own_hwnds or set()
 
-    def target(self, fallback_monitor: int = 1) -> CaptureTarget:
-        monitors = self.capture.monitors()
-        if not monitors:
-            raise RuntimeError("No monitors available")
-        session = current_session()
-        monitor_ids = {monitor["id"] for monitor in monitors}
-        if fallback_monitor not in monitor_ids:
-            raise ValueError(f"Monitor {fallback_monitor} not found")
-
-        selected = fallback_monitor
-        reason = "fallback_monitor"
-        if session.active_window and session.window_rect:
-            left, top, right, bottom = session.window_rect
-            if right > left and bottom > top:
-                def overlap(monitor: dict) -> int:
-                    x1 = max(left, monitor["left"])
-                    y1 = max(top, monitor["top"])
-                    x2 = min(right, monitor["left"] + monitor["width"])
-                    y2 = min(bottom, monitor["top"] + monitor["height"])
-                    return max(0, x2 - x1) * max(0, y2 - y1)
-
-                best = max(monitors, key=overlap)
-                if overlap(best) > 0:
-                    selected = best["id"]
-                    reason = "foreground_window_overlap"
-
+    def locate(self, windows: list[tuple[int, str]] | None = None) -> CaptureTarget | None:
+        listed = list_toplevel_windows() if windows is None else windows
+        hwnd = select_emulator_hwnd(listed, self.own_hwnds)
+        if hwnd is None:
+            return None
+        executable = ""
+        for candidate, exe in listed:
+            if int(candidate) == int(hwnd):
+                executable = exe
+                break
+        rect = _window_rect(hwnd)
+        if rect is None:
+            return None
         return CaptureTarget(
-            monitor_id=selected,
-            window_title=session.title,
-            application=session.application,
-            is_known_emulator=session.is_known_emulator,
-            window_rect=session.window_rect,
-            reason=reason,
+            monitor_id=0,
+            window_title=None,
+            application=executable or "emulator",
+            is_known_emulator=True,
+            window_rect=rect,
+            reason="emulator_window",
+            hwnd=int(hwnd),
         )
 
-    def snapshot(self, fallback_monitor: int = 1) -> tuple[CaptureTarget, bytes]:
-        """Return (capture metadata, JPEG bytes) for one monitor snapshot.
+    def snapshot(self, fallback_monitor: int = 1, windows: list[tuple[int, str]] | None = None):
+        """Return (target, jpeg) or None when there is no game window.
 
-        Captures the full selected monitor, not a cropped window. Callers
-        should not infer that a detected emulator proves game identity.
+        `fallback_monitor` is ignored. A missing game is not a reason to grab
+        the desktop.
         """
-        target = self.target(fallback_monitor)
-        return target, self.capture.jpeg(target.monitor_id)
+        del fallback_monitor
+        target = self.locate(windows)
+        if target is None or not target.window_rect:
+            return None
+        left, top, right, bottom = target.window_rect
+        width = right - left
+        height = bottom - top
+        jpeg = self.capture.jpeg_rect((left, top, width, height))
+        return target, jpeg
+
+
+def _window_rect(hwnd: int) -> tuple[int, int, int, int] | None:
+    import os
+    if os.name != "nt":
+        return None
+    try:
+        import ctypes
+        from ctypes import wintypes
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        rect = wintypes.RECT()
+        if not user32.GetWindowRect(int(hwnd), ctypes.byref(rect)):
+            return None
+        if rect.right <= rect.left or rect.bottom <= rect.top:
+            return None
+        return (rect.left, rect.top, rect.right, rect.bottom)
+    except Exception:
+        return None

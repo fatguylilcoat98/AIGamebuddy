@@ -1,6 +1,6 @@
 # Verification
 
-Run on this machine: `python3 -m pytest tests -q` — 36 passed.
+Run on this machine: `python3 -m pytest tests -q` — 46 passed.
 That does not mean the Windows overlay, microphone, or a live model was tried.
 A feature is listed from what the code does and what the tests check, not from a wish list.
 
@@ -21,6 +21,7 @@ Tested here with pytest. No Windows desktop, microphone, or API key was availabl
 - Window titles are reported as titles, not as "I can see the game." On a non-Windows host the detector says detection needs Windows.
 - The three frames are 1920x1080 PNG files. The game opening is alpha 0. The menu and frame are opaque. Drawn labels do not include Sega, Nintendo, Sonic, Mario, or Zion.
 - The three approved frames map genesis/megadrive, nes/famicom, and snes/sfc. Each screen rectangle is remeasured from the JPG and matches `metadata.json`. The controller overlap stays opaque. 1080p viewports are the 720p rect scaled by 1.5. RetroArch configs set integer scale off and aspect Custom.
+- The overlay is fixed at 1280x720. It does not move its own window, and captured frames are not drawn on it. Capture grabs only a RetroArch or EmulationStation window, at about 1 fps, and a safety switch turns it off after repeated errors or shrinks. BGRA capture bytes are converted to RGB.
 - `AudioOutput.speak` logs an `OSError` from a missing PortAudio library and returns a failure. It does not raise. Menu actions refresh their labels before the call that speaks, and again if that call raises.
 - The local API imports `app_state` as a package module. A test starts the server and gets `/health`.
 - Death lines fill from templates (real facts first, then generic defaults), then seeds, then a counted fresh line. Each mode produces 50 distinct death lines with no "I don't have a fresh line" fallback. The clock in that test is moved past the cooldowns.

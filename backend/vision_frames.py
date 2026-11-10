@@ -46,7 +46,10 @@ class VisionFrames:
         if not 30 <= quality <= 90:
             raise ValueError("quality must be between 30 and 90")
 
-        target, original_jpeg = self.game_capture.snapshot(fallback_monitor)
+        grabbed = self.game_capture.snapshot(fallback_monitor)
+        if not grabbed:
+            raise ValueError("No RetroArch or EmulationStation window, so nothing was captured")
+        target, original_jpeg = grabbed
         if not original_jpeg:
             raise ValueError("Screen capture returned an empty frame")
 

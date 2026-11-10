@@ -76,6 +76,7 @@ def run_overlay(session) -> None:
         "monitor": screen, "monitor_info": {"left": 0, "top": 0, "width": screen[0], "height": screen[1],
                                             "right": screen[0], "bottom": screen[1], "dpi": None},
         "target": screen, "game": False, "shown": None, "logged_monitor": False,
+        "menu_open": False,
     }
     background = tk.Label(root, bd=0, bg="black")
     background.place(x=0, y=0, relwidth=1, relheight=1)
@@ -283,7 +284,13 @@ def run_overlay(session) -> None:
         )
         menu_box = boxes["menu"]
         head_box = boxes["head"]
-        menu.place(x=menu_box["x"], y=menu_box["y"], width=menu_box["width"], height=menu_box["height"])
+        # Closed, the frame ends at the hologram and scenery shows below it.
+        # F8 or a click on Buddy opens the menu inside that frame.
+        if holder.get("menu_open"):
+            menu.place(x=menu_box["x"], y=menu_box["y"], width=menu_box["width"], height=menu_box["height"])
+            menu.lift()
+        else:
+            menu.place_forget()
         head_label.place_forget()
         if _show_find():
             button = band_slots(boxes)["button"]
@@ -298,7 +305,6 @@ def run_overlay(session) -> None:
             games_frame.lift()
         else:
             games_frame.place_forget()
-        menu.lift()
 
     def _rebuild_static():
         holder["static"] = static_frame(
@@ -497,7 +503,26 @@ def run_overlay(session) -> None:
 
     talk_down_once = _once("talk_down", talk_down)
     talk_up_once = _once("talk_up", talk_up)
-    menu_once = _once("menu", lambda: _focus(0))
+    def _toggle_menu():
+        holder["menu_open"] = not holder.get("menu_open")
+        place_chrome()
+        if holder["menu_open"]:
+            _focus(0)
+
+    def _click_buddy(event):
+        boxes = layout_boxes(
+            _frame_id(), holder["target"], game_running=holder["game"], reserve_button=_show_find(),
+        )
+        buddy = boxes["buddy"]
+        inside = (
+            buddy["x"] <= event.x <= buddy["x"] + buddy["width"]
+            and buddy["y"] <= event.y <= buddy["y"] + buddy["height"]
+        )
+        if inside and not holder.get("menu_open"):
+            _toggle_menu()
+
+    background.bind("<Button-1>", _click_buddy)
+    menu_once = _once("menu", _toggle_menu)
     quit_once = _once("quit", _quit)
     full_once = _once("fullscreen", _toggle_fullscreen)
     # bind_all still works when a menu button has focus. The lowercase q bind

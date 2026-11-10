@@ -34,9 +34,9 @@
       },
       "menu": {
         "x": 2070,
-        "y": 1260,
+        "y": 1174,
         "width": 412,
-        "height": 64
+        "height": 74
       },
       "viewports": {
         "720p": {
@@ -79,9 +79,9 @@
       },
       "menu": {
         "x": 2072,
-        "y": 1306,
+        "y": 1234,
         "width": 336,
-        "height": 64
+        "height": 60
       },
       "viewports": {
         "720p": {
@@ -106,9 +106,9 @@
         "super famicom"
       ],
       "screen": {
-        "x": 476,
+        "x": 420,
         "y": 86,
-        "width": 1572,
+        "width": 1684,
         "height": 1206
       },
       "well": {
@@ -125,21 +125,21 @@
       },
       "menu": {
         "x": 2166,
-        "y": 1236,
+        "y": 1166,
         "width": 294,
-        "height": 64
+        "height": 58
       },
       "viewports": {
         "720p": {
-          "x": 238,
+          "x": 210,
           "y": 43,
-          "width": 786,
+          "width": 842,
           "height": 603
         },
         "1080p": {
-          "x": 357,
+          "x": 315,
           "y": 64,
-          "width": 1179,
+          "width": 1263,
           "height": 904
         }
       }

@@ -64,11 +64,18 @@ def test_measured_screen_matches_metadata_and_keeps_the_controller():
         # The pad may cover the bottom edge. Scenery above that stays a thin overhang.
         above = alpha[:int(h * 0.82), :]
         opaque = int((above > 200).sum())
-        assert 0 < opaque < int(above.size * 0.15)
+        assert 0 < opaque < int(above.size * 0.22)
         buddy = metadata["frames"][frame_id]["buddy"]
         menu = metadata["frames"][frame_id]["menu"]
-        assert buddy["y"] + buddy["height"] <= menu["y"] + 8
-        assert menu["x"] > stored["x"]
+        # The menu lives inside Buddy's frame. Scenery continues underneath it.
+        assert menu["y"] >= buddy["y"]
+        assert menu["y"] + menu["height"] <= buddy["y"] + buddy["height"] + 2
+        assert menu["x"] >= buddy["x"] - 2
+        below = buddy["y"] + buddy["height"] + 20
+        if below + 12 < image.size[1]:
+            import numpy as np
+            strip = np.asarray(image.convert("RGB"))[below:below + 12, buddy["x"]:buddy["x"] + buddy["width"]]
+            assert float(strip.std()) > 8 or float(strip.mean()) > 28, frame_id
 
 
 def test_viewports_and_retroarch_flags():

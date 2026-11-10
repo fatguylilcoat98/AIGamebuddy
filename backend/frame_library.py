@@ -42,19 +42,19 @@ SYSTEM_ALIASES = {
 }
 
 # Portrait and menu, in source pixels of the 2560x1440 art. The live head fills
-# the black well. The menu bar sits under it, off the game opening.
+# the well. The menu opens inside that same frame, so nothing sits under it.
 PLACEMENTS = {
     "genesis": {
         "buddy": {"x": 2070, "y": 1024, "width": 412, "height": 224},
-        "menu": {"x": 2070, "y": 1260, "width": 412, "height": 64},
+        "menu": {"x": 2070, "y": 1174, "width": 412, "height": 74},
     },
     "nes": {
         "buddy": {"x": 2072, "y": 1112, "width": 336, "height": 182},
-        "menu": {"x": 2072, "y": 1306, "width": 336, "height": 64},
+        "menu": {"x": 2072, "y": 1234, "width": 336, "height": 60},
     },
     "snes": {
         "buddy": {"x": 2166, "y": 1046, "width": 294, "height": 178},
-        "menu": {"x": 2166, "y": 1236, "width": 294, "height": 64},
+        "menu": {"x": 2166, "y": 1166, "width": 294, "height": 58},
     },
 }
 

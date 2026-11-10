@@ -65,6 +65,7 @@ function Fetch-Checked([string]$Id, [string]$Url, [string]$FileName) {
 $retro = Fetch-Checked "retroarch" "https://buildbot.libretro.com/stable/1.22.1/windows/x86_64/RetroArch.7z" "RetroArch-1.22.1.7z"
 $coresArchive = Fetch-Checked "cores" "https://buildbot.libretro.com/stable/1.22.1/windows/x86_64/RetroArch_cores.7z" "RetroArch_cores-1.22.1.7z"
 $pythonZip = Fetch-Checked "python" "https://www.python.org/ftp/python/3.12.8/python-3.12.8-embed-amd64.zip" "python-3.12.8-embed-amd64.zip"
+$pythonFullZip = Fetch-Checked "python-full" "https://www.python.org/ftp/python/3.12.8/python-3.12.8-amd64.zip" "python-3.12.8-amd64.zip"
 $vc = Fetch-Checked "vcredist" "https://aka.ms/vs/17/release/vc_redist.x64.exe" "vc_redist.x64.exe"
 
 $seven = Get-Command 7z -ErrorAction SilentlyContinue
@@ -114,6 +115,31 @@ Get-ChildItem $runtime -Filter "python*._pth" | ForEach-Object {
     $body = ($final -join "`r`n") + "`r`n"
     [System.IO.File]::WriteAllText($_.FullName, $body, $ascii)
 }
+# The embeddable zip has no tkinter. Copy it from the matching full CPython
+# 3.12.8 build: the package, the extension, the Tcl/Tk DLLs, and the tcl tree.
+$full = Join-Path $cache "python-3.12.8-full"
+if (Test-Path $full) { Remove-Item -Recurse -Force $full }
+Expand-Archive -Path $pythonFullZip -DestinationPath $full -Force
+$tkPackage = Join-Path $full "Lib\tkinter"
+if (-not (Test-Path (Join-Path $tkPackage "__init__.py"))) {
+    Write-Host "The full CPython zip has no Lib\tkinter."
+    exit 1
+}
+Copy-Item $tkPackage (Join-Path $runtime "tkinter") -Recurse -Force
+foreach ($name in @("_tkinter.pyd", "tcl86t.dll", "tk86t.dll", "zlib1.dll")) {
+    $src = Join-Path $full "DLLs\$name"
+    if (-not (Test-Path $src)) {
+        Write-Host "The full CPython zip has no DLLs\$name."
+        exit 1
+    }
+    Copy-Item $src (Join-Path $runtime $name) -Force
+}
+$tclSrc = Join-Path $full "tcl"
+if (-not (Test-Path (Join-Path $tclSrc "tcl8.6\init.tcl"))) {
+    Write-Host "The full CPython zip has no tcl\tcl8.6."
+    exit 1
+}
+Copy-Item $tclSrc (Join-Path $runtime "tcl") -Recurse -Force
 $py = Join-Path $runtime "python.exe"
 $getPip = Join-Path $cache "get-pip.py"
 if (-not (Test-Path $getPip)) {

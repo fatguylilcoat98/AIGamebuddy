@@ -48,18 +48,26 @@ if ($lnk.TargetPath -notlike "*Start-Buddy.bat") {
     throw "Desktop shortcut does not launch Start-Buddy.bat. It launches $($lnk.TargetPath)"
 }
 
+# The smoke test must not call a system Python. Drop those directories from PATH.
+$env:PATH = ((
+    $env:PATH -split ';' | Where-Object {
+        $_ -and ($_ -notmatch '(?i)\\Python') -and ($_ -notmatch '(?i)Python3')
+    }
+) -join ';')
 $elsewhere = Join-Path $env:TEMP "buddy-launch-not-the-app"
 New-Item -ItemType Directory -Force -Path $elsewhere | Out-Null
+$check = Join-Path $PSScriptRoot "installed_import_check.py"
+Write-Host "Import check with $python from $elsewhere"
 Push-Location $elsewhere
 try {
-    & $python -c "import backend.wizard_app, backend.launcher; print('imports-ok')"
-    if ($LASTEXITCODE -ne 0) { throw "import backend failed when cwd is $elsewhere" }
+    & $python $check
+    if ($LASTEXITCODE -ne 0) { throw "runtime\python.exe could not import backend and tkinter from $elsewhere" }
 } finally {
     Pop-Location
 }
 
-Write-Host "Launching $bat from $elsewhere"
-$proc = Start-Process -FilePath $bat -WorkingDirectory $elsewhere -PassThru
+Write-Host "Launching shortcut target $($lnk.TargetPath) from $elsewhere"
+$proc = Start-Process -FilePath $lnk.TargetPath -WorkingDirectory $elsewhere -PassThru
 $deadline = (Get-Date).AddSeconds(45)
 $pythonPid = $null
 while ((Get-Date) -lt $deadline) {
@@ -83,9 +91,7 @@ $shotDir = Join-Path (Split-Path -Parent $PSScriptRoot) "dist\screenshots"
 New-Item -ItemType Directory -Force -Path $shotDir | Out-Null
 $shot = Join-Path $shotDir "wizard-after-install.jpg"
 $env:BUDDY_WIZARD_SHOT = $shot
-$py = Get-Command python -ErrorAction SilentlyContinue
-if (-not $py) { $py = Get-Command py -ErrorAction SilentlyContinue }
-& python -c @'
+& $python -c @'
 import os, time, ctypes
 from pathlib import Path
 from PIL import ImageGrab

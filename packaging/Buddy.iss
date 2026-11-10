@@ -34,7 +34,6 @@ Source: "..\dist\payload\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdi
 [Icons]
 Name: "{autoprograms}\Buddy"; Filename: "{app}\{#MyAppExe}"; WorkingDir: "{app}"
 Name: "{autodesktop}\Buddy"; Filename: "{app}\{#MyAppExe}"; WorkingDir: "{app}"
-Name: "{autoprograms}\Repair Buddy"; Filename: "{srcexe}"
 
 [Run]
 Filename: "{app}\{#MyAppExe}"; Description: "Launch Buddy"; Flags: postinstall nowait skipifsilent
@@ -63,7 +62,7 @@ begin
   if CurStep = ssInstall then
     WriteInstallLog('Installing Buddy Overlay {#MyAppVersion}');
   if CurStep = ssPostInstall then
-    WriteInstallLog('Install finished. Repair by running Buddy-Setup.exe again.');
+    WriteInstallLog('Install finished. If Buddy does not start, read %LOCALAPPDATA%\Buddy\logs\startup.log.');
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);

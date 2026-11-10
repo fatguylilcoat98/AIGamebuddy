@@ -56,3 +56,23 @@ def test_first_run_doc_is_download_double_click_play():
     assert "play" in lowered
     assert "python.org" not in lowered
     assert "Add python.exe to PATH" not in text
+    assert "releases/" not in lowered
+    assert "http" not in lowered
+
+
+def test_shipped_package_can_import_backend_and_does_not_reinstall():
+    build = (ROOT / "packaging/build-windows.ps1").read_text(encoding="utf-8")
+    assert 'Buddy.iss' in build
+    assert 'BuddySetup.iss' not in build
+    assert '$final.Add("..")' in build
+    iss = (ROOT / "packaging/Buddy.iss").read_text(encoding="utf-8")
+    assert 'Start-Buddy.bat' in iss
+    assert "Buddy.exe" not in iss
+    assert "{srcexe}" not in iss
+    launcher = (ROOT / "Start-Buddy.ps1").read_text(encoding="utf-8")
+    assert "startup.log" in launcher
+    lowered = launcher.lower()
+    assert "github.com" not in lowered
+    assert "buddysetup" not in lowered
+    assert "invoke-webrequest" not in lowered
+    assert "releases/" not in lowered

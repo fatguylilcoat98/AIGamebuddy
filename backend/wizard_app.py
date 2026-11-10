@@ -202,7 +202,7 @@ def run_wizard(state_file: Path | None = None) -> dict:
                 body, bg="#0c0a12", fg="#f4ecdc", justify="left", font=("Segoe UI", 14), wraplength=1000,
                 text="Pick a game from Buddy's box, or from RetroArch.\n"
                      "Buddy says the game's name out loud. Nothing is written over the picture.\n\n"
-                     "Repair: run Buddy-Setup.exe again.\n"
+                     "If Buddy does not start, the error is in %LOCALAPPDATA%\\Buddy\\logs\\startup.log.\n"
                      "A license key is not built yet. Code signing waits for your certificate.",
             ).pack(anchor="w")
             big(body, "Play", _play).pack(anchor="w", pady=18)

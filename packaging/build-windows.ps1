@@ -87,11 +87,32 @@ if ($nested -and $nested.DirectoryName -ne (Resolve-Path $bundled).Path) {
 $runtime = Join-Path $payload "runtime"
 if (Test-Path $runtime) { Remove-Item -Recurse -Force $runtime }
 Expand-Archive -Path $pythonZip -DestinationPath $runtime -Force
-# The embeddable zip ignores site-packages until python312._pth says so.
+# The embeddable zip uses python312._pth as the whole module path. It ignores
+# the current directory and PYTHONPATH. "." is the runtime folder, so backend
+# (one level up, next to runtime) is invisible until ".." is listed.
 Get-ChildItem $runtime -Filter "python*._pth" | ForEach-Object {
-    $text = Get-Content -Raw $_.FullName
-    $text = $text -replace "#import site", "import site"
-    Set-Content -Path $_.FullName -Value $text -Encoding ascii
+    $kept = @()
+    foreach ($line in (Get-Content -Path $_.FullName)) {
+        $trim = $line.Trim()
+        if ($trim -eq "" -or $trim.StartsWith("#")) { continue }
+        if ($trim -eq "import site" -or $trim -eq "..") { continue }
+        $kept += $trim
+    }
+    if ($kept -notcontains ".") { $kept += "." }
+    $final = New-Object System.Collections.Generic.List[string]
+    $addedParent = $false
+    foreach ($line in $kept) {
+        $final.Add($line)
+        if ($line -eq "." -and -not $addedParent) {
+            $final.Add("..")
+            $addedParent = $true
+        }
+    }
+    if (-not $addedParent) { $final.Add("..") }
+    $final.Add("import site")
+    $ascii = New-Object System.Text.ASCIIEncoding
+    $body = ($final -join "`r`n") + "`r`n"
+    [System.IO.File]::WriteAllText($_.FullName, $body, $ascii)
 }
 $py = Join-Path $runtime "python.exe"
 $getPip = Join-Path $cache "get-pip.py"

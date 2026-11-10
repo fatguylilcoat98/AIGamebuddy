@@ -287,7 +287,7 @@ def _done(draw, state):
         "Pick a game from Buddy's box, or from RetroArch's own menu.",
         "Buddy asks RetroArch what is running and says the name out loud.",
         "Nothing is written over the game.",
-        "Repair: run Buddy-Setup.exe again. Uninstall is in Windows Settings.",
+        "If Buddy does not start, read %LOCALAPPDATA%\\Buddy\\logs\\startup.log. Uninstall is in Windows Settings.",
         "A license key is not built yet. Code signing waits for your certificate.",
     ]
     y = 240

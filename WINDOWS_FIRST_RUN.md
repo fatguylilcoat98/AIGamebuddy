@@ -1,3 +1,3 @@
-Download https://github.com/fatguylilcoat98/AIGamebuddy/releases/latest/download/BuddySetup.exe
-Double-click it.
+Double-click Buddy on the desktop.
 Play.
+The first download is the installer. After Buddy is installed, do not download it again. A startup error is written to %LOCALAPPDATA%\Buddy\logs\startup.log.

@@ -1,4 +1,6 @@
 """Contracts for the one-click Windows installer."""
+import subprocess
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -11,6 +13,9 @@ def test_installer_workflow_publishes_buddysetup():
     assert "workflow_dispatch" in text
     assert "cursor/buddy-windows-companion-25cc" in text
     assert "pyinstaller" in text.lower()
+    assert "contents: write" in text
+    assert "--self-test" in text
+    assert "portaudio" in text.lower()
 
 
 def test_inno_script_is_per_user_with_shortcuts():
@@ -21,6 +26,24 @@ def test_inno_script_is_per_user_with_shortcuts():
     assert "{autoprograms}" in text
     assert "OutputBaseFilename=BuddySetup" in text
     assert "Buddy.exe" in text
+
+
+def test_buddy_entry_version_exits_zero():
+    proc = subprocess.run(
+        [sys.executable, str(ROOT / "packaging" / "buddy_entry.py"), "--version"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert "Buddy Overlay 0.9.0" in proc.stdout
+
+
+def test_spec_refuses_to_ship_without_portaudio():
+    text = (ROOT / "packaging" / "buddy.spec").read_text(encoding="utf-8")
+    assert "portaudio" in text.lower()
+    assert "ctranslate2" in text.lower()
+    assert "Buddy bundle is missing" in text
 
 
 def test_first_run_doc_is_download_double_click_play():

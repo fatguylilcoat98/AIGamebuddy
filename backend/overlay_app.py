@@ -250,6 +250,14 @@ def run_overlay(session) -> None:
             holder["target"] = OVERLAY_SIZE
         session._placed = None
         session._borderless.clear()
+        if os.name == "nt" and holder["fullscreen"]:
+            from .window_layout import raise_overlay_front
+            root.update_idletasks()
+            info = holder["monitor_info"]
+            raised = raise_overlay_front(
+                int(root.winfo_id() or 0), info["width"], info["height"], (info["left"], info["top"]),
+            )
+            logging.getLogger("buddy.overlay").info("Overlay front: %s", raised)
 
     def _log_monitor():
         if holder["logged_monitor"]:
@@ -450,6 +458,12 @@ def run_overlay(session) -> None:
                 holder["snapped"] = current
                 _apply_geometry()
                 _rebuild_static()
+        if os.name == "nt" and holder["fullscreen"]:
+            from .window_layout import raise_overlay_front
+            info = holder["monitor_info"]
+            raise_overlay_front(
+                int(root.winfo_id() or 0), info["width"], info["height"], (info["left"], info["top"]),
+            )
         hole = _screen_hole()
         session.game_hole = hole
         present = session._emulator_hwnd() is not None

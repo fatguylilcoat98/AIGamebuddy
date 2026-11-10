@@ -29,13 +29,19 @@ function Write-StartupError([string]$Message) {
 
 Set-Location $PSScriptRoot
 
+$embeddedW = Join-Path $PSScriptRoot "runtime\pythonw.exe"
 $embedded = Join-Path $PSScriptRoot "runtime\python.exe"
+# pythonw has no console. A killed console window was showing up as exit code -1.
+$launcher = $embedded
+if (Test-Path $embeddedW) { $launcher = $embeddedW }
 if (Test-Path $embedded) {
-    $output = & $embedded -m backend.wizard_app 2>&1
-    $code = $LASTEXITCODE
+    $proc = Start-Process -FilePath $launcher -ArgumentList @("-m", "backend.wizard_app") -WorkingDirectory $PSScriptRoot -WindowStyle Hidden -Wait -PassThru
+    $code = $proc.ExitCode
     if ($code -ne 0) {
-        $detail = (($output | Out-String).Trim())
-        if (-not $detail) { $detail = "runtime\python.exe exited with code $code" }
+        $detail = "runtime\pythonw.exe exited with code $code. Read $logFile. This is not a request to reinstall."
+        if ($code -eq -1) {
+            $detail = "runtime\pythonw.exe was closed from outside (exit code -1). Read $logFile. Buddy does not ask you to reinstall."
+        }
         Write-StartupError $detail
         exit $code
     }

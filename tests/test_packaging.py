@@ -79,6 +79,7 @@ def test_shipped_package_can_import_backend_and_does_not_reinstall():
     assert "{srcexe}" not in iss
     launcher = (ROOT / "Start-Buddy.ps1").read_text(encoding="utf-8")
     assert "startup.log" in launcher
+    assert "pythonw.exe" in launcher
     lowered = launcher.lower()
     assert "github.com" not in lowered
     assert "buddysetup" not in lowered

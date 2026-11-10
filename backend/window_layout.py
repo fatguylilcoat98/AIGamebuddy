@@ -150,6 +150,13 @@ def strip_window_decorations(hwnd: int) -> str:
         user32.SetWindowPos.restype = wintypes.BOOL
         # SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED
         user32.SetWindowPos(int(hwnd), ctypes.c_void_p(0), 0, 0, 0, 0, 0x0020 | 0x0004 | 0x0002 | 0x0001)
+        # The GDI driver draws File / Command / Window as a real menu bar.
+        try:
+            user32.SetMenu.argtypes = [wintypes.HWND, wintypes.HMENU]
+            user32.SetMenu.restype = wintypes.BOOL
+            user32.SetMenu(int(hwnd), None)
+        except Exception:
+            pass
         return "stripped"
     except Exception as exc:
         log.warning("Could not remove decorations on %s: %s", hwnd, exc)
@@ -271,6 +278,31 @@ def list_toplevel_windows() -> list[tuple[int, str]]:
     except Exception as exc:
         log.warning("Could not list windows: %s", exc)
         return []
+
+
+def raise_overlay_front(hwnd: int, width: int, height: int, origin: tuple[int, int] = (0, 0)) -> str:
+    """Fullscreen, borderless, and above every other window, including consoles."""
+    if os.name != "nt" or not hwnd:
+        return "not_windows"
+    hwnd = toplevel_hwnd(hwnd)
+    try:
+        import ctypes
+        from ctypes import wintypes
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        user32.SetWindowPos.argtypes = [
+            wintypes.HWND, ctypes.c_void_p, ctypes.c_int, ctypes.c_int,
+            ctypes.c_int, ctypes.c_int, wintypes.UINT,
+        ]
+        user32.SetWindowPos.restype = wintypes.BOOL
+        # HWND_TOPMOST, SWP_SHOWWINDOW
+        ok = bool(user32.SetWindowPos(
+            int(hwnd), ctypes.c_void_p(-1),
+            int(origin[0]), int(origin[1]), int(width), int(height), 0x0040,
+        ))
+        return "raised" if ok else "failed"
+    except Exception as exc:
+        log.warning("Could not raise the overlay: %s", exc)
+        return "failed"
 
 
 def exclude_window_from_capture(hwnd: int) -> str:

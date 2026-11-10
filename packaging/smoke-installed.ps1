@@ -3,6 +3,56 @@
 # Fails unless the setup wizard process and its window actually appear.
 $ErrorActionPreference = "Stop"
 
+Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+public static class BuddyScreen {
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
+    public struct DEVMODE {
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)]
+        public string dmDeviceName;
+        public short dmSpecVersion;
+        public short dmDriverVersion;
+        public short dmSize;
+        public short dmDriverExtra;
+        public int dmFields;
+        public int dmPositionX;
+        public int dmPositionY;
+        public int dmDisplayOrientation;
+        public int dmDisplayFixedOutput;
+        public short dmColor;
+        public short dmDuplex;
+        public short dmYResolution;
+        public short dmTTOption;
+        public short dmCollate;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)]
+        public string dmFormName;
+        public short dmLogPixels;
+        public int dmBitsPerPel;
+        public int dmPelsWidth;
+        public int dmPelsHeight;
+        public int dmDisplayFlags;
+        public int dmDisplayFrequency;
+    }
+    [DllImport("user32.dll", CharSet = CharSet.Auto)]
+    public static extern int ChangeDisplaySettings(ref DEVMODE devMode, int flags);
+}
+"@
+$mode = New-Object BuddyScreen+DEVMODE
+$mode.dmSize = [Runtime.InteropServices.Marshal]::SizeOf($mode)
+$mode.dmPelsWidth = 1920
+$mode.dmPelsHeight = 1080
+$mode.dmBitsPerPel = 32
+$mode.dmFields = 0x1C0000
+$displayCode = [BuddyScreen]::ChangeDisplaySettings([ref]$mode, 0)
+Write-Host "ChangeDisplaySettings 1920x1080 -> $displayCode"
+Add-Type -AssemblyName System.Windows.Forms
+$bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+Write-Host "Primary screen $($bounds.Width)x$($bounds.Height)"
+if ($bounds.Width -lt 1600 -or $bounds.Height -lt 900) {
+    throw "The runner display is $($bounds.Width)x$($bounds.Height). Buddy's pixel check needs about 1920x1080."
+}
+
 $setup = Join-Path (Split-Path -Parent $PSScriptRoot) "dist\BuddySetup.exe"
 if (-not (Test-Path $setup)) {
     throw "dist\BuddySetup.exe is missing. This smoke test only runs the installer that ships."
@@ -23,6 +73,8 @@ if ($installer.ExitCode -ne 0) {
 $app = Join-Path $env:LOCALAPPDATA "Buddy"
 $bat = Join-Path $app "Start-Buddy.bat"
 $python = Join-Path $app "runtime\python.exe"
+$pythonw = Join-Path $app "runtime\pythonw.exe"
+if (-not (Test-Path $pythonw)) { throw "Installed copy has no runtime\pythonw.exe" }
 if (-not (Test-Path $bat)) { throw "Installed copy has no Start-Buddy.bat at $bat" }
 if (-not (Test-Path $python)) { throw "Installed copy has no runtime\python.exe" }
 if (Test-Path (Join-Path $app "Buddy.exe")) {
@@ -71,8 +123,11 @@ $proc = Start-Process -FilePath $lnk.TargetPath -WorkingDirectory $elsewhere -Pa
 $deadline = (Get-Date).AddSeconds(45)
 $pythonPid = $null
 while ((Get-Date) -lt $deadline) {
-    $found = Get-CimInstance Win32_Process -Filter "Name = 'python.exe'" |
-        Where-Object { $_.CommandLine -match "backend\.wizard_app" }
+    $found = Get-CimInstance Win32_Process |
+        Where-Object {
+            $_.ExecutablePath -like "*\Buddy\runtime\pythonw.exe" -or
+            ($_.Name -match '^pythonw?\.exe$' -and $_.CommandLine -match "backend\.wizard_app")
+        }
     if ($found) {
         $pythonPid = @($found)[0].ProcessId
         break
@@ -100,7 +155,15 @@ if (-not (Test-Path $shot)) { throw "Wizard screenshot was not written" }
 Write-Host "Wizard screenshot $shot"
 Copy-Item $shot (Join-Path $shotDir "wizard-first.jpg") -Force
 
-Stop-Process -Id $pythonPid -Force -ErrorAction SilentlyContinue
+$env:BUDDY_WINDOW_TITLE = "Buddy Setup"
+& $python $smokePy close
+$closeDeadline = (Get-Date).AddSeconds(15)
+while ((Get-Date) -lt $closeDeadline) {
+    $still = Get-CimInstance Win32_Process |
+        Where-Object { $_.Name -match '^pythonw?\.exe$' -and $_.CommandLine -match "backend\.wizard_app" }
+    if (-not $still) { break }
+    Start-Sleep -Milliseconds 400
+}
 Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match "backend\.wizard_app" } | ForEach-Object {
     Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
 }
@@ -128,7 +191,7 @@ if (Test-Path $cmdFile) { Remove-Item $cmdFile -Force }
 if (Test-Path $ackFile) { Remove-Item $ackFile -Force }
 
 Write-Host "Opening the Play screen"
-$play = Start-Process -FilePath $python -ArgumentList @("-m", "backend.wizard_app", "--wizard") -WorkingDirectory $elsewhere -PassThru
+$play = Start-Process -FilePath $pythonw -ArgumentList @("-m", "backend.wizard_app", "--wizard") -WorkingDirectory $elsewhere -WindowStyle Hidden -PassThru
 $playShot = Join-Path $shotDir "wizard-play.jpg"
 $env:BUDDY_SHOT = $playShot
 $env:BUDDY_WINDOW_TITLE = "Buddy Setup"
@@ -161,9 +224,17 @@ if (-not $ra) {
     throw "RetroArch did not start with the Super NES test ROM"
 }
 Start-Sleep -Seconds 12
+$env:BUDDY_FRAME_SHOT = "1"
 $gameShot = Join-Path $shotDir "snes-frame-retroarch.jpg"
 Save-Screen $gameShot
 Write-Host "Frame screenshot $gameShot"
+$env:BUDDY_SHOT = $gameShot
+$env:BUDDY_MENU_OPEN = "0"
+& $python $smokePy prove
+if ($LASTEXITCODE -ne 0) {
+    Write-BuddyLogs
+    throw "The SNES frame, Buddy, or the hamburger is not on screen"
+}
 
 function Send-Smoke([string]$Command) {
     if (Test-Path $ackFile) { Remove-Item $ackFile -Force }
@@ -184,6 +255,13 @@ Start-Sleep -Seconds 2
 $menuShot = Join-Path $shotDir "menu-open.jpg"
 Save-Screen $menuShot
 Write-Host "Menu screenshot $menuShot"
+$env:BUDDY_SHOT = $menuShot
+$env:BUDDY_MENU_OPEN = "1"
+& $python $smokePy prove
+if ($LASTEXITCODE -ne 0) {
+    Write-BuddyLogs
+    throw "The menu panel is not visible over the SNES frame"
+}
 
 Send-Smoke "retroarch-menu"
 Start-Sleep -Seconds 4
@@ -208,6 +286,7 @@ do {
         $exe = [string]$_.ExecutablePath
         $cmd = [string]$_.CommandLine
         ($exe -like "*\Buddy\runtime\python.exe") -or
+        ($exe -like "*\Buddy\runtime\pythonw.exe") -or
         ($cmd -match "backend\.(launcher|wizard_app|overlay_app)") -or
         ($_.Name -eq "retroarch.exe")
     })

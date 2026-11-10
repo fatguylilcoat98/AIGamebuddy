@@ -36,6 +36,24 @@ jobs:
         run: powershell -NoProfile -ExecutionPolicy Bypass -File packaging/smoke-installed.ps1
         shell: powershell
 
+      - name: Save runner logs
+        if: always()
+        shell: powershell
+        run: |
+          $dest = "dist/logs"
+          New-Item -ItemType Directory -Force -Path $dest | Out-Null
+          Copy-Item "$env:LOCALAPPDATA\Buddy\logs\*" $dest -Force -ErrorAction SilentlyContinue
+          Copy-Item "$env:LOCALAPPDATA\VideoGameWingman\buddy.log" $dest -Force -ErrorAction SilentlyContinue
+          Get-ChildItem $dest -ErrorAction SilentlyContinue | Format-Table Name, Length
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: buddy-logs
+          path: dist/logs/**
+          if-no-files-found: warn
+
       - name: Upload screenshots
         uses: actions/upload-artifact@v4
         with:
@@ -50,16 +68,24 @@ jobs:
           path: dist/BuddySetup.exe
           if-no-files-found: error
 
+      - name: Mark pre8 broken
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: powershell
+        run: |
+          gh release edit buddy-v0.1.0-pre8 --repo ${{ github.repository }} --notes "BROKEN. Do not install this build. The Windows screenshots show a bare RetroArch window and console logs, not the SNES frame or Buddy. python.exe was force-killed during the test (exit code -1), which left the console open, and the overlay was not in front. Use pre9."
+
       - name: Publish prerelease
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: buddy-v0.1.0-pre8
-          name: Buddy 0.1.0 pre8
+          tag_name: buddy-v0.1.0-pre9
+          name: Buddy 0.1.0 pre9
           prerelease: true
           make_latest: false
           generate_release_notes: false
           body: |
             Prerelease installer for Super NES. Double-click BuddySetup.exe.
+            pre8 is broken. Do not use it.
             Snes9x is included for personal use. It is not the latest stable release.
           files: |
             dist/BuddySetup.exe

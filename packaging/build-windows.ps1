@@ -141,6 +141,10 @@ if (-not (Test-Path (Join-Path $tclSrc "tcl8.6\init.tcl"))) {
 }
 Copy-Item $tclSrc (Join-Path $runtime "tcl") -Recurse -Force
 $py = Join-Path $runtime "python.exe"
+if (-not (Test-Path (Join-Path $runtime "pythonw.exe"))) {
+    Write-Host "The embeddable zip has no pythonw.exe, so Buddy would open a console."
+    exit 1
+}
 $getPip = Join-Path $cache "get-pip.py"
 if (-not (Test-Path $getPip)) {
     Invoke-WebRequest -Uri "https://bootstrap.pypa.io/get-pip.py" -OutFile $getPip

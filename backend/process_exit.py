@@ -14,7 +14,7 @@ from pathlib import Path
 def is_buddy_process(command: str, exe: str = "") -> bool:
     """True for Buddy's Python, its wizard, or a RetroArch Buddy launched."""
     text = f"{command or ''} {exe or ''}".replace("/", "\\").lower()
-    if "\\buddy\\runtime\\python.exe" in text:
+    if "\\buddy\\runtime\\python.exe" in text or "\\buddy\\runtime\\pythonw.exe" in text:
         return True
     if "backend.launcher" in text or "backend.wizard_app" in text or "backend.overlay_app" in text:
         return True

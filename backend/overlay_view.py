@@ -22,7 +22,7 @@ def _frame_art(frame_id: str) -> Image.Image:
     source = Image.open(Path(__file__).resolve().parents[1] / "assets" / "frames" / record["file"])
     # The baked portrait is gone before the live sprite is drawn.
     source = clear_painted_head(source, frame_id)
-    return punch_screen(source, record["screen"])
+    return punch_screen(source, record["screen"], frame_id=frame_id)
 
 
 def _fill_hole(image: Image.Image, color: tuple[int, int, int, int] = (6, 8, 14, 255)) -> Image.Image:
@@ -61,12 +61,26 @@ def _caption(image: Image.Image, box: dict[str, int], text: str, band: int) -> N
     draw.text((x, y), text, font=font, fill=(232, 244, 255, 255))
 
 
+def _well_box(frame_id: str, origin: tuple[int, int], frame_size: tuple[int, int]) -> dict[str, int]:
+    """The real inner plate, not the older hand-tuned portrait rect."""
+    record = frame_record(frame_id)
+    raw = record.get("well") or PLACEMENTS[frame_id]["buddy"]
+    sx = frame_size[0] / DESIGN["width"]
+    sy = frame_size[1] / DESIGN["height"]
+    return {
+        "x": int(round(origin[0] + raw["x"] * sx)),
+        "y": int(round(origin[1] + raw["y"] * sy)),
+        "width": max(1, int(round(raw["width"] * sx))),
+        "height": max(1, int(round(raw["height"] * sy))),
+    }
+
+
 def layout_boxes(frame_id: str, monitor: tuple[int, int], *, game_running: bool,
                  reserve_button: bool = False) -> dict:
     origin_x, origin_y, frame_w, frame_h = fit_frame(monitor)
-    buddy = _box(frame_id, "buddy", (origin_x, origin_y), (frame_w, frame_h))
+    buddy = _well_box(frame_id, (origin_x, origin_y), (frame_w, frame_h))
     menu = _box(frame_id, "menu", (origin_x, origin_y), (frame_w, frame_h))
-    fraction = 0.34 if reserve_button else 0.22
+    fraction = 0.28 if reserve_button else 0.18
     caption_h = 0 if game_running else max(18, int(buddy["height"] * fraction))
     head = {
         "x": buddy["x"],

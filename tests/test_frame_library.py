@@ -5,8 +5,8 @@ from PIL import Image
 
 from backend.frame_library import (
     ASPECT_RATIO_CUSTOM,
-    BEZEL_LIP,
     CONTROLLER_OVERLAP,
+    SIDE_GROW,
     FRAME_DIR,
     FRAME_FILES,
     SYSTEM_ALIASES,
@@ -50,20 +50,20 @@ def test_measured_screen_matches_metadata_and_keeps_the_controller():
     for frame_id, filename in FRAME_FILES.items():
         image = Image.open(FRAME_DIR / filename)
         measured = measure_screen(image)
-        grown = enlarge_screen(image, measured)
+        grown = enlarge_screen(image, frame_id, measured)
         stored = metadata["frames"][frame_id]["screen"]
         assert stored == grown
-        assert stored["x"] == max(0, measured["x"] - BEZEL_LIP)
+        assert stored["width"] >= measured["width"] + SIDE_GROW[frame_id]
         top = controller_top(image, measured)
-        assert stored["y"] + stored["height"] == min(image.size[1], top + CONTROLLER_OVERLAP)
+        assert stored["y"] + stored["height"] == min(image.size[1] - 4, top + CONTROLLER_OVERLAP[frame_id])
         assert stored["width"] > 400 and stored["height"] > 300
-        punched = punch_screen(image, stored)
+        punched = punch_screen(image, stored, frame_id=frame_id)
         center = punched.getpixel((stored["x"] + stored["width"] // 2, stored["y"] + stored["height"] // 2))
         assert center[3] == 0
         # The footer controller overlaps the window, so that band stays partly opaque.
         import numpy as np
         x, y, w, h = stored["x"], stored["y"], stored["width"], stored["height"]
-        band = np.array(punched.crop((x, y + h - CONTROLLER_OVERLAP, x + w, y + h)))
+        band = np.array(punched.crop((x, y + h - CONTROLLER_OVERLAP[frame_id], x + w, y + h)))
         opaque = band[:, :, 3] == 255
         assert int(opaque.sum()) > 20
         assert int(band[opaque][:, :3].max()) > 18

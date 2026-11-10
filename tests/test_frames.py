@@ -59,6 +59,63 @@ def test_sheets_split_and_turns_keep_gb_readable():
     assert male.right_turns[-1][0] == 1.0
 
 
+def test_head_is_centered_in_the_well():
+    """The live head's box is centered in the well and does not leave it."""
+    import numpy as np
+    from backend.frame_library import frame_record
+    from backend.overlay_view import compose_overlay
+
+    def bounds(image, well):
+        crop = np.asarray(image.convert("RGB").crop(
+            (well["x"], well["y"], well["x"] + well["width"], well["y"] + well["height"])))
+        red = crop[:, :, 0].astype(int)
+        blue = crop[:, :, 2].astype(int)
+        green = crop[:, :, 1].astype(int)
+        mask = (blue > 70) & (blue > red + 25) & (green > 15)
+        ys, xs = np.where(mask)
+        return xs, ys
+
+    for frame_id in ("genesis", "nes", "snes"):
+        well = frame_record(frame_id)["well"]
+        for character in ("male", "female"):
+            for size, limit in (((1280, 720), 8), ((1920, 1080), 12)):
+                image = compose_overlay(
+                    frame_id, size, expression="idle", character=character, resting="left",
+                )
+                scale_x = size[0] / 1280
+                scale_y = size[1] / 720
+                box = {
+                    "x": int(round(well["x"] * scale_x)),
+                    "y": int(round(well["y"] * scale_y)),
+                    "width": int(round(well["width"] * scale_x)),
+                    "height": int(round(well["height"] * scale_y)),
+                }
+                xs, ys = bounds(image, box)
+                assert len(xs) > 20, (frame_id, character, size)
+                center = (int(xs.min()) + int(xs.max())) / 2
+                assert abs(center - box["width"] / 2) <= limit, (frame_id, character, size, center)
+                assert int(xs.min()) >= 2 and int(xs.max()) <= box["width"] - 3
+                assert int(ys.min()) >= 6, (frame_id, character, size, int(ys.min()))
+                assert int(ys.max()) <= box["height"] - 4
+
+
+def test_bezel_overhangs_the_hole():
+    import numpy as np
+    from backend.frame_library import BEZEL_OVERHANG, FRAME_DIR, FRAME_FILES, frame_record, punch_screen
+    for frame_id, filename in FRAME_FILES.items():
+        image = Image.open(FRAME_DIR / filename)
+        screen = frame_record(frame_id)["screen"]
+        punched = np.array(punch_screen(image, screen, frame_id=frame_id))
+        x, y, w, h = screen["x"], screen["y"], screen["width"], screen["height"]
+        lip = BEZEL_OVERHANG
+        top = punched[y:y + lip, x + lip:x + w - lip, 3]
+        left = punched[y + lip:y + h - lip, x:x + lip, 3]
+        assert int((top > 200).sum()) > 10, frame_id
+        assert int((left > 200).sum()) > 10, frame_id
+        center = punched[y + h // 2, x + w // 2, 3]
+        assert int(center) == 0
+
+
 def test_approved_composite_keeps_the_bezel():
     import numpy as np
     from backend.frame_library import FRAME_DIR, FRAME_FILES, PLACEMENTS, paste_head

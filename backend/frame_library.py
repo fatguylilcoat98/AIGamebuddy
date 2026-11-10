@@ -109,10 +109,16 @@ def measure_screen(image: Image.Image, threshold: int = 14) -> dict[str, int]:
     return {"x": int(x), "y": int(y), "width": int(w), "height": int(bottom - y + 1)}
 
 
-# At 720p the bezel lip is 6px (9px at 1080p). The controller overlap is 8px
-# at 720p, which is 12px at 1080p.
-BEZEL_LIP = 6
-CONTROLLER_OVERLAP = 8
+# Design pixels on the 1280x720 art. 1080p is 1.5x these numbers.
+# The overhang is the frame's own bezel, drawn back on top of the hole.
+BEZEL_OVERHANG = 4
+# How far the hole grows past the measured black window, per frame.
+# NES and SNES were still the small original opening. Genesis was already wide.
+SIDE_GROW = {"genesis": 14, "nes": 28, "snes": 34}
+TOP_GROW = {"genesis": 4, "nes": 8, "snes": 4}
+# Controller pixels kept over the game. 7px at 720p is about 10px at 1080p.
+# Genesis was covering the game with most of the pad; NES and SNES were already thin.
+CONTROLLER_OVERLAP = {"genesis": 7, "nes": 8, "snes": 8}
 
 
 def _well_pixel(rgb: np.ndarray) -> np.ndarray:
@@ -207,16 +213,51 @@ def controller_top(image: Image.Image, screen: dict[str, int]) -> int:
     return found if found is not None else y + h - 1
 
 
-def enlarge_screen(image: Image.Image, raw: dict[str, int] | None = None) -> dict[str, int]:
-    """Grow the game window under the bezel, and keep only a smidge of controller overlap."""
+def enlarge_screen(image: Image.Image, frame_id: str, raw: dict[str, int] | None = None) -> dict[str, int]:
+    """Grow the game window into the bezel. The controller only nicks the bottom.
+
+    The right edge stops short of Buddy's well. The top stops short of the title.
+    """
     raw = raw or measure_screen(image)
     width, height = image.size
-    top = controller_top(image, raw)
-    x = max(0, raw["x"] - BEZEL_LIP)
-    y = max(0, raw["y"] - BEZEL_LIP)
-    right = min(width, raw["x"] + raw["width"] + BEZEL_LIP)
-    bottom = min(height, top + CONTROLLER_OVERLAP)
-    return {"x": x, "y": y, "width": right - x, "height": max(1, bottom - y)}
+    well = buddy_well_rect(image, frame_id)
+    control = controller_top(image, raw)
+    overlap = CONTROLLER_OVERLAP[frame_id]
+    x = max(8, raw["x"] - SIDE_GROW[frame_id])
+    y = max(8, raw["y"] - TOP_GROW[frame_id])
+    right = min(width - 8, raw["x"] + raw["width"] + SIDE_GROW[frame_id])
+    right = min(right, int(well["x"]) - 12)
+    bottom = min(height - 4, control + overlap)
+    if bottom <= y + 40:
+        bottom = y + 40
+    return {"x": int(x), "y": int(y), "width": int(right - x), "height": int(bottom - y)}
+
+
+def cut_hole(image: Image.Image, screen: dict[str, int], lip: int = BEZEL_OVERHANG,
+             bottom_keep: int = 8) -> Image.Image:
+    """Open the game hole, then put a few pixels of this frame's bezel back on top.
+
+    The lip is the art that was already on that edge, not a new shape.
+    """
+    original = np.array(image.convert("RGBA"))
+    output = original.copy()
+    x, y, w, h = int(screen["x"]), int(screen["y"]), int(screen["width"]), int(screen["height"])
+    output[y:y + h, x:x + w, 3] = 0
+    if lip <= 0 or w <= lip * 2 or h <= lip * 2:
+        return Image.fromarray(output, "RGBA")
+    source = original[y:y + h, x:x + w]
+    colored = source[:, :, :3].max(axis=2) > 30
+    ring = np.zeros((h, w), dtype=bool)
+    ring[:lip, :] = True
+    band = max(lip, int(bottom_keep))
+    ring[-band:, :] = True
+    ring[:, :lip] = True
+    ring[:, -lip:] = True
+    keep = ring & colored
+    region = output[y:y + h, x:x + w]
+    region[keep] = source[keep]
+    output[y:y + h, x:x + w] = region
+    return Image.fromarray(output, "RGBA")
 
 
 def scale_rect(rect: dict[str, int], target: tuple[int, int]) -> dict[str, int]:
@@ -231,10 +272,9 @@ def scale_rect(rect: dict[str, int], target: tuple[int, int]) -> dict[str, int]:
 
 
 def paste_head(image: Image.Image, head: Image.Image, box: dict[str, int]) -> Image.Image:
-    """Composite a transparent head into the inner well. The bezel stays untouched.
+    """Center a head in the well. The ring stays fully inside, with room above the cap.
 
-    The pedestal ring sits on the bottom of the well, the same place it occupies
-    in the approved frame art. Centering the sprite left that ring on the neck.
+    The same padding is used for both characters, on every frame.
     """
     canvas = image.convert("RGBA")
     x, y, w, h = int(box["x"]), int(box["y"]), int(box["width"]), int(box["height"])
@@ -243,39 +283,48 @@ def paste_head(image: Image.Image, head: Image.Image, box: dict[str, int]) -> Im
     # Drop the baked portrait. This rect is the inner well, so the bezel stays.
     canvas.paste(Image.new("RGBA", (w, h), (0, 0, 0, 255)), (x, y))
     sprite = head.convert("RGBA")
-    trimmed = sprite.crop(sprite.getbbox()) if sprite.getbbox() else sprite
-    margin = max(1, h // 48)
-    trimmed.thumbnail((max(1, w - margin * 2), max(1, h - margin * 2)), Image.Resampling.LANCZOS)
+    box_px = sprite.getbbox()
+    trimmed = sprite.crop(box_px) if box_px else sprite
+    side = max(6, w // 12)
+    top = max(8, h // 9)
+    bottom = max(8, h // 11)
+    trimmed.thumbnail((max(1, w - side * 2), max(1, h - top - bottom)), Image.Resampling.LANCZOS)
     layer = Image.new("RGBA", (w, h), (0, 0, 0, 0))
     ox = (w - trimmed.width) // 2
-    oy = max(0, h - trimmed.height - margin)
+    oy = h - bottom - trimmed.height
+    if oy < top:
+        oy = top
     layer.alpha_composite(trimmed, (ox, oy))
     canvas.alpha_composite(layer, (x, y))
     return canvas
 
 
-def punch_screen(image: Image.Image, screen: dict[str, int], threshold: int = 18) -> Image.Image:
-    """Cut the game window to alpha. Non-black pixels, including the controller, stay."""
-    rgba = np.array(image.convert("RGBA"))
-    x, y, w, h = screen["x"], screen["y"], screen["width"], screen["height"]
-    region = rgba[y:y + h, x:x + w]
-    black = region[:, :, :3].max(axis=2) <= threshold
-    region[:, :, 3] = np.where(black, 0, 255)
-    rgba[y:y + h, x:x + w] = region
-    return Image.fromarray(rgba, "RGBA")
+def punch_screen(image: Image.Image, screen: dict[str, int], threshold: int = 18,
+                 frame_id: str | None = None) -> Image.Image:
+    """Cut the game window, then lay the frame's own bezel back over the edge.
+
+    `threshold` is kept so older callers stay valid. The hole itself is cleared
+    fully. A few pixels of this frame's bezel are painted back on every side,
+    and the controller overlap stays along the bottom.
+    """
+    del threshold
+    keep = CONTROLLER_OVERLAP.get(frame_id, 8) if frame_id else 8
+    return cut_hole(image, screen, BEZEL_OVERHANG, keep)
 
 
 def build_metadata() -> dict:
     frames = {}
     for frame_id, filename in FRAME_FILES.items():
         path = FRAME_DIR / filename
-        screen = enlarge_screen(Image.open(path))
+        source = Image.open(path)
+        screen = enlarge_screen(source, frame_id)
         placement = PLACEMENTS[frame_id]
         viewports = {name: scale_rect(screen, size) for name, size in OUTPUTS.items()}
         frames[frame_id] = {
             "file": filename,
             "systems": [alias for alias, target in SYSTEM_ALIASES.items() if target == frame_id],
             "screen": screen,
+            "well": buddy_well_rect(source, frame_id),
             "buddy": placement["buddy"],
             "menu": placement["menu"],
             "viewports": viewports,
@@ -354,7 +403,7 @@ def write_outputs() -> list[Path]:
         source = clear_painted_head(Image.open(FRAME_DIR / record["file"]), frame_id)
         png_name = Path(record["file"]).stem + ".png"
         png_path = OVERLAY_DIR / png_name
-        punch_screen(source, record["screen"]).save(png_path)
+        punch_screen(source, record["screen"], frame_id=frame_id).save(png_path)
         cfg_path = OVERLAY_DIR / f"{frame_id}.cfg"
         cfg_path.write_text(retroarch_overlay_cfg(frame_id), encoding="utf-8")
         written.extend((png_path, cfg_path))
@@ -404,7 +453,7 @@ def write_runtime_retroarch_cfg(frame_id: str, size: tuple[int, int], directory:
     if not png.exists():
         source = clear_painted_head(Image.open(FRAME_DIR / record["file"]), frame_id)
         OVERLAY_DIR.mkdir(parents=True, exist_ok=True)
-        punch_screen(source, record["screen"]).save(png)
+        punch_screen(source, record["screen"], frame_id=frame_id).save(png)
     overlay_path = directory / f"{frame_id}-overlay.cfg"
     overlay_path.write_text(
         "\n".join([

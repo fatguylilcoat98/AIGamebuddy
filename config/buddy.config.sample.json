@@ -52,7 +52,8 @@
     "layout": "full",
     "corner": "bottom-right",
     "monitor": 1,
-    "manage_emulator_window": true
+    "manage_emulator_window": true,
+    "frames": { "nes": "nes", "snes": "snes", "genesis": "genesis" }
   },
   "retroarch": {
     "path": "",
@@ -66,6 +67,7 @@
   "emulationstation": {
     "path": ""
   },
+  "games_dir": "",
   "libraries": [],
   "extra_emulators": [],
   "takeover": {

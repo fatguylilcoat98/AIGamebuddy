@@ -92,7 +92,8 @@ def run_overlay(session) -> None:
     settings = tk.Button(menu, text="Settings", command=lambda: _cycle_rest(), **button_style)
     sound = tk.Button(menu, text="Sound", command=lambda: _step_volume(), **button_style)
     windowed = tk.Button(menu, text="Full", command=lambda: _toggle_fullscreen(), **button_style)
-    buttons = [toggle, mode, voice, settings, sound, windowed]
+    games = tk.Button(menu, text="Games", command=lambda: _toggle_games(), **button_style)
+    buttons = [toggle, mode, voice, settings, sound, games, windowed]
     focus_at = {"i": 0}
 
     def _toggle_character():
@@ -161,8 +162,49 @@ def run_overlay(session) -> None:
     toggle.pack(fill="x", padx=4, pady=(4, 2))
     row = tk.Frame(menu, bg="#12121a")
     row.pack(fill="both", expand=True, padx=2, pady=(0, 4))
-    for button in (mode, voice, settings, sound, windowed):
+    for button in (mode, voice, settings, sound, games, windowed):
         button.pack(in_=row, side="left", expand=True, fill="both", padx=2)
+    games_frame = tk.Frame(root, bg="#000000")
+    games_list = tk.Listbox(
+        games_frame, bg="#000000", fg="#e8f4ff", selectbackground="#1c4a5a",
+        highlightthickness=0, bd=0, font=("Segoe UI", 8), activestyle="none",
+    )
+    games_list.pack(fill="both", expand=True)
+    games_entries: list[tuple[str, str]] = []
+
+    def _toggle_games():
+        logging.getLogger("buddy.overlay").info("Click: Games")
+        holder["games_open"] = not holder.get("games_open")
+        _fill_games()
+        place_chrome()
+
+    def _fill_games():
+        games_list.delete(0, "end")
+        games_entries.clear()
+        found = session.list_buddy_games()
+        labels = {"nes": "NES", "snes": "SNES", "genesis": "Genesis"}
+        folder = str(session.config.get("games_dir") or "")
+        for system, names in found.items():
+            for name in names:
+                games_entries.append((str(Path(folder) / {"nes": "NES", "snes": "SNES", "genesis": "Genesis"}[system] / name), system))
+                games_list.insert("end", f"{labels.get(system, system)}: {name}")
+        if not games_entries:
+            games_list.insert("end", "No games in Buddy Games yet")
+
+    def _play_game(_event=None):
+        if not games_entries:
+            return
+        selected = games_list.curselection()
+        if not selected:
+            return
+        rom, system = games_entries[selected[0]]
+        logging.getLogger("buddy.overlay").info("Click: play %s", rom)
+
+        def work():
+            session.play_listed_game(rom, system)
+        threading.Thread(target=work, daemon=True).start()
+
+    games_list.bind("<Double-Button-1>", _play_game)
 
     def _frame_id():
         return session.theme if session.theme in {"nes", "snes", "genesis"} else "genesis"
@@ -248,6 +290,13 @@ def run_overlay(session) -> None:
             find_btn.lift()
         else:
             find_btn.place_forget()
+        if holder.get("games_open"):
+            from .setup_flow import games_list_rect
+            rect = games_list_rect(boxes["buddy"])
+            games_frame.place(x=rect["x"], y=rect["y"], width=rect["width"], height=rect["height"])
+            games_frame.lift()
+        else:
+            games_frame.place_forget()
         menu.lift()
 
     def _rebuild_static():
@@ -347,6 +396,10 @@ def run_overlay(session) -> None:
             session.maintain_layout((root.winfo_x(), root.winfo_y()), target, monitor=target, hole=hole)
         elif not present and session.retroarch_notice in {NOTICE_MISSING, NOTICE_FAILED}:
             place_chrome()
+        try:
+            session.poll_game_status()
+        except Exception:
+            logging.getLogger("buddy.retroarch").exception("Game status poll failed")
         root.after(2000, maintain)
 
     def _boot_retroarch():

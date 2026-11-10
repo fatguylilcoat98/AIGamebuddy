@@ -1,6 +1,13 @@
-# One double-click. Installs when .venv is missing or requirements.txt changed, then starts Buddy.
+# One double-click. An installed package (runtime\python.exe) opens the wizard until Play,
+# then starts Buddy. A source checkout still uses .venv and backend.launcher.
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
+
+$embedded = Join-Path $PSScriptRoot "runtime\python.exe"
+if (Test-Path $embedded) {
+    & $embedded -m backend.wizard_app
+    exit $LASTEXITCODE
+}
 
 $requirements = Join-Path $PSScriptRoot "backend\requirements.txt"
 $python = Join-Path $PSScriptRoot ".venv\Scripts\python.exe"

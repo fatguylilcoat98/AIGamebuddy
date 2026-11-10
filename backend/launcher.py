@@ -73,6 +73,11 @@ def main() -> int:
         log.warning("%s", warning)
     _dpi()
     _install_console_stop()
+    try:
+        from .setup_flow import load_secrets_into_env
+        load_secrets_into_env()
+    except Exception:
+        log.warning("Could not load a stored API key. The config was not changed.")
     session = BuddySession(config)
     app_state.SESSION = session
     started = session.start()

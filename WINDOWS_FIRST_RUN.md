@@ -4,6 +4,20 @@ You need Windows 10 or 11 and Python 3.11 or newer.
 Buddy was built on a Linux machine. The steps below are what you run on your PC.
 Voice, the microphone, the transparent overlay, and emulator windows still need you to try them there.
 
+## One-download installer
+
+On a Windows build machine, run `packaging\build-windows.ps1`. It downloads RetroArch 1.22.1, an embedded Python 3.12.8, and the Visual C++ runtime, checks checksums, and compiles `dist\Buddy-Setup.exe` with Inno Setup 6.
+
+That installer is per-user. It does not ask for an administrator password. It adds Start menu and Desktop shortcuts, a Repair shortcut, and an uninstaller. Logs go to `%LOCALAPPDATA%\Buddy\logs`.
+
+The first launch is the setup wizard: install or adopt RetroArch, a Buddy Games folder for ROMs you already own, overlays, Casual/Sassy/Extreme, an optional API key stored in Windows Credential Manager, then Male or Female. Play opens Buddy and puts RetroArch in the screen hole.
+
+Buddy does not download ROMs. Snes9x, PicoDrive, and Genesis Plus GX are not installed. See [LICENSES.md](LICENSES.md).
+
+Code signing and a license key are hooks only. They are not active.
+
+The steps below are for a source checkout, which still starts with Python.
+
 ## 1. Install Python
 
 1. Open https://www.python.org/downloads/windows/

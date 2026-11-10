@@ -219,10 +219,15 @@ def hole_append_config(rect: tuple[int, int, int, int]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def write_hole_config(directory: Path, rect: tuple[int, int, int, int]) -> Path:
+def write_hole_config(directory: Path, rect: tuple[int, int, int, int],
+                      extras: list[str] | None = None) -> Path:
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / "buddy-hole.cfg"
-    path.write_text(hole_append_config(rect), encoding="utf-8")
+    text = hole_append_config(rect).rstrip() + "\n"
+    for line in extras or []:
+        if line and line not in text:
+            text += line.rstrip() + "\n"
+    path.write_text(text, encoding="utf-8")
     return path
 
 

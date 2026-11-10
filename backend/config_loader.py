@@ -49,6 +49,7 @@ DEFAULTS: dict[str, Any] = {
         "corner": "bottom-right",
         "monitor": 1,
         "manage_emulator_window": True,
+        "frames": {"nes": "nes", "snes": "snes", "genesis": "genesis"},
     },
     "retroarch": {
         "path": "",
@@ -60,6 +61,7 @@ DEFAULTS: dict[str, Any] = {
         "command_enabled": False,
     },
     "emulationstation": {"path": ""},
+    "games_dir": "",
     "libraries": [],
     "extra_emulators": [],
     "takeover": {"enabled": False},

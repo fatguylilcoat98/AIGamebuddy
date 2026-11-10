@@ -5,6 +5,7 @@ Retro games, real attitude. The on-screen name is configurable (`product_name` a
 This is one Windows app: the approved console frames, Buddy's hologram, memory, voice, and commentary.
 
 Start here on Windows: [WINDOWS_FIRST_RUN.md](WINDOWS_FIRST_RUN.md).
+One-download installer: [packaging/build-windows.ps1](packaging/build-windows.ps1) builds `Buddy-Setup.exe`. Licenses: [LICENSES.md](LICENSES.md).
 Stream setup: [STREAMING.md](STREAMING.md).
 What was actually tested: [VERIFICATION.md](VERIFICATION.md).
 

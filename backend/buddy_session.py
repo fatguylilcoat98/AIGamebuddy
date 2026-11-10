@@ -141,6 +141,10 @@ class BuddySession:
         self.window_positioner = None
         self.process_stopper = None
         self._borderless: set[int] = set()
+        self._status_game = ""
+        self._paused_since = None
+        self._stuck_spoken = False
+        self.status_query = None
         self._load_ui()
 
     def _initial_personality(self) -> str:
@@ -584,7 +588,11 @@ class BuddySession:
             core or str(self.config.get("retroarch", "core") or ""),
             os.path.isfile,
         )
-        cfg = write_hole_config(self.data_dir / "retroarch", rect)
+        from .game_status import runtime_cfg_lines
+        cfg = write_hole_config(self.data_dir / "retroarch", rect, runtime_cfg_lines(path))
+        self.commands.enabled = True
+        self.commands.host = "127.0.0.1"
+        self.commands.port = 55355
         args = append_arguments(cfg, rom, core)
         retro_log.info("Launching RetroArch: %s %s", path, args)
         self._retro_launch_started = True
@@ -659,6 +667,71 @@ class BuddySession:
             )
         except OSError as exc:
             retro_log.info("Could not close RetroArch: %s", exc)
+
+    def list_buddy_games(self) -> dict[str, list[str]]:
+        from .setup_flow import scan_games
+        folder = str(self.config.get("games_dir") or "")
+        if not folder:
+            return {"nes": [], "snes": [], "genesis": []}
+        return scan_games(Path(folder))
+
+    def play_listed_game(self, rom: str, system: str) -> ActionResult:
+        """Launch one ROM the user already has. The list lives in Buddy's box."""
+        from .frame_library import frame_for_system
+        from .setup_catalog import default_core_filename
+        exe = self._find_retroarch_path()
+        core = ""
+        if exe:
+            candidate = Path(exe).resolve().parent / "cores" / default_core_filename(system)
+            if candidate.is_file():
+                core = str(candidate)
+        frame = frame_for_system(system) or "genesis"
+        if self.theme_mode == "auto":
+            self.theme = frame
+        hole = self.game_hole or self._fallback_hole(frame)
+        logging.getLogger("buddy.retroarch").info("Game list picked %s (%s)", rom, system)
+        return self.launch_into_hole(hole, force=True, rom=rom, core=core, adopt=False)
+
+    def poll_game_status(self, now: float | None = None) -> None:
+        """Ask RetroArch what is running. Speech only. Nothing is drawn on the game."""
+        if not self.commands.enabled or not self.commands.port:
+            return
+        from .game_status import announce_line, parse_get_status, query_status, stuck_line
+        from .setup_flow import frame_for_assignment
+        try:
+            reply = self.status_query() if self.status_query else query_status(self.commands.host, self.commands.port)
+        except Exception:
+            logging.getLogger("buddy.retroarch").exception("GET_STATUS failed")
+            return
+        if not reply:
+            return
+        status = parse_get_status(reply)
+        moment = self.clock.mono() if now is None else now
+        if status.game and status.game != self._status_game:
+            self._status_game = status.game
+            self._paused_since = moment if status.state == "PAUSED" else None
+            self._stuck_spoken = False
+            frame = frame_for_assignment(self.config, status.system)
+            if self.theme_mode == "auto" and frame:
+                self.theme = frame
+            self._show(announce_line(status.game, status.system), category="game", emotion="talk")
+            return
+        if not status.game:
+            self._status_game = ""
+            self._paused_since = None
+            self._stuck_spoken = False
+            return
+        if status.state != "PAUSED":
+            self._paused_since = None
+            self._stuck_spoken = False
+            return
+        if self._paused_since is None:
+            self._paused_since = moment
+            return
+        if (self.personality == "extreme" and not self._stuck_spoken
+                and moment - self._paused_since >= 40):
+            self._stuck_spoken = True
+            self._show(stuck_line("extreme", status.game), category="stuck", emotion="smug")
 
     def load_game(self, query: str) -> ActionResult:
         found = search_games(list(self.config.get("libraries") or []), query)

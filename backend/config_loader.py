@@ -52,6 +52,9 @@ DEFAULTS: dict[str, Any] = {
     },
     "retroarch": {
         "path": "",
+        "rom": "",
+        "core": "",
+        "close_on_quit": False,
         "command_host": "127.0.0.1",
         "command_port": 55355,
         "command_enabled": False,

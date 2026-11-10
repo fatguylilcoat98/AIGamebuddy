@@ -11,7 +11,7 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
 from .capture_safety import fit_frame
-from .frame_library import DESIGN, PLACEMENTS, frame_record, paste_head, punch_screen
+from .frame_library import DESIGN, PLACEMENTS, clear_painted_head, frame_record, paste_head, punch_screen
 from .hologram import render_hologram
 
 _FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
@@ -20,6 +20,8 @@ _FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 def _frame_art(frame_id: str) -> Image.Image:
     record = frame_record(frame_id)
     source = Image.open(Path(__file__).resolve().parents[1] / "assets" / "frames" / record["file"])
+    # The baked portrait is gone before the live sprite is drawn.
+    source = clear_painted_head(source, frame_id)
     return punch_screen(source, record["screen"])
 
 
@@ -59,11 +61,13 @@ def _caption(image: Image.Image, box: dict[str, int], text: str, band: int) -> N
     draw.text((x, y), text, font=font, fill=(232, 244, 255, 255))
 
 
-def layout_boxes(frame_id: str, monitor: tuple[int, int], *, game_running: bool) -> dict:
+def layout_boxes(frame_id: str, monitor: tuple[int, int], *, game_running: bool,
+                 reserve_button: bool = False) -> dict:
     origin_x, origin_y, frame_w, frame_h = fit_frame(monitor)
     buddy = _box(frame_id, "buddy", (origin_x, origin_y), (frame_w, frame_h))
     menu = _box(frame_id, "menu", (origin_x, origin_y), (frame_w, frame_h))
-    caption_h = 0 if game_running else max(18, int(buddy["height"] * 0.22))
+    fraction = 0.34 if reserve_button else 0.22
+    caption_h = 0 if game_running else max(18, int(buddy["height"] * fraction))
     head = {
         "x": buddy["x"],
         "y": buddy["y"],
@@ -79,8 +83,35 @@ def layout_boxes(frame_id: str, monitor: tuple[int, int], *, game_running: bool)
     }
 
 
-def static_frame(frame_id: str, monitor: tuple[int, int], *, game_running: bool) -> Image.Image:
+def band_slots(boxes: dict) -> dict[str, dict[str, int]]:
+    """Text and button rectangles inside Buddy's box, under the head."""
+    buddy = boxes["buddy"]
+    head = boxes["head"]
+    top = head["y"] + head["height"]
+    height = max(0, buddy["y"] + buddy["height"] - top)
+    text_h = min(height, max(12, int(height * 0.46))) if height else 0
+    return {
+        "text": {"x": buddy["x"], "y": top, "width": buddy["width"], "height": text_h},
+        "button": {
+            "x": buddy["x"] + 4,
+            "y": top + text_h,
+            "width": max(1, buddy["width"] - 8),
+            "height": max(1, height - text_h),
+        },
+    }
+
+
+def rects_overlap(a: tuple[int, int, int, int], b: tuple[int, int, int, int]) -> bool:
+    ax, ay, aw, ah = a
+    bx, by, bw, bh = b
+    return ax < bx + bw and ax + aw > bx and ay < by + bh and ay + ah > by
+
+
+def static_frame(frame_id: str, monitor: tuple[int, int], *, game_running: bool,
+                 notice: str = "") -> Image.Image:
     """Frame art only. The live head is drawn later, inside the buddy well."""
+    from .retroarch_finder import NOTICE_FAILED, NOTICE_MISSING
+    show_button = notice in {NOTICE_MISSING, NOTICE_FAILED}
     origin_x, origin_y, frame_w, frame_h = fit_frame(monitor)
     art = _frame_art(frame_id)
     if not game_running:
@@ -92,13 +123,17 @@ def static_frame(frame_id: str, monitor: tuple[int, int], *, game_running: bool)
     array[origin_y:origin_y + frame_h, origin_x:origin_x + frame_w] = np.array(art)
     canvas = Image.fromarray(array, "RGBA")
     # Cover the baked portrait so the live head and the prompt do not stack on it.
-    buddy = layout_boxes(frame_id, monitor, game_running=game_running)["buddy"]
+    boxes = layout_boxes(frame_id, monitor, game_running=game_running, reserve_button=show_button)
+    buddy = boxes["buddy"]
     cleared = Image.new("RGBA", (buddy["width"], buddy["height"]), (0, 0, 0, 255))
     canvas.paste(cleared, (buddy["x"], buddy["y"]))
     if not game_running:
-        boxes = layout_boxes(frame_id, monitor, game_running=False)
-        band = boxes["buddy"]["height"] - boxes["head"]["height"]
-        _caption(canvas, boxes["buddy"], "Load a game", band)
+        if show_button:
+            slot = band_slots(boxes)["text"]
+            _caption(canvas, slot, notice, slot["height"])
+        else:
+            band = boxes["buddy"]["height"] - boxes["head"]["height"]
+            _caption(canvas, boxes["buddy"], notice or "Load a game", band)
     return canvas
 
 

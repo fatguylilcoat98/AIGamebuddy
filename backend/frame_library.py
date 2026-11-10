@@ -109,6 +109,116 @@ def measure_screen(image: Image.Image, threshold: int = 14) -> dict[str, int]:
     return {"x": int(x), "y": int(y), "width": int(w), "height": int(bottom - y + 1)}
 
 
+# At 720p the bezel lip is 6px (9px at 1080p). The controller overlap is 8px
+# at 720p, which is 12px at 1080p.
+BEZEL_LIP = 6
+CONTROLLER_OVERLAP = 8
+
+
+def _well_pixel(rgb: np.ndarray) -> np.ndarray:
+    """Dark plate, hologram glow, or the white GB letters. Not the brick bezel."""
+    red = rgb[:, :, 0].astype(np.int16)
+    green = rgb[:, :, 1].astype(np.int16)
+    blue = rgb[:, :, 2].astype(np.int16)
+    peak = np.maximum(np.maximum(red, green), blue)
+    dark = peak <= 58
+    glow = (blue > 85) & (blue > red + 40) & (green > 25)
+    letters = (red > 185) & (green > 185) & (blue > 185)
+    return dark | glow | letters
+
+
+def buddy_well_rect(image: Image.Image, frame_id: str) -> dict[str, int]:
+    """Inner plate of Buddy's box, expanded until the bezel. The bezel stays."""
+    rgb = np.asarray(image.convert("RGB"))
+    well = _well_pixel(rgb)
+    box = PLACEMENTS[frame_id]["buddy"]
+    x0, y0 = int(box["x"]), int(box["y"])
+    x1, y1 = x0 + int(box["width"]), y0 + int(box["height"])
+    height, width = well.shape
+
+    def edge_ok(side: str, nx0: int, ny0: int, nx1: int, ny1: int) -> bool:
+        if side == "left":
+            strip = well[ny0:ny1, nx0]
+        elif side == "right":
+            strip = well[ny0:ny1, nx1 - 1]
+        elif side == "top":
+            strip = well[ny0, nx0:nx1]
+        else:
+            strip = well[ny1 - 1, nx0:nx1]
+        return bool(strip.size) and float(strip.mean()) > 0.72
+
+    for _ in range(48):
+        grew = False
+        if x0 > 1 and edge_ok("left", x0 - 1, y0, x1, y1):
+            x0 -= 1
+            grew = True
+        if x1 < width - 1 and edge_ok("right", x0, y0, x1 + 1, y1):
+            x1 += 1
+            grew = True
+        if y0 > 1 and edge_ok("top", x0, y0 - 1, x1, y1):
+            y0 -= 1
+            grew = True
+        if y1 < height - 1 and edge_ok("bottom", x0, y0, x1, y1 + 1):
+            y1 += 1
+            grew = True
+        if not grew:
+            break
+    return {"x": x0, "y": y0, "width": x1 - x0, "height": y1 - y0}
+
+
+def clear_painted_head(image: Image.Image, frame_id: str) -> Image.Image:
+    """Replace the baked hologram with the well's dark plate. The bezel stays."""
+    rgb = np.asarray(image.convert("RGB")).copy()
+    rect = buddy_well_rect(image, frame_id)
+    x, y, w, h = rect["x"], rect["y"], rect["width"], rect["height"]
+    sample = rgb[y:y + h, x:x + w]
+    dark = sample.max(axis=2) <= 40
+    if dark.any():
+        color = np.median(sample[dark], axis=0).astype(np.uint8)
+    else:
+        color = np.array([0, 0, 10], dtype=np.uint8)
+    rgb[y:y + h, x:x + w] = color
+    return Image.fromarray(rgb, "RGB")
+
+
+def hologram_blue_pixels(image: Image.Image, rect: dict[str, int]) -> int:
+    """Bright cyan pixels. The empty well should have none before the live sprite."""
+    array = np.asarray(image.convert("RGB"))
+    x, y, w, h = rect["x"], rect["y"], rect["width"], rect["height"]
+    region = array[y + 2:y + h - 2, x + 2:x + w - 2]
+    red = region[:, :, 0].astype(np.int16)
+    green = region[:, :, 1].astype(np.int16)
+    blue = region[:, :, 2].astype(np.int16)
+    glow = (blue > 90) & (blue > red + 40) & (green > 30)
+    return int(glow.sum())
+
+
+def controller_top(image: Image.Image, screen: dict[str, int]) -> int:
+    """Highest row of the footer controller inside the measured black window."""
+    array = np.asarray(image.convert("RGB"))
+    x, y, w, h = screen["x"], screen["y"], screen["width"], screen["height"]
+    left, right = x + w // 3, x + (2 * w) // 3
+    found = None
+    for row in range(y + h - 1, y + h // 2, -1):
+        if int(array[row, left:right].max()) > 40:
+            found = row
+        elif found is not None:
+            break
+    return found if found is not None else y + h - 1
+
+
+def enlarge_screen(image: Image.Image, raw: dict[str, int] | None = None) -> dict[str, int]:
+    """Grow the game window under the bezel, and keep only a smidge of controller overlap."""
+    raw = raw or measure_screen(image)
+    width, height = image.size
+    top = controller_top(image, raw)
+    x = max(0, raw["x"] - BEZEL_LIP)
+    y = max(0, raw["y"] - BEZEL_LIP)
+    right = min(width, raw["x"] + raw["width"] + BEZEL_LIP)
+    bottom = min(height, top + CONTROLLER_OVERLAP)
+    return {"x": x, "y": y, "width": right - x, "height": max(1, bottom - y)}
+
+
 def scale_rect(rect: dict[str, int], target: tuple[int, int]) -> dict[str, int]:
     sx = target[0] / DESIGN["width"]
     sy = target[1] / DESIGN["height"]
@@ -159,7 +269,7 @@ def build_metadata() -> dict:
     frames = {}
     for frame_id, filename in FRAME_FILES.items():
         path = FRAME_DIR / filename
-        screen = measure_screen(Image.open(path))
+        screen = enlarge_screen(Image.open(path))
         placement = PLACEMENTS[frame_id]
         viewports = {name: scale_rect(screen, size) for name, size in OUTPUTS.items()}
         frames[frame_id] = {
@@ -241,7 +351,7 @@ def write_outputs() -> list[Path]:
     METADATA_PATH.write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
     written = [METADATA_PATH]
     for frame_id, record in metadata["frames"].items():
-        source = Image.open(FRAME_DIR / record["file"])
+        source = clear_painted_head(Image.open(FRAME_DIR / record["file"]), frame_id)
         png_name = Path(record["file"]).stem + ".png"
         png_path = OVERLAY_DIR / png_name
         punch_screen(source, record["screen"]).save(png_path)
@@ -292,7 +402,7 @@ def write_runtime_retroarch_cfg(frame_id: str, size: tuple[int, int], directory:
     viewport = scale_rect(record["screen"], size)
     png = (OVERLAY_DIR / (Path(record["file"]).stem + ".png")).resolve()
     if not png.exists():
-        source = Image.open(FRAME_DIR / record["file"])
+        source = clear_painted_head(Image.open(FRAME_DIR / record["file"]), frame_id)
         OVERLAY_DIR.mkdir(parents=True, exist_ok=True)
         punch_screen(source, record["screen"]).save(png)
     overlay_path = directory / f"{frame_id}-overlay.cfg"

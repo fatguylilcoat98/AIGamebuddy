@@ -5,10 +5,17 @@ from PIL import Image
 
 from backend.frame_library import (
     ASPECT_RATIO_CUSTOM,
+    BEZEL_LIP,
+    CONTROLLER_OVERLAP,
     FRAME_DIR,
     FRAME_FILES,
     SYSTEM_ALIASES,
+    buddy_well_rect,
+    clear_painted_head,
+    controller_top,
+    enlarge_screen,
     frame_for_system,
+    hologram_blue_pixels,
     load_metadata,
     measure_screen,
     punch_screen,
@@ -43,16 +50,23 @@ def test_measured_screen_matches_metadata_and_keeps_the_controller():
     for frame_id, filename in FRAME_FILES.items():
         image = Image.open(FRAME_DIR / filename)
         measured = measure_screen(image)
+        grown = enlarge_screen(image, measured)
         stored = metadata["frames"][frame_id]["screen"]
-        assert measured == stored
+        assert stored == grown
+        assert stored["x"] == max(0, measured["x"] - BEZEL_LIP)
+        top = controller_top(image, measured)
+        assert stored["y"] + stored["height"] == min(image.size[1], top + CONTROLLER_OVERLAP)
         assert stored["width"] > 400 and stored["height"] > 300
         punched = punch_screen(image, stored)
         center = punched.getpixel((stored["x"] + stored["width"] // 2, stored["y"] + stored["height"] // 2))
         assert center[3] == 0
-        # The footer controller overlaps the window, so some pixels there stay opaque.
-        overlap = punched.getpixel((stored["x"] + stored["width"] // 2, stored["y"] + stored["height"] - 6))
-        assert overlap[3] == 255
-        assert max(overlap[:3]) > 18
+        # The footer controller overlaps the window, so that band stays partly opaque.
+        import numpy as np
+        x, y, w, h = stored["x"], stored["y"], stored["width"], stored["height"]
+        band = np.array(punched.crop((x, y + h - CONTROLLER_OVERLAP, x + w, y + h)))
+        opaque = band[:, :, 3] == 255
+        assert int(opaque.sum()) > 20
+        assert int(band[opaque][:, :3].max()) > 18
         buddy = metadata["frames"][frame_id]["buddy"]
         menu = metadata["frames"][frame_id]["menu"]
         assert buddy["y"] + buddy["height"] <= menu["y"] + 8
@@ -95,3 +109,12 @@ def test_runtime_cfg_is_absolute_and_matches_the_window(tmp_path):
     png_path = Path(png_line.split("=", 1)[1].strip().strip('"'))
     assert png_path.is_absolute()
     assert png_path.exists()
+
+
+def test_painted_head_clears_without_eating_the_corner():
+    for frame_id, filename in FRAME_FILES.items():
+        image = Image.open(FRAME_DIR / filename)
+        cleared = clear_painted_head(image, frame_id)
+        well = buddy_well_rect(image, frame_id)
+        assert hologram_blue_pixels(cleared, well) == 0
+        assert cleared.getpixel((2, 2)) == image.convert("RGB").getpixel((2, 2))

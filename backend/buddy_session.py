@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import random
 import threading
 import time
@@ -32,7 +33,7 @@ from .providers import chat
 from .results import ActionResult, ModelResult
 from .takeover import InputSink, RetroArchCommandClient, evaluate_gate
 from .capture_safety import OVERLAY_SIZE, SafetySwitch
-from .window_layout import list_toplevel_windows, position_hwnd, select_emulator_hwnd
+from .window_layout import list_window_details, position_hwnd, strip_window_decorations, window_rect
 
 log = logging.getLogger("buddy.session")
 
@@ -129,6 +130,17 @@ class BuddySession:
         self.safety = SafetySwitch()
         self._last_capture = 0.0
         self._placed: tuple | None = None
+        self.retroarch_notice = ""
+        self.retroarch_pid: int | None = None
+        self.retroarch_started_by_buddy = False
+        self._retro_launch_started = False
+        self.game_hole: tuple[int, int, int, int] | None = None
+        self.retroarch_finder = None
+        self.window_source = None
+        self.rect_source = None
+        self.window_positioner = None
+        self.process_stopper = None
+        self._borderless: set[int] = set()
         self._load_ui()
 
     def _initial_personality(self) -> str:
@@ -214,6 +226,7 @@ class BuddySession:
         if self._ears is not None:
             self._ears.cancel()
         self.audio.stop()
+        self._release_retroarch()
         self._save_ui()
 
     def hud(self) -> dict:
@@ -490,25 +503,162 @@ class BuddySession:
                             reason="memory_clear", data=counts)
 
     def _launch_retroarch(self, extra: list[str], system: str = "", exe: str = "") -> ActionResult:
-        from .frame_library import detect_display_size, frame_for_system, write_runtime_retroarch_cfg
-        program = exe or str(self.config.get("retroarch", "path") or "")
+        from .frame_library import frame_for_system
+        from .retroarch_finder import split_launch_extra
+        rom, core = split_launch_extra(extra)
+        if exe:
+            retro = self.config.data.setdefault("retroarch", {})
+            if isinstance(retro, dict):
+                retro["path"] = exe
         frame = frame_for_system(system) or frame_for_system(self.theme) or "genesis"
+        if frame_for_system(system):
+            self.theme = frame
+            self.theme_mode = frame
+        hole = self.game_hole or self._fallback_hole(frame)
+        return self.launch_into_hole(hole, force=True, rom=rom, core=core, adopt=not bool(rom))
+
+    def _fallback_hole(self, frame: str) -> tuple[int, int, int, int]:
+        from .display_info import hole_screen_rect
+        from .frame_library import detect_display_size, frame_record
         size = detect_display_size()
         if size is None:
             mode = str(self.config.get("display", "mode") or "720p")
             size = (1920, 1080) if mode == "1080p" else (1280, 720)
-        cfg = write_runtime_retroarch_cfg(frame, size, self.data_dir / "retroarch")
-        launched = launch_process(program, ["--appendconfig", str(cfg.resolve()), *extra], runner=self.process_runner)
-        if launched.ok:
-            launched.message = (
-                f"{launched.message} Auto-lock config {cfg.name} matches a {size[0]}x{size[1]} "
-                "windowed fullscreen and uses an absolute overlay path. "
-                "Exclusive fullscreen is off. The overlay also moves the game window into the frame hole."
+        return hole_screen_rect(frame_record(frame)["screen"], (0, 0, size[0], size[1]))
+
+    def _emulator_hwnd(self) -> int | None:
+        from .retroarch_finder import select_game_hwnd
+        windows = self.window_source() if self.window_source else list_window_details()
+        return select_game_hwnd(windows, self.overlay_hwnds)
+
+    def _window_rect(self, hwnd: int):
+        if self.rect_source:
+            return self.rect_source(hwnd)
+        return window_rect(hwnd)
+
+    def _find_retroarch_path(self) -> str:
+        if self.retroarch_finder is not None:
+            return str(self.retroarch_finder() or "")
+        from .retroarch_finder import locate_and_remember
+        return locate_and_remember(self.config)
+
+    def launch_into_hole(self, hole: tuple[int, int, int, int], *, force: bool = False,
+                         rom: str = "", core: str = "", adopt: bool = True) -> ActionResult:
+        """Find RetroArch, start it in the hole, or adopt the window that is already open."""
+        from .retroarch_finder import (
+            NOTICE_FAILED,
+            NOTICE_MISSING,
+            append_arguments,
+            content_args,
+            wait_for_hwnd,
+            write_hole_config,
+        )
+        retro_log = logging.getLogger("buddy.retroarch")
+        rect = tuple(int(v) for v in hole)
+        self.game_hole = rect
+        retro_log.info("Screen hole rect: x=%s y=%s w=%s h=%s", *rect)
+        if adopt and not rom:
+            existing = self._emulator_hwnd()
+            if existing:
+                self._retro_launch_started = True
+                self.retroarch_started_by_buddy = False
+                self.retroarch_notice = ""
+                retro_log.info("RetroArch is already open. Adopting hwnd=%s.", existing)
+                return self._place_hole(existing, rect)
+        path = self._find_retroarch_path()
+        if not path:
+            self.retroarch_notice = NOTICE_MISSING
+            return ActionResult(
+                False,
+                "I did not launch RetroArch. It was not found. Use Find RetroArch in Buddy's box.",
+                reason="retroarch_missing",
             )
-            if frame_for_system(system):
-                self.theme = frame
-                self.theme_mode = frame
-        return launched
+        self.retroarch_notice = ""
+        if self._retro_launch_started and not force:
+            existing = self._emulator_hwnd()
+            if existing:
+                return self._place_hole(existing, rect)
+            return ActionResult(True, "RetroArch launch already started.", reason="already_started")
+        rom, core = content_args(
+            rom or str(self.config.get("retroarch", "rom") or ""),
+            core or str(self.config.get("retroarch", "core") or ""),
+            os.path.isfile,
+        )
+        cfg = write_hole_config(self.data_dir / "retroarch", rect)
+        args = append_arguments(cfg, rom, core)
+        retro_log.info("Launching RetroArch: %s %s", path, args)
+        self._retro_launch_started = True
+        launched = launch_process(path, args, runner=self.process_runner)
+        if not launched.ok:
+            self._retro_launch_started = False
+            self.retroarch_notice = NOTICE_FAILED
+            retro_log.info("RetroArch launch failed: %s", launched.message)
+            return launched
+        self.retroarch_pid = int(launched.data.get("pid") or 0) or None
+        self.retroarch_started_by_buddy = True
+        retro_log.info("RetroArch pid=%s", self.retroarch_pid)
+        hwnd = wait_for_hwnd(self._emulator_hwnd, timeout=15)
+        if not hwnd:
+            retro_log.info("RetroArch hwnd was not found within 15s. Placement will keep checking.")
+            return ActionResult(
+                False,
+                "RetroArch started, but its window did not appear yet.",
+                reason="hwnd_timeout",
+                data=launched.data,
+            )
+        retro_log.info("RetroArch hwnd=%s", hwnd)
+        placed = self._place_hole(hwnd, rect)
+        if placed.ok:
+            placed.message = f"Started RetroArch in the screen hole. {placed.message}"
+            placed.data = {**(placed.data or {}), **(launched.data or {})}
+        return placed
+
+    def _place_hole(self, hwnd: int, rect: tuple[int, int, int, int]) -> ActionResult:
+        from .retroarch_finder import needs_replace
+        retro_log = logging.getLogger("buddy.retroarch")
+        current = self._window_rect(hwnd)
+        retro_log.info("RetroArch hwnd=%s current=%s target=%s", hwnd, current, rect)
+        if not needs_replace(current, rect):
+            self._placed = (hwnd, rect)
+            return ActionResult(True, "RetroArch is already in the hole.", reason="stable",
+                                data={"hwnd": hwnd, "rect": list(rect)})
+        if hwnd not in self._borderless:
+            self._borderless.add(hwnd)
+            retro_log.info("Removing window decorations hwnd=%s result=%s", hwnd, strip_window_decorations(hwnd))
+        mover = self.window_positioner or position_hwnd
+        result = mover(hwnd, rect, self.overlay_hwnds)
+        retro_log.info("SetWindowPos hwnd=%s rect=%s ok=%s reason=%s", hwnd, rect, result.ok, result.reason)
+        if result.ok:
+            self._placed = (hwnd, rect)
+        self._layout_note = result.message
+        return result
+
+    def _release_retroarch(self) -> None:
+        from .retroarch_finder import should_close_on_quit
+        retro_log = logging.getLogger("buddy.retroarch")
+        close_it = should_close_on_quit(
+            launched_by_buddy=self.retroarch_started_by_buddy,
+            close_on_quit=bool(self.config.get("retroarch", "close_on_quit")),
+        )
+        if not close_it:
+            retro_log.info("Leaving RetroArch alone (pid=%s).", self.retroarch_pid or "none")
+            return
+        retro_log.info("Closing RetroArch pid=%s because close_on_quit is on.", self.retroarch_pid)
+        if self.process_stopper is not None:
+            self.process_stopper(self.retroarch_pid)
+            return
+        if not self.retroarch_pid:
+            return
+        if os.name != "nt":
+            return
+        try:
+            import subprocess
+            subprocess.Popen(
+                ["taskkill", "/PID", str(self.retroarch_pid), "/T"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+        except OSError as exc:
+            retro_log.info("Could not close RetroArch: %s", exc)
 
     def load_game(self, query: str) -> ActionResult:
         found = search_games(list(self.config.get("libraries") or []), query)
@@ -580,7 +730,8 @@ class BuddySession:
             self.overlay_hwnds.add(int(hwnd))
 
     def maintain_layout(self, overlay_origin: tuple[int, int], overlay_size: tuple[int, int],
-                        now: float | None = None, monitor: tuple[int, int] | None = None) -> ActionResult:
+                        now: float | None = None, monitor: tuple[int, int] | None = None,
+                        hole: tuple[int, int, int, int] | None = None) -> ActionResult:
         if self.closed or not self.safety.move_enabled:
             reason = self.safety.reason or "closed"
             return ActionResult(False, f"I am not moving windows. {reason}", reason="safety_stop")
@@ -596,13 +747,18 @@ class BuddySession:
             )
         if self.layout != "full" or not self.manage_window:
             return ActionResult(False, "I am not managing the emulator window in this layout.", reason="layout_idle")
-        from .frame_library import scaled_screen
-        frame = self.theme if self.theme in {"nes", "snes", "genesis"} else "genesis"
-        hole = scaled_screen(frame, size)
-        if hole is None:
-            return ActionResult(False, "This frame has no screen rectangle, so I did not move the game.",
-                                reason="no_screen")
-        hwnd = select_emulator_hwnd(list_toplevel_windows(), self.overlay_hwnds)
+        if hole is not None:
+            rect = tuple(int(v) for v in hole)
+        else:
+            from .frame_library import scaled_screen
+            frame = self.theme if self.theme in {"nes", "snes", "genesis"} else "genesis"
+            local = scaled_screen(frame, size)
+            if local is None:
+                return ActionResult(False, "This frame has no screen rectangle, so I did not move the game.",
+                                    reason="no_screen")
+            rect = (overlay_origin[0] + local[0], overlay_origin[1] + local[1], local[2], local[3])
+        self.game_hole = rect
+        hwnd = self._emulator_hwnd()
         if hwnd is None:
             self._placed = None
             return ActionResult(
@@ -610,14 +766,7 @@ class BuddySession:
                 "No RetroArch or EmulationStation window, so I did not move anything.",
                 reason="no_game",
             )
-        rect = (overlay_origin[0] + hole[0], overlay_origin[1] + hole[1], hole[2], hole[3])
-        if self._placed == (hwnd, rect):
-            return ActionResult(True, "The game window is already in the hole.", reason="stable")
-        result = position_hwnd(hwnd, rect, self.overlay_hwnds)
-        if result.ok:
-            self._placed = (hwnd, rect)
-        self._layout_note = result.message
-        return result
+        return self._place_hole(hwnd, rect)
 
     def observe_once(self) -> ActionResult:
         if self.closed or not self.safety.capture_enabled:

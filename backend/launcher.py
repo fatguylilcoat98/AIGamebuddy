@@ -15,17 +15,8 @@ _CONSOLE_STOP = {0, 1, 2, 5, 6}
 
 
 def _dpi() -> None:
-    if os.name != "nt":
-        return
-    try:
-        import ctypes
-        ctypes.windll.shcore.SetProcessDpiAwareness(2)
-    except Exception:
-        try:
-            import ctypes
-            ctypes.windll.user32.SetProcessDPIAware()
-        except Exception:
-            logging.getLogger("buddy.launcher").warning("Could not set Windows DPI awareness.")
+    from .display_info import enable_per_monitor_dpi
+    enable_per_monitor_dpi()
 
 
 def _serve(port: int) -> None:

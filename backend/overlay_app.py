@@ -15,11 +15,13 @@ from pathlib import Path
 from PIL import Image
 
 from . import app_state
-from .capture_safety import OVERLAY_SIZE, fit_frame
-from .frame_library import paste_head
+from .capture_safety import OVERLAY_SIZE
+from .display_info import describe_startup, hole_screen_rect, monitor_rect
+from .frame_library import frame_record, paste_head
 from .hotkeys import QUIT_SEQUENCES, start_windows_hotkeys, tk_quit_event
-from .overlay_view import layout_boxes, static_frame
-from .window_layout import exclude_window_from_capture, list_toplevel_windows, select_emulator_hwnd
+from .overlay_view import band_slots, layout_boxes, static_frame
+from .retroarch_finder import FIND_LABEL, NOTICE_FAILED, NOTICE_LOOKING, NOTICE_MISSING, save_retroarch_path
+from .window_layout import exclude_window_from_capture
 
 
 def run_menu_action(mutate, refresh, announce=None) -> None:
@@ -70,7 +72,9 @@ def run_overlay(session) -> None:
 
     holder = {
         "photo": None, "head_photo": None, "fullscreen": True,
-        "monitor": screen, "target": screen, "game": False, "shown": None,
+        "monitor": screen, "monitor_info": {"left": 0, "top": 0, "width": screen[0], "height": screen[1],
+                                            "right": screen[0], "bottom": screen[1], "dpi": None},
+        "target": screen, "game": False, "shown": None, "logged_monitor": False,
     }
     background = tk.Label(root, bd=0, bg="black")
     background.place(x=0, y=0, relwidth=1, relheight=1)
@@ -163,15 +167,61 @@ def run_overlay(session) -> None:
     def _frame_id():
         return session.theme if session.theme in {"nes", "snes", "genesis"} else "genesis"
 
-    def _apply_geometry():
+    def _read_monitor() -> dict:
+        info = monitor_rect(int(root.winfo_id() or 0))
+        if not info or info["width"] < 640 or info["height"] < 480:
+            width, height = root.winfo_screenwidth(), root.winfo_screenheight()
+            if width < 640 or height < 480:
+                width, height = screen
+            return {
+                "left": 0, "top": 0, "right": width, "bottom": height,
+                "width": width, "height": height, "dpi": None,
+            }
+        return info
+
+    def _screen_hole() -> tuple[int, int, int, int]:
+        record = frame_record(_frame_id())
         if holder["fullscreen"]:
-            width, height = holder["monitor"]
-            root.geometry(f"{width}x{height}+0+0")
-            holder["target"] = (width, height)
+            info = holder["monitor_info"]
+            return hole_screen_rect(record["screen"], (info["left"], info["top"], info["width"], info["height"]))
+        return hole_screen_rect(record["screen"], (root.winfo_x(), root.winfo_y(), holder["target"][0], holder["target"][1]))
+
+    def _client_hole() -> tuple[int, int, int, int]:
+        record = frame_record(_frame_id())
+        return hole_screen_rect(record["screen"], (0, 0, holder["target"][0], holder["target"][1]))
+
+    def _apply_geometry():
+        info = _read_monitor()
+        holder["monitor_info"] = info
+        holder["monitor"] = (info["width"], info["height"])
+        if holder["fullscreen"]:
+            root.geometry(f"{info['width']}x{info['height']}+{info['left']}+{info['top']}")
+            holder["target"] = (info["width"], info["height"])
         else:
-            root.geometry(f"{OVERLAY_SIZE[0]}x{OVERLAY_SIZE[1]}+40+40")
+            root.geometry(
+                f"{OVERLAY_SIZE[0]}x{OVERLAY_SIZE[1]}+{info['left'] + 40}+{info['top'] + 40}"
+            )
             holder["target"] = OVERLAY_SIZE
         session._placed = None
+        session._borderless.clear()
+
+    def _log_monitor():
+        if holder["logged_monitor"]:
+            return
+        info = holder["monitor_info"]
+        width, height = root.winfo_width(), root.winfo_height()
+        if width < 640 or height < 480:
+            return
+        holder["logged_monitor"] = True
+        actual = {
+            "left": root.winfo_x(), "top": root.winfo_y(),
+            "width": width, "height": height,
+            "right": root.winfo_x() + width, "bottom": root.winfo_y() + height,
+        }
+        logging.getLogger("buddy.display").info("%s", describe_startup("fullscreen", actual, info))
+        logging.getLogger("buddy.retroarch").info(
+            "Hole client=%s screen=%s", _client_hole(), _screen_hole(),
+        )
 
     def _toggle_fullscreen():
         holder["fullscreen"] = not holder["fullscreen"]
@@ -179,16 +229,31 @@ def run_overlay(session) -> None:
         _rebuild_static()
         _refresh_labels()
 
+    find_btn = tk.Button(root, text=FIND_LABEL, command=lambda: _browse_retroarch(), **button_style)
+
+    def _show_find() -> bool:
+        return session.retroarch_notice in {NOTICE_MISSING, NOTICE_FAILED} and not holder["game"]
+
     def place_chrome():
-        boxes = layout_boxes(_frame_id(), holder["target"], game_running=holder["game"])
+        boxes = layout_boxes(
+            _frame_id(), holder["target"], game_running=holder["game"], reserve_button=_show_find(),
+        )
         menu_box = boxes["menu"]
         head_box = boxes["head"]
         menu.place(x=menu_box["x"], y=menu_box["y"], width=menu_box["width"], height=menu_box["height"])
         head_label.place(x=head_box["x"], y=head_box["y"], width=head_box["width"], height=head_box["height"])
+        if _show_find():
+            button = band_slots(boxes)["button"]
+            find_btn.place(x=button["x"], y=button["y"], width=button["width"], height=button["height"])
+            find_btn.lift()
+        else:
+            find_btn.place_forget()
         menu.lift()
 
     def _rebuild_static():
-        image = static_frame(_frame_id(), holder["target"], game_running=holder["game"])
+        image = static_frame(
+            _frame_id(), holder["target"], game_running=holder["game"], notice=session.retroarch_notice,
+        )
         if os.name == "nt" and holder["game"]:
             image = chroma_key(image)
         holder["photo"] = ImageTk.PhotoImage(image)
@@ -196,8 +261,35 @@ def run_overlay(session) -> None:
         place_chrome()
         _cut_hole()
 
+    def _browse_retroarch():
+        logging.getLogger("buddy.overlay").info("Click: Find RetroArch")
+        from tkinter import filedialog
+        chosen = filedialog.askopenfilename(
+            title=FIND_LABEL,
+            filetypes=[("RetroArch", "retroarch.exe"), ("Programs", "*.exe")],
+        )
+        if not chosen:
+            logging.getLogger("buddy.retroarch").info("Find RetroArch was cancelled.")
+            return
+        save_retroarch_path(session.config, chosen)
+        logging.getLogger("buddy.retroarch").info("RetroArch path chosen in Buddy's box: %s", chosen)
+        session.retroarch_notice = NOTICE_LOOKING
+
+        def work():
+            try:
+                session.launch_into_hole(_screen_hole(), force=True)
+            except Exception:
+                logging.getLogger("buddy.retroarch").exception("Find RetroArch launch failed")
+                session.retroarch_notice = NOTICE_FAILED
+            root.after(0, _rebuild_static)
+
+        _rebuild_static()
+        threading.Thread(target=work, daemon=True).start()
+
     def _paint_head():
-        boxes = layout_boxes(_frame_id(), holder["target"], game_running=holder["game"])
+        boxes = layout_boxes(
+            _frame_id(), holder["target"], game_running=holder["game"], reserve_button=_show_find(),
+        )
         head_box = boxes["head"]
         hud = session.hud()
         expression = hud["expression"]
@@ -228,14 +320,8 @@ def run_overlay(session) -> None:
         if os.name != "nt" or not holder["game"] or session.layout != "full":
             return
         root.update_idletasks()
-        from .frame_library import scaled_screen
-        origin_x, origin_y, frame_w, frame_h = fit_frame(holder["target"])
-        hole = scaled_screen(_frame_id(), (frame_w, frame_h))
-        if hole:
-            apply_hole_region(
-                root.winfo_id(), holder["target"][0], holder["target"][1],
-                (origin_x + hole[0], origin_y + hole[1], hole[2], hole[3]),
-            )
+        hole = _client_hole()
+        apply_hole_region(root.winfo_id(), holder["target"][0], holder["target"][1], hole)
 
     def maintain():
         if session.closed:
@@ -250,14 +336,32 @@ def run_overlay(session) -> None:
                 holder["snapped"] = current
                 _apply_geometry()
                 _rebuild_static()
-        present = select_emulator_hwnd(list_toplevel_windows(), session.overlay_hwnds) is not None
+        hole = _screen_hole()
+        session.game_hole = hole
+        present = session._emulator_hwnd() is not None
         if present != holder["game"]:
             holder["game"] = present
             session._placed = None
             _rebuild_static()
         if holder["game"] and session.layout == "full" and session.safety.move_enabled:
-            session.maintain_layout((root.winfo_x(), root.winfo_y()), target, monitor=target)
+            session.maintain_layout((root.winfo_x(), root.winfo_y()), target, monitor=target, hole=hole)
+        elif not present and session.retroarch_notice in {NOTICE_MISSING, NOTICE_FAILED}:
+            place_chrome()
         root.after(2000, maintain)
+
+    def _boot_retroarch():
+        session.retroarch_notice = NOTICE_LOOKING
+        _rebuild_static()
+
+        def work():
+            try:
+                session.launch_into_hole(_screen_hole())
+            except Exception:
+                logging.getLogger("buddy.retroarch").exception("RetroArch launch failed")
+                session.retroarch_notice = NOTICE_FAILED
+            root.after(0, _rebuild_static)
+
+        threading.Thread(target=work, name="buddy-retroarch", daemon=True).start()
 
     def talk_down(_event=None):
         session.start_talking()
@@ -341,9 +445,14 @@ def run_overlay(session) -> None:
     logging.getLogger("buddy.overlay").info("Capture affinity for the overlay: %s", affinity)
     _refresh_labels()
     _apply_geometry()
+    root.update_idletasks()
+    _apply_geometry()
+    root.update_idletasks()
+    _log_monitor()
     _rebuild_static()
     _focus(0)
     root.after(70, animate)
+    root.after(400, _boot_retroarch)
     root.after(1500, maintain)
     root.mainloop()
 

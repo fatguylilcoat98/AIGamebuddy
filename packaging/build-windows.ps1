@@ -139,11 +139,17 @@ $checksums | ConvertTo-Json | Set-Content (Join-Path $payload "bundled\checksums
 
 $iscc = Get-Command ISCC.exe -ErrorAction SilentlyContinue
 if (-not $iscc) {
-    $candidate = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
-    if (Test-Path $candidate) { $iscc = $candidate }
+    foreach ($candidate in @(
+        "C:\Program Files\Inno Setup 7\ISCC.exe",
+        "C:\Program Files (x86)\Inno Setup 7\ISCC.exe",
+        "C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
+        "C:\Program Files\Inno Setup 6\ISCC.exe"
+    )) {
+        if (Test-Path $candidate) { $iscc = $candidate; break }
+    }
 }
 if (-not $iscc) {
-    Write-Host "Inno Setup 6 is not installed. Payload is in dist\payload. Install Inno Setup and run this again to make Buddy-Setup.exe."
+    Write-Host "Inno Setup is not installed. Payload is in dist\payload. Install Inno Setup and run this again to make BuddySetup.exe."
     exit 1
 }
 $isccExe = if ($iscc -is [string]) { $iscc } else { $iscc.Source }

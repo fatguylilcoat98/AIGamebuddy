@@ -56,6 +56,10 @@ hiddenimports = [
     "hf_xet",
     "numpy",
     "mss",
+    "miniaudio",
+    "_miniaudio",
+    "edge_tts",
+    "edge_playback",
 ]
 
 
@@ -85,8 +89,19 @@ for package in (
     "onnxruntime",
     "huggingface_hub",
     "hf_xet",
+    "edge_tts",
+    "edge_playback",
 ):
     _collect(package)
+
+# miniaudio is a module plus a sibling extension, not a package.
+try:
+    import miniaudio
+except Exception as exc:
+    raise SystemExit(f"miniaudio is required to bundle Buddy: {exc}") from exc
+for lib in Path(miniaudio.__file__).resolve().parent.glob("_miniaudio*"):
+    if lib.suffix.lower() in {".pyd", ".dll", ".so"}:
+        binaries.append((str(lib), "."))
 
 _collect("ctranslate2", filter_name=_skip_torch_converters)
 

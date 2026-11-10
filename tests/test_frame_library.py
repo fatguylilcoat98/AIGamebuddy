@@ -50,7 +50,11 @@ def test_measured_screen_matches_metadata_and_keeps_the_controller():
         grown = enlarge_screen(image, frame_id, measured)
         stored = metadata["frames"][frame_id]["screen"]
         assert stored == grown
-        assert stored["width"] > measured["width"]
+        if frame_id == "snes":
+            # Chris's painting: the game window is the opening itself, not a grown bezel.
+            assert stored["width"] >= measured["width"] - 8
+        else:
+            assert stored["width"] > measured["width"]
         assert stored["width"] > 400 and stored["height"] > 300
         punched = punch_screen(image, stored, frame_id=frame_id)
         center = punched.getpixel((stored["x"] + stored["width"] // 2, stored["y"] + stored["height"] // 2))
@@ -64,14 +68,23 @@ def test_measured_screen_matches_metadata_and_keeps_the_controller():
         # The pad may cover the bottom edge. Scenery above that stays a thin overhang.
         above = alpha[:int(h * 0.82), :]
         opaque = int((above > 200).sum())
-        assert 0 < opaque < int(above.size * 0.22)
+        if frame_id == "snes":
+            assert opaque < int(above.size * 0.05)
+        else:
+            assert 0 < opaque < int(above.size * 0.22)
         buddy = metadata["frames"][frame_id]["buddy"]
         menu = metadata["frames"][frame_id]["menu"]
-        # The menu is a panel above the portrait, in Buddy's column, not under it.
-        assert menu["x"] >= buddy["x"] - 2
-        assert menu["x"] + menu["width"] <= buddy["x"] + buddy["width"] + 4
-        assert menu["y"] + menu["height"] <= buddy["y"] + 8
-        assert menu["height"] >= 160
+        if frame_id == "snes":
+            # The hamburger is the menu. It sits in the top-left, off the opening and off Buddy.
+            assert menu["x"] < 80 and menu["y"] < 80
+            assert menu["width"] >= 160 and menu["height"] >= 100
+            assert menu["y"] + menu["height"] < stored["y"]
+        else:
+            # The menu is a panel above the portrait, in Buddy's column, not under it.
+            assert menu["x"] >= buddy["x"] - 2
+            assert menu["x"] + menu["width"] <= buddy["x"] + buddy["width"] + 4
+            assert menu["y"] + menu["height"] <= buddy["y"] + 8
+            assert menu["height"] >= 160
         below = buddy["y"] + buddy["height"] + 20
         if below + 12 < image.size[1]:
             import numpy as np

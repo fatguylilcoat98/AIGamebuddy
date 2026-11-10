@@ -1,6 +1,7 @@
 """Pinned install pieces and which cores Buddy is allowed to ship.
 
-Non-commercial cores are listed so they can be seen, and they are not installed.
+The setup offers Super NES only: Snes9x and the SNES frame. NES and Genesis
+stay in this list so the rest of Buddy can still name them. They are not installed.
 """
 from __future__ import annotations
 
@@ -54,23 +55,23 @@ class CoreSpec:
 CORES = (
     CoreSpec(
         "nes", "FCEUmm", "fceumm_libretro.dll", "GPL-2.0-only", True, True,
-        "Default NES core. GPL software can be shipped only if the GPL terms are kept.",
+        "NES core. Left in the catalog. Not installed while Buddy is Super NES only.",
     ),
     CoreSpec(
         "nes", "Mesen", "mesen_libretro.dll", "GPL-3.0-or-later", True, False,
-        "Optional NES core. Not installed by default. Same GPL duty as FCEUmm.",
+        "Optional NES core. Not installed.",
     ),
     CoreSpec(
-        "snes", "bsnes", "bsnes_libretro.dll", "GPL-3.0-or-later", True, True,
-        "Default Super NES core.",
+        "snes", "Snes9x", "snes9x_libretro.dll", "Non-commercial", True, True,
+        "Super NES core Chris asked for. Personal use. Not for sale until the rights are cleared.",
     ),
     CoreSpec(
-        "snes", "Snes9x", "snes9x_libretro.dll", "Non-commercial", False, False,
-        "Personal use only. Not installed. Chris has to decide before a sale.",
+        "snes", "bsnes", "bsnes_libretro.dll", "GPL-3.0-or-later", True, False,
+        "GPL Super NES core. Left in the catalog. Not installed while Snes9x is the one Buddy sets up.",
     ),
     CoreSpec(
         "genesis", "BlastEm", "blastem_libretro.dll", "GPL-3.0-or-later", True, True,
-        "Default Genesis core.",
+        "Genesis core. Left in the catalog. Not installed while Buddy is Super NES only.",
     ),
     CoreSpec(
         "genesis", "PicoDrive", "picodrive_libretro.dll", "Non-commercial", False, False,
@@ -84,7 +85,12 @@ CORES = (
 
 SYSTEM_FOLDERS = {"nes": "NES", "snes": "SNES", "genesis": "Genesis"}
 SYSTEM_LABELS = {"nes": "NES", "snes": "Super NES", "genesis": "Genesis"}
+# What the wizard offers right now. The other systems stay in the code.
+OFFERED_SYSTEMS = ("snes",)
 FRAME_CHOICES = (
+    ("snes", "SNES sky kingdom"),
+)
+ALL_FRAME_CHOICES = (
     ("genesis", "Genesis 16-bit"),
     ("nes", "NES 8-bit dungeon"),
     ("snes", "SNES sky kingdom"),
@@ -92,11 +98,24 @@ FRAME_CHOICES = (
 
 
 def default_cores() -> tuple[CoreSpec, ...]:
-    return tuple(core for core in CORES if core.default and core.commercial_ok)
+    return tuple(
+        core for core in CORES
+        if core.default and core.commercial_ok and core.system in OFFERED_SYSTEMS
+    )
 
 
 def blocked_cores() -> tuple[CoreSpec, ...]:
     return tuple(core for core in CORES if not core.commercial_ok)
+
+
+def cores_not_installed() -> tuple[CoreSpec, ...]:
+    """Cores the wizard does not copy in. Includes NES, Genesis, and blocked licenses."""
+    shipped = {core.filename for core in default_cores()}
+    return tuple(core for core in CORES if core.filename not in shipped)
+
+
+def offered_folders() -> dict[str, str]:
+    return {key: value for key, value in SYSTEM_FOLDERS.items() if key in OFFERED_SYSTEMS}
 
 
 def default_core_filename(system: str) -> str:

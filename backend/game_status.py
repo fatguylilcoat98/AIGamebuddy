@@ -7,6 +7,7 @@ The overlay does not draw it.
 from __future__ import annotations
 
 import logging
+import os
 import socket
 from dataclasses import dataclass
 from pathlib import Path
@@ -15,7 +16,7 @@ log = logging.getLogger("buddy.status")
 
 GUEST_SHADER = "shaders/shaders_slang/crt/crt-guest-advanced-ntsc.slangp"
 LIGHT_SHADER = "shaders/shaders_slang/crt/crt-geom.slangp"
-CORE_PRESET_NAMES = ("FCEUmm", "bsnes", "BlastEm")
+CORE_PRESET_NAMES = ("Snes9x", "FCEUmm", "bsnes", "BlastEm")
 
 
 @dataclass(frozen=True)
@@ -149,6 +150,11 @@ def runtime_cfg_lines(retroarch_exe: str) -> list[str]:
         'video_smooth = "true"',
         'video_shader_enable = "false"',
     ]
+    from .retroarch_menu import QUICK_MENU_LINES
+    lines.extend(QUICK_MENU_LINES)
+    if os.environ.get("BUDDY_SMOKE_CMD"):
+        # The Windows runner draws with Direct3D. Chris's PC keeps RetroArch's own driver.
+        lines.append('video_driver = "d3d11"')
     if retroarch_exe:
         relative = shader_relative(Path(retroarch_exe).resolve().parent)
         if relative:

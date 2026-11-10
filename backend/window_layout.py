@@ -262,8 +262,13 @@ def exclude_window_from_capture(hwnd: int) -> str:
         return "failed"
 
 
-def apply_hole_region(hwnd: int, width: int, height: int, hole: tuple[int, int, int, int]) -> ActionResult:
-    """Cut the game opening out of a window so clicks pass through. Windows only."""
+def apply_hole_region(hwnd: int, width: int, height: int, hole: tuple[int, int, int, int],
+                      keep: tuple[tuple[int, int, int, int], ...] = ()) -> ActionResult:
+    """Cut the game opening out of a window so clicks pass through. Windows only.
+
+    `keep` rectangles stay part of the window. The hamburger and Buddy's box
+    are passed here so a running game cannot swallow those clicks.
+    """
     if os.name != "nt":
         return ActionResult(False, "Click-through overlay holes require Windows.", reason="not_windows")
     try:
@@ -273,6 +278,13 @@ def apply_hole_region(hwnd: int, width: int, height: int, hole: tuple[int, int, 
         full = gdi32.CreateRectRgn(0, 0, int(width), int(height))
         hx, hy, hw, hh = hole
         cut = gdi32.CreateRectRgn(int(hx), int(hy), int(hx + hw), int(hy + hh))
+        for rect in keep:
+            kx, ky, kw, kh = rect
+            if kw < 1 or kh < 1:
+                continue
+            held = gdi32.CreateRectRgn(int(kx), int(ky), int(kx + kw), int(ky + kh))
+            gdi32.CombineRgn(cut, cut, held, 4)  # RGN_DIFF: clicks stay on the overlay
+            gdi32.DeleteObject(held)
         gdi32.CombineRgn(full, full, cut, 4)  # RGN_DIFF
         gdi32.DeleteObject(cut)
         if not user32.SetWindowRgn(hwnd, full, True):

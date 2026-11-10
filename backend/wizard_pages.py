@@ -8,7 +8,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
-from .setup_catalog import FRAME_CHOICES, RETROARCH_VERSION, blocked_cores
+from .setup_catalog import FRAME_CHOICES, RETROARCH_VERSION
 from .setup_flow import GAMES_COPY, fresh_state, scan_summary
 
 from .config_loader import ROOT
@@ -161,8 +161,8 @@ def _install(draw, state):
     _button(draw, (600, 220, 1100, 300), "Use my RetroArch", (48, 42, 64), CREAM)
     notes = (
         "The new copy is portable, under your Local AppData, no admin.\n"
-        "Buddy installs FCEUmm, bsnes, and BlastEm. Those are GPL cores.\n"
-        "Snes9x, PicoDrive, and Genesis Plus GX are non-commercial, so they are not installed.\n"
+        "Buddy installs Snes9x for Super NES. That core is for personal use.\n"
+        "NES and Genesis are not part of this setup.\n"
         "Buddy's Python runtime is included. The Visual C++ runtime is added only if Windows needs it."
     )
     y = 320
@@ -170,8 +170,7 @@ def _install(draw, state):
     for line in _wrap(draw, notes, font, 1140):
         draw.text((64, y), line, font=font, fill=CREAM)
         y += 30
-    skipped = ", ".join(core.name for core in blocked_cores())
-    draw.text((64, y + 6), f"Not installed: {skipped}. See LICENSES.md.", font=_font(16), fill=GOLD)
+    draw.text((64, y + 6), "See LICENSES.md before selling Buddy.", font=_font(16), fill=GOLD)
     if state.get("progress") and not state.get("install_error"):
         draw.rounded_rectangle((64, 520, 1100, 575), 12, fill=(18, 48, 62))
         draw.text((80, 536), state["progress"], font=_font(18), fill=GREEN)
@@ -210,9 +209,9 @@ def _thumb(frame_id: str, size: tuple[int, int]) -> Image.Image:
 
 
 def _overlays(image, draw, state):
-    _chrome(draw, "overlays", "Ready to add overlays?", "Pick a frame. Buddy assigns it to that system.")
+    _chrome(draw, "overlays", "Super NES frame.", "The game sits in the opening. Buddy sits in the BUDDY box.")
     labels = dict(FRAME_CHOICES)
-    systems = ("genesis", "nes", "snes")
+    systems = tuple(labels)
     for index, frame_id in enumerate(systems):
         x = 64 + index * 400
         draw.rounded_rectangle((x, 220, x + 360, 560), 16, fill=PANEL)

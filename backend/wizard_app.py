@@ -11,7 +11,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from .setup_catalog import FRAME_CHOICES, RETROARCH_VERSION, blocked_cores
+from .setup_catalog import FRAME_CHOICES, RETROARCH_VERSION
 from .setup_flow import (
     GAMES_COPY,
     SECRET_NAME,
@@ -125,12 +125,11 @@ def run_wizard(state_file: Path | None = None) -> dict:
             row.pack(anchor="w", pady=8)
             big(row, "Install a new copy", _install_new).pack(side="left", padx=(0, 12))
             big(row, "Use my RetroArch", _adopt, primary=False).pack(side="left")
-            skipped = ", ".join(core.name for core in blocked_cores())
             tk.Label(
                 body, bg="#0c0a12", fg="#f4ecdc", justify="left", font=("Segoe UI", 12), wraplength=1000,
-                text="Buddy installs FCEUmm, bsnes, and BlastEm (GPL).\n"
-                     f"Not installed, because the license is non-commercial: {skipped}.\n"
-                     "See LICENSES.md before selling Buddy.\n"
+                text="Buddy installs Snes9x for Super NES.\n"
+                     "Snes9x is free for personal use. It is not included so Buddy can be sold.\n"
+                     "NES and Genesis are not part of this setup.\n"
                      "The Python runtime comes with the package. Visual C++ is added only if it is missing.",
             ).pack(anchor="w", pady=12)
             if state.get("install_error"):
@@ -154,8 +153,8 @@ def run_wizard(state_file: Path | None = None) -> dict:
                 tk.Label(body, bg="#0c0a12", fg="#7ee7ff", justify="left", font=("Segoe UI", 12),
                          text=scan_summary(state["scan"])).pack(anchor="w", pady=8)
         elif step == "overlays":
-            title.configure(text="Ready to add overlays?")
-            subtitle.configure(text="Each system gets one of Buddy's frames. You can leave the defaults.")
+            title.configure(text="Super NES frame.")
+            subtitle.configure(text="Buddy uses the SNES frame. The game sits in the opening. Buddy sits in the BUDDY box.")
             for frame_id, label in FRAME_CHOICES:
                 row = tk.Frame(body, bg="#0c0a12")
                 row.pack(anchor="w", pady=6)
@@ -414,6 +413,8 @@ def run_wizard(state_file: Path | None = None) -> dict:
     big(nav, "Next", lambda: go(1)).pack(side="right")
     root.protocol("WM_DELETE_WINDOW", on_close)
     show()
+    if os.environ.get("BUDDY_SMOKE_PLAY") == "1" and state.get("step") == "done":
+        root.after(25000, _play)
     root.mainloop()
     return state
 

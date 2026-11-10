@@ -40,11 +40,11 @@ from backend.wizard_pages import SHOTS, write_shots
 
 def test_default_cores_are_commercial_ok_and_the_others_are_flagged():
     names = [core.name for core in default_cores()]
-    assert names == ["FCEUmm", "bsnes", "BlastEm"]
+    assert names == ["Snes9x"]
     blocked = {core.name for core in blocked_cores()}
-    assert blocked == {"Snes9x", "PicoDrive", "Genesis Plus GX"}
-    assert "not install" in reject_blocked_core("snes9x_libretro.dll").lower() or "did not install" in reject_blocked_core("snes9x_libretro.dll").lower()
-    assert reject_blocked_core("fceumm_libretro.dll") == ""
+    assert blocked == {"PicoDrive", "Genesis Plus GX"}
+    assert reject_blocked_core("snes9x_libretro.dll") == ""
+    assert "did not install" in reject_blocked_core("picodrive_libretro.dll").lower()
 
 
 def test_checksum_mismatch_and_unpinned_files_are_refused(tmp_path):
@@ -81,15 +81,16 @@ def test_portable_install_copies_only_matching_gpl_cores(tmp_path):
         data = core.filename.encode("utf-8")
         (cores / core.filename).write_bytes(data)
         blobs[core.filename] = sha256_file(cores / core.filename)
-    (cores / "snes9x_libretro.dll").write_bytes(b"do-not-ship")
+    (cores / "picodrive_libretro.dll").write_bytes(b"do-not-ship")
     blobs["retroarch.exe"] = sha256_file(exe)
     dest = tmp_path / "Buddy" / "RetroArch"
     assert install_portable(bundle, dest, blobs, lambda *_args: None) == ""
     installed, skipped, error = install_default_cores(cores, dest / "cores", blobs, lambda *_args: None)
     assert error == ""
     assert installed == [core.filename for core in default_cores()]
-    assert any("Snes9x" in item for item in skipped)
-    assert not (dest / "cores" / "snes9x_libretro.dll").exists()
+    assert any("PicoDrive" in item for item in skipped)
+    assert (dest / "cores" / "snes9x_libretro.dll").is_file()
+    assert not (dest / "cores" / "picodrive_libretro.dll").exists()
     sharp = dest / "shaders" / "shaders_slang" / "interpolation" / "sharp-bilinear.slangp"
     sharp.parent.mkdir(parents=True)
     sharp.write_text("sharp", encoding="utf-8")
@@ -104,10 +105,14 @@ def test_games_folder_lists_owned_files_and_does_not_link_anywhere(tmp_path):
     assert "http" not in GAMES_COPY.lower()
     assert "www." not in GAMES_COPY.lower()
     root = create_games_tree(tmp_path / "Buddy Games")
+    assert (root / "SNES").is_dir()
+    assert not (root / "NES").exists()
+    (root / "NES").mkdir()
     (root / "NES").joinpath("Owned.nes").write_bytes(b"nes")
     (root / "NES").joinpath("notes.txt").write_text("not a rom", encoding="utf-8")
     (root / "NES").joinpath("skip.bin").write_bytes(b"bin")
     (root / "SNES").mkdir(exist_ok=True)
+    (root / "Genesis").mkdir()
     (root / "Genesis").joinpath("Owned.md").write_bytes(b"md")
     (root / "Genesis").joinpath("Owned.bin").write_bytes(b"bin")
     found = scan_games(root)
@@ -165,6 +170,8 @@ def test_api_key_stays_out_of_the_config(tmp_path):
     assert "super-secret-value" not in text
     assert cfg.data["retroarch"]["command_enabled"] is True
     assert cfg.data["retroarch"]["command_port"] == 55355
+    assert cfg.data["overlay"]["theme"] == "snes"
+    assert [item["system"] for item in cfg.data["libraries"]] == ["snes"]
     path = save_state(state, tmp_path / "Buddy" / "setup-state.json")
     loaded = load_state(path)
     assert loaded["step"] == state["step"]

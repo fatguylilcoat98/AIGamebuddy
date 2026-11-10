@@ -176,7 +176,7 @@ New-Item -ItemType Directory -Force -Path $coreDir | Out-Null
 $coreUnpack = Join-Path $cache "cores-unpack"
 New-Item -ItemType Directory -Force -Path $coreUnpack | Out-Null
 & $sevenExe x $coresArchive "-o$coreUnpack" -y | Out-Host
-$wanted = @("fceumm_libretro.dll", "bsnes_libretro.dll", "blastem_libretro.dll")
+$wanted = @("snes9x_libretro.dll")
 $checksums = @{ "retroarch.exe" = $exeHash }
 foreach ($dll in $wanted) {
     $found = Get-ChildItem -Path $bundled, $coreUnpack -Filter $dll -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1

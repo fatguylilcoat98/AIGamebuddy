@@ -22,6 +22,7 @@ from .frame_library import frame_record, paste_head
 from .hotkeys import QUIT_SEQUENCES, start_windows_hotkeys, tk_quit_event
 from .overlay_view import band_slots, layout_boxes, static_frame
 from .retroarch_finder import FIND_LABEL, NOTICE_FAILED, NOTICE_LOOKING, NOTICE_MISSING, save_retroarch_path
+from .hamburger_ui import HamburgerMenu, design_box
 from .window_layout import exclude_window_from_capture
 
 
@@ -287,9 +288,9 @@ def run_overlay(session) -> None:
         head_box = boxes["head"]
         # Closed, the frame ends at the hologram and scenery shows below it.
         # F8 or a click on Buddy opens the menu inside that frame.
+        menu_ui.place(design_box(holder))
         if holder.get("menu_open"):
-            menu.place(x=menu_box["x"], y=menu_box["y"], width=menu_box["width"], height=menu_box["height"])
-            menu.lift()
+            menu.place_forget()
         else:
             menu.place_forget()
         head_label.place_forget()
@@ -361,7 +362,8 @@ def run_overlay(session) -> None:
             resting=hud.get("resting_direction", "left"),
             from_expression=hud.get("from_expression"), blend=hud.get("expression_blend", 1.0),
         )
-        image = paste_head(image, head, well)
+        if not hud.get("buddy_hidden"):
+            image = paste_head(image, head, well)
         if os.name == "nt" and holder["game"]:
             image = chroma_key(image)
         return image
@@ -411,12 +413,29 @@ def run_overlay(session) -> None:
         except Exception:
             logging.getLogger("buddy.overlay").exception("Could not keep the menu clickable")
 
+    def _keep_rects():
+        """Hamburger, Buddy, and the open menu stay solid while the game is click-through."""
+        boxes = layout_boxes(
+            _frame_id(), holder["target"], game_running=holder["game"], reserve_button=_show_find(),
+        )
+        buddy = boxes["buddy"]
+        kept = [
+            menu_ui.button_rect(),
+            (buddy["x"], buddy["y"], buddy["width"], buddy["height"]),
+        ]
+        panel = menu_ui.panel_rect()
+        if panel is not None:
+            kept.append(panel)
+        return tuple(kept)
+
     def _cut_hole():
         if os.name != "nt" or not holder["game"] or session.layout != "full":
             return
         root.update_idletasks()
         hole = _client_hole()
-        apply_hole_region(root.winfo_id(), holder["target"][0], holder["target"][1], hole)
+        apply_hole_region(
+            root.winfo_id(), holder["target"][0], holder["target"][1], hole, keep=_keep_rects(),
+        )
 
     def maintain():
         if session.closed:
@@ -476,18 +495,7 @@ def run_overlay(session) -> None:
 
     def _quit(_event=None):
         stop_hotkeys.set()
-        session.safety.disable("overlay quit", quiet=True)
-        try:
-            session.close()
-        except Exception:
-            logging.getLogger("buddy.overlay").exception("Close failed during quit")
-        server = app_state.api_server
-        if server is not None:
-            server.should_exit = True
-        try:
-            root.destroy()
-        except Exception:
-            pass
+        session.exit_to_desktop()
 
     def _once(name, fn):
         def wrapped(_event=None):
@@ -505,12 +513,20 @@ def run_overlay(session) -> None:
     talk_down_once = _once("talk_down", talk_down)
     talk_up_once = _once("talk_up", talk_up)
     def _toggle_menu():
-        holder["menu_open"] = not holder.get("menu_open")
-        place_chrome()
+        menu_ui.toggle()
+        holder["menu_open"] = menu_ui.open
         if holder["menu_open"]:
             _focus(0)
 
+    def _close_menu():
+        if menu_ui.open:
+            menu_ui.close()
+            holder["menu_open"] = False
+
     def _click_buddy(event):
+        if menu_ui.open and not menu_ui.contains(event.x, event.y):
+            _close_menu()
+            return
         boxes = layout_boxes(
             _frame_id(), holder["target"], game_running=holder["game"], reserve_button=_show_find(),
         )
@@ -535,6 +551,7 @@ def run_overlay(session) -> None:
     for sequence in QUIT_SEQUENCES:
         root.bind_all(sequence, quit_once)
     root.bind_all("<KeyPress>", _maybe_quit)
+    root.bind_all("<Escape>", lambda _event: _close_menu())
     root.bind("<Tab>", lambda _event: _move(1))
     root.bind("<Right>", lambda _event: _move(1))
     root.bind("<Left>", lambda _event: _move(-1))
@@ -567,10 +584,39 @@ def run_overlay(session) -> None:
     _apply_geometry()
     root.update_idletasks()
     _log_monitor()
+
+    def _menu_changed():
+        holder["menu_open"] = menu_ui.open
+        place_chrome()
+        _cut_hole()
+
+    menu_ui = HamburgerMenu(root, session, _menu_changed)
     _rebuild_static()
     _focus(0)
+
+    def _poll_smoke():
+        path = os.environ.get("BUDDY_SMOKE_CMD")
+        if path:
+            command_file = Path(path)
+            if command_file.is_file():
+                command = command_file.read_text(encoding="utf-8").strip()
+                command_file.unlink(missing_ok=True)
+                command_file.with_name("smoke-ack.txt").write_text(command, encoding="utf-8")
+                if command == "open-menu" and not menu_ui.open:
+                    menu_ui.toggle()
+                    holder["menu_open"] = True
+                elif command == "retroarch-menu":
+                    session.open_retroarch_menu()
+                elif command == "controller":
+                    session.open_controller_setup()
+                elif command == "exit":
+                    session.exit_to_desktop()
+        root.after(400, _poll_smoke)
+
+    menu_ui.place(design_box(holder))
     root.after(70, animate)
     root.after(400, _boot_retroarch)
+    root.after(500, _poll_smoke)
     root.after(1500, maintain)
     root.mainloop()
 

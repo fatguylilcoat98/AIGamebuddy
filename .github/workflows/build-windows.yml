@@ -53,15 +53,19 @@ jobs:
       - name: Publish prerelease
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: buddy-v0.1.0-pre${{ github.run_number }}
-          name: Buddy 0.1.0 pre${{ github.run_number }}
+          tag_name: buddy-v0.1.0-pre8
+          name: Buddy 0.1.0 pre8
           prerelease: true
           make_latest: false
           generate_release_notes: false
           body: |
-            Prerelease installer. Double-click BuddySetup.exe. It is not the latest stable release.
+            Prerelease installer for Super NES. Double-click BuddySetup.exe.
+            Snes9x is included for personal use. It is not the latest stable release.
           files: |
             dist/BuddySetup.exe
-            dist/screenshots/windows-1920-*.jpg
-            dist/screenshots/wizard-after-install.jpg
+            dist/screenshots/wizard-first.jpg
+            dist/screenshots/wizard-play.jpg
+            dist/screenshots/snes-frame-retroarch.jpg
+            dist/screenshots/menu-open.jpg
+            dist/screenshots/retroarch-menu.jpg
           fail_on_unmatched_files: true

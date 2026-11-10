@@ -68,6 +68,8 @@ class BuddySession:
         self.buddy_character = str(config.get("buddy_character") or "male")
         if self.buddy_character not in {"male", "female"}:
             self.buddy_character = "male"
+        self.buddy_hidden = False
+        self._ra_menu_open = False
         self.resting_direction = str(config.get("resting_direction") or "left")
         if self.resting_direction not in {"left", "right", "center"}:
             self.resting_direction = "left"
@@ -184,6 +186,13 @@ class BuddySession:
             self.buddy_character = data["buddy_character"]
         if data.get("resting_direction") in {"left", "right", "center"}:
             self.resting_direction = data["resting_direction"]
+        if data.get("personality"):
+            try:
+                self.personality = normalize_personality(str(data["personality"]))
+                self.pack = load_pack(self.personality)
+            except ValueError:
+                pass
+        self.buddy_hidden = bool(data.get("buddy_hidden", False))
 
     def _save_ui(self) -> None:
         payload = {
@@ -194,6 +203,7 @@ class BuddySession:
             "theme": self.theme, "personality": self.personality,
             "buddy_character": self.buddy_character,
             "resting_direction": self.resting_direction,
+            "buddy_hidden": self.buddy_hidden,
         }
         try:
             self._ui_path().write_text(json.dumps(payload, indent=2), encoding="utf-8")
@@ -240,6 +250,7 @@ class BuddySession:
                 "running": self.running,
                 "character": self.character,
                 "buddy_character": self.buddy_character,
+                "buddy_hidden": self.buddy_hidden,
                 "resting_direction": self.resting_direction,
                 "product": self.product,
                 "banner": self.banner,
@@ -419,6 +430,86 @@ class BuddySession:
         if self.volume == 0:
             return self._show("Volume is 0, so I will not play audio.", category="status")
         return self._show(f"Volume is {self.volume}.", category="status")
+
+    def stop_buddy(self) -> ActionResult:
+        """Hide the hologram and stop the voice. The game keeps running."""
+        self.buddy_hidden = True
+        self.muted = True
+        self.audio.stop()
+        self._save_ui()
+        return ActionResult(True, "Buddy is quiet and hidden. The game is still running.",
+                            reason="buddy_stopped")
+
+    def start_buddy(self) -> ActionResult:
+        """Bring the hologram and the voice back."""
+        self.buddy_hidden = False
+        self.muted = False
+        self.running = True
+        self._save_ui()
+        return self._show("I'm here.", category="status", emotion="smile")
+
+    def close_game(self) -> ActionResult:
+        """Close RetroArch. The overlay stays."""
+        self._force_close_retroarch()
+        return ActionResult(True, "The game is closed. Buddy is still here.", reason="game_closed")
+
+    def exit_to_desktop(self, list_pids=None, killer=None, stop_self=None) -> ActionResult:
+        """Close RetroArch and every Buddy process."""
+        from .process_exit import kill_pids, list_buddy_pids
+        self._force_close_retroarch()
+        pids = list_buddy_pids() if list_pids is None else list(list_pids())
+        mine = os.getpid()
+        others = [int(pid) for pid in pids if int(pid) and int(pid) != mine]
+        (kill_pids if killer is None else killer)(others)
+        try:
+            self.close()
+        except Exception:
+            log.exception("Close during exit failed")
+        if stop_self is None:
+            os._exit(0)
+        stop_self()
+        return ActionResult(True, "Buddy has left the desktop.", reason="exited")
+
+    def open_retroarch_menu(self) -> ActionResult:
+        from .retroarch_menu import retroarch_settings_commands, send_commands
+        if not self.commands.enabled:
+            self.commands.enabled = True
+        error = send_commands(self.commands, retroarch_settings_commands(), pause=0.05)
+        if error:
+            return ActionResult(False, error, reason="menu_failed")
+        self._ra_menu_open = not self._ra_menu_open
+        return ActionResult(True, "RetroArch's menu is open." if self._ra_menu_open else "RetroArch's menu is closed.",
+                            reason="retroarch_menu")
+
+    def open_controller_setup(self) -> ActionResult:
+        from .retroarch_menu import controller_setup_commands, send_commands
+        if not self.commands.enabled:
+            self.commands.enabled = True
+        commands = controller_setup_commands(menu_already_open=self._ra_menu_open)
+        error = send_commands(self.commands, commands, pause=0.06)
+        if error:
+            return ActionResult(False, error, reason="controller_failed")
+        self._ra_menu_open = True
+        return ActionResult(True, "The controller page is open.", reason="controller_setup")
+
+    def _force_close_retroarch(self) -> None:
+        """End the RetroArch Buddy started, even when close-on-quit is off."""
+        pid = self.retroarch_pid
+        self._retro_launch_started = False
+        self.retroarch_started_by_buddy = False
+        self._ra_menu_open = False
+        if not pid:
+            return
+        if os.name != "nt":
+            return
+        try:
+            import subprocess
+            subprocess.Popen(
+                ["taskkill", "/PID", str(pid), "/T", "/F"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+        except OSError as exc:
+            logging.getLogger("buddy.retroarch").info("Could not close RetroArch: %s", exc)
 
     def set_mute(self, muted: bool) -> ActionResult:
         self.muted = bool(muted)

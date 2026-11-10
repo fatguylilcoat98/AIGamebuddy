@@ -6,14 +6,12 @@ This is a summary of the upstream licenses, not legal advice.
 
 ## Installed by default
 
-These are free-software licenses that allow commercial use if you follow them. GPL cores mean you have to offer the corresponding source and keep their notices. Do not strip those licenses out of the package.
+RetroArch and Python allow commercial use if you follow their terms. Snes9x is the exception: this Super NES setup installs it for personal use, and it is not licensed for sale. Do not strip license notices out of the package.
 
 | Piece | Version Buddy pins | License | Commercial use |
 | --- | --- | --- | --- |
 | RetroArch | 1.22.1 portable Windows x64 | GPL-3.0-or-later | Allowed if the GPL terms are kept |
-| FCEUmm (NES) | core shipped beside that RetroArch | GPL-2.0-only | Allowed if the GPL terms are kept |
-| bsnes (Super NES) | core shipped beside that RetroArch | GPL-3.0-or-later | Allowed if the GPL terms are kept |
-| BlastEm (Genesis) | core shipped beside that RetroArch | GPL-3.0-or-later | Allowed if the GPL terms are kept |
+| Snes9x (Super NES) | core shipped beside that RetroArch | Non-commercial | Personal use only. Not for sale until the copyright holders agree. |
 | Python embeddable runtime | 3.12.8 | PSF License | Allowed. Keep the PSF notice |
 | Visual C++ runtime | Microsoft redistributable, only if missing | Microsoft's redistribution terms | Allowed under those terms. It is not open source |
 
@@ -25,11 +23,10 @@ Libretro marks these as non-commercial. Buddy does not copy them into the instal
 
 | Core | License | Why it is flagged |
 | --- | --- | --- |
-| Snes9x | Non-commercial | Personal use only. Commercial use needs the copyright holders' permission. |
 | PicoDrive | Non-commercial | Libretro's license table lists it as non-commercial. |
 | Genesis Plus GX | Non-commercial | The license says it may not be sold or used in a commercial product. |
 
-Mesen is GPL and may be used under the GPL, but it is not the default NES core. FCEUmm is.
+FCEUmm, Mesen, bsnes, and BlastEm stay in the catalog. This setup does not install them. Buddy is Super NES only until that works end to end.
 
 ## Not in the package
 

@@ -53,8 +53,9 @@ PLACEMENTS = {
         "menu": {"x": 2072, "y": 904, "width": 336, "height": 200},
     },
     "snes": {
-        "buddy": {"x": 2166, "y": 1046, "width": 294, "height": 178},
-        "menu": {"x": 2166, "y": 838, "width": 294, "height": 200},
+        # Inner black of Chris's BUDDY plaque, and the top-left hamburger.
+        "buddy": {"x": 2010, "y": 989, "width": 502, "height": 288},
+        "menu": {"x": 36, "y": 24, "width": 220, "height": 132},
     },
 }
 
@@ -126,6 +127,9 @@ CONTROLLER_RECT = {
 
 def buddy_well_rect(image: Image.Image, frame_id: str) -> dict[str, int]:
     """The black portrait plate. It stays the authored rectangle so it cannot swallow the opening."""
+    if frame_id == "snes":
+        from .chris_snes_frame import measure_snes_art
+        return dict(measure_snes_art(image)["buddy"])
     box = PLACEMENTS[frame_id]["buddy"]
     width, height = image.size
     x = max(0, min(int(box["x"]), width - 1))
@@ -423,7 +427,14 @@ def _bbox(mask: np.ndarray) -> dict[str, int]:
 
 
 def enlarge_screen(image: Image.Image, frame_id: str, raw: dict[str, int] | None = None) -> dict[str, int]:
-    """Bounding box of the transparent opening. The pad and the menu stay outside it."""
+    """Bounding box of the transparent opening. The pad and the menu stay outside it.
+
+    Chris's Super NES painting uses the largest rectangle inside the opening
+    so the game keeps its shape and the BUDDY box stays clickable.
+    """
+    if frame_id == "snes":
+        from .chris_snes_frame import measure_snes_art
+        return dict(measure_snes_art(image)["game"])
     authored = authored_opening(image)
     if authored is not None:
         return _bbox(authored)
@@ -554,14 +565,19 @@ def build_metadata() -> dict:
         source = Image.open(path)
         screen = enlarge_screen(source, frame_id)
         placement = PLACEMENTS[frame_id]
+        well = buddy_well_rect(source, frame_id)
+        menu = placement["menu"]
+        if frame_id == "snes":
+            from .chris_snes_frame import measure_snes_art
+            menu = dict(measure_snes_art(source)["hamburger"])
         viewports = {name: scale_rect(screen, size) for name, size in OUTPUTS.items()}
         frames[frame_id] = {
             "file": filename,
             "systems": [alias for alias, target in SYSTEM_ALIASES.items() if target == frame_id],
             "screen": screen,
-            "well": buddy_well_rect(source, frame_id),
-            "buddy": placement["buddy"],
-            "menu": placement["menu"],
+            "well": well,
+            "buddy": well if frame_id == "snes" else placement["buddy"],
+            "menu": menu,
             "viewports": viewports,
         }
     return {

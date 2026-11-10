@@ -106,41 +106,41 @@
         "super famicom"
       ],
       "screen": {
-        "x": 420,
-        "y": 86,
-        "width": 1684,
-        "height": 1206
+        "x": 447,
+        "y": 281,
+        "width": 1472,
+        "height": 853
       },
       "well": {
-        "x": 2166,
-        "y": 1046,
-        "width": 294,
-        "height": 178
+        "x": 2010,
+        "y": 989,
+        "width": 502,
+        "height": 288
       },
       "buddy": {
-        "x": 2166,
-        "y": 1046,
-        "width": 294,
-        "height": 178
+        "x": 2010,
+        "y": 989,
+        "width": 502,
+        "height": 288
       },
       "menu": {
-        "x": 2166,
-        "y": 838,
-        "width": 294,
-        "height": 200
+        "x": 36,
+        "y": 24,
+        "width": 220,
+        "height": 132
       },
       "viewports": {
         "720p": {
-          "x": 210,
-          "y": 43,
-          "width": 842,
-          "height": 603
+          "x": 224,
+          "y": 140,
+          "width": 736,
+          "height": 426
         },
         "1080p": {
-          "x": 315,
-          "y": 64,
-          "width": 1263,
-          "height": 904
+          "x": 335,
+          "y": 211,
+          "width": 1104,
+          "height": 640
         }
       }
     }

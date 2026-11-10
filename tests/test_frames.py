@@ -119,18 +119,26 @@ def test_scenery_nibbles_the_opening_without_a_hard_frame():
         height, width = hole.shape
         mid = hole[int(height * 0.35):int(height * 0.65)]
         span = int(mid.any(axis=0).sum()) / width
-        assert 0.58 <= span <= 0.74, (frame_id, round(span, 3))
         x, y, w, h = screen["x"], screen["y"], screen["width"], screen["height"]
         region = alpha[y:y + h, x:x + w]
         assert int(region[h // 2, w // 2]) == 0
-        opaque = int((region > 200).sum())
-        assert 0 < opaque < int(region.size * 0.25), frame_id
-        left = []
-        for row in range(y + h // 5, y + (4 * h) // 5, max(1, h // 20)):
-            cols = np.where(hole[row, x:x + w])[0]
-            if len(cols):
-                left.append(int(cols[0]))
-        assert max(left) - min(left) > 8, (frame_id, left)
+        if frame_id == "snes":
+            # Chris's opening is the black center. The title and the controller stay solid.
+            assert 0.50 <= span <= 0.80, (frame_id, round(span, 3))
+            assert int(alpha[40, width // 2]) == 255
+            assert int(alpha[height - 80, width // 2]) == 255
+            buddy = frame_record(frame_id)["buddy"]
+            assert int(alpha[buddy["y"] + buddy["height"] // 2, buddy["x"] + buddy["width"] // 2]) == 255
+        else:
+            assert 0.58 <= span <= 0.74, (frame_id, round(span, 3))
+            opaque = int((region > 200).sum())
+            assert 0 < opaque < int(region.size * 0.25), frame_id
+            left = []
+            for row in range(y + h // 5, y + (4 * h) // 5, max(1, h // 20)):
+                cols = np.where(hole[row, x:x + w])[0]
+                if len(cols):
+                    left.append(int(cols[0]))
+            assert max(left) - min(left) > 8, (frame_id, left)
 
 
 def test_neural_voices_follow_the_character():

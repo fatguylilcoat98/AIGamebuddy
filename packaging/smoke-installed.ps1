@@ -116,9 +116,148 @@ print(f"wizard-window hwnd={hwnd} shot={path} size={image.size}")
 if ($LASTEXITCODE -ne 0) { throw "Wizard window did not appear" }
 if (-not (Test-Path $shot)) { throw "Wizard screenshot was not written" }
 Write-Host "Wizard screenshot $shot"
+Copy-Item $shot (Join-Path $shotDir "wizard-first.jpg") -Force
 
 Stop-Process -Id $pythonPid -Force -ErrorAction SilentlyContinue
+Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match "backend\.wizard_app" } | ForEach-Object {
+    Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+}
 if ($proc -and -not $proc.HasExited) {
     Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
 }
+
+function Save-Screen([string]$Path) {
+    $env:BUDDY_SHOT = $Path
+    & $python -c @'
+import os
+from pathlib import Path
+from PIL import ImageGrab
+image = ImageGrab.grab()
+path = Path(os.environ["BUDDY_SHOT"])
+image.convert("RGB").save(path, quality=90)
+print(f"shot {path} {image.size}")
+'@
+    if ($LASTEXITCODE -ne 0) { throw "Could not save $Path" }
+}
+
+Write-Host "Preparing RetroArch, Snes9x, and the test ROM"
+& $python (Join-Path $PSScriptRoot "snes_prepare.py")
+if ($LASTEXITCODE -ne 0) { throw "RetroArch or Snes9x did not install" }
+$core = Join-Path $env:LOCALAPPDATA "Buddy\RetroArch\cores\snes9x_libretro.dll"
+if (-not (Test-Path $core)) { throw "snes9x_libretro.dll is missing after install" }
+
+$cmdFile = Join-Path $env:LOCALAPPDATA "Buddy\smoke-cmd.txt"
+$ackFile = Join-Path $env:LOCALAPPDATA "Buddy\smoke-ack.txt"
+$env:BUDDY_SMOKE_CMD = $cmdFile
+$env:BUDDY_SMOKE_PLAY = "1"
+if (Test-Path $cmdFile) { Remove-Item $cmdFile -Force }
+if (Test-Path $ackFile) { Remove-Item $ackFile -Force }
+
+Write-Host "Opening the Play screen"
+$play = Start-Process -FilePath $python -ArgumentList @("-m", "backend.wizard_app", "--wizard") -WorkingDirectory $elsewhere -PassThru
+$playShot = Join-Path $shotDir "wizard-play.jpg"
+$env:BUDDY_WIZARD_SHOT = $playShot
+& $python -c @'
+import os, time, ctypes
+from pathlib import Path
+from PIL import ImageGrab
+user32 = ctypes.windll.user32
+deadline = time.time() + 18
+hwnd = 0
+while time.time() < deadline:
+    hwnd = user32.FindWindowW(None, "Buddy Setup")
+    if hwnd:
+        break
+    time.sleep(0.4)
+if not hwnd:
+    raise SystemExit("Play screen was not found")
+user32.ShowWindow(hwnd, 9)
+time.sleep(0.8)
+image = ImageGrab.grab()
+path = Path(os.environ["BUDDY_WIZARD_SHOT"])
+image.convert("RGB").save(path, quality=90)
+print(f"play-window hwnd={hwnd} shot={path}")
+'@
+if ($LASTEXITCODE -ne 0) { throw "Play screen did not appear" }
+Write-Host "Play screenshot $playShot"
+
+$deadline = (Get-Date).AddSeconds(90)
+$ra = $null
+while ((Get-Date) -lt $deadline) {
+    $ra = Get-Process -Name "retroarch" -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($ra) { break }
+    Start-Sleep -Seconds 1
+}
+if (-not $ra) {
+    $log = Join-Path $env:LOCALAPPDATA "Buddy\logs\buddy.log"
+    if (Test-Path $log) { Get-Content $log -Tail 40 }
+    throw "RetroArch did not start with the Super NES test ROM"
+}
+Start-Sleep -Seconds 8
+$gameShot = Join-Path $shotDir "snes-frame-retroarch.jpg"
+Save-Screen $gameShot
+Write-Host "Frame screenshot $gameShot"
+
+function Send-Smoke([string]$Command) {
+    if (Test-Path $ackFile) { Remove-Item $ackFile -Force }
+    Set-Content -Path $cmdFile -Value $Command -Encoding ascii
+    $limit = (Get-Date).AddSeconds(20)
+    while ((Get-Date) -lt $limit) {
+        if (Test-Path $ackFile) {
+            $ack = (Get-Content -Raw $ackFile).Trim()
+            if ($ack -eq $Command) { return }
+        }
+        Start-Sleep -Milliseconds 300
+    }
+    throw "Buddy did not acknowledge $Command"
+}
+
+Send-Smoke "open-menu"
+Start-Sleep -Seconds 2
+$menuShot = Join-Path $shotDir "menu-open.jpg"
+Save-Screen $menuShot
+Write-Host "Menu screenshot $menuShot"
+
+Send-Smoke "retroarch-menu"
+Start-Sleep -Seconds 4
+$raShot = Join-Path $shotDir "retroarch-menu.jpg"
+Save-Screen $raShot
+Write-Host "RetroArch menu screenshot $raShot"
+
+$env:BUDDY_GAME_SHOT = $gameShot
+$env:BUDDY_MENU_SHOT = $raShot
+& $python -c @'
+import os
+from PIL import Image
+game = Image.open(os.environ["BUDDY_GAME_SHOT"]).convert("RGB")
+menu = Image.open(os.environ["BUDDY_MENU_SHOT"]).convert("RGB")
+x, y = game.size[0] // 2, game.size[1] // 2
+a = game.getpixel((x, y))
+b = menu.getpixel((x, y))
+delta = sum(abs(a[i] - b[i]) for i in range(3))
+print(f"center game={a} menu={b} delta={delta}")
+if delta < 30:
+    raise SystemExit("RetroArch menu did not change the picture in the Super NES opening")
+'@
+if ($LASTEXITCODE -ne 0) { throw "RetroArch menu was not visible in the opening" }
+
+Send-Smoke "exit"
+$limit = (Get-Date).AddSeconds(25)
+$left = @()
+do {
+    Start-Sleep -Seconds 1
+    $left = @(Get-CimInstance Win32_Process | Where-Object {
+        $exe = [string]$_.ExecutablePath
+        $cmd = [string]$_.CommandLine
+        ($exe -like "*\Buddy\runtime\python.exe") -or
+        ($cmd -match "backend\.(launcher|wizard_app|overlay_app)") -or
+        ($_.Name -eq "retroarch.exe")
+    })
+    if ($left.Count -eq 0) { break }
+} while ((Get-Date) -lt $limit)
+if ($left.Count -ne 0) {
+    $left | ForEach-Object { Write-Host "still running $($_.Name) $($_.ProcessId) $($_.CommandLine)" }
+    throw "Exit to desktop left Buddy or RetroArch running"
+}
+Write-Host "Exit to desktop left no Buddy or RetroArch process"
 Write-Host "Installed launch smoke passed"

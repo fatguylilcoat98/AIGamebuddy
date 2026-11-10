@@ -15,9 +15,11 @@ from pathlib import Path
 from .setup_catalog import (
     ARTIFACTS,
     SYSTEM_FOLDERS,
-    blocked_cores,
+    SYSTEM_LABELS,
     core_by_filename,
+    cores_not_installed,
     default_cores,
+    offered_folders,
 )
 
 log = logging.getLogger("buddy.setup")
@@ -25,15 +27,15 @@ log = logging.getLogger("buddy.setup")
 STEPS = ("welcome", "install", "games", "overlays", "ai", "buddy", "done")
 SECRET_NAME = "buddy-chat-api-key"
 
-GAMES_COPY = """You need games you already own.
+GAMES_COPY = """You need a Super NES game you already own.
 
-Buddy does not download ROMs. This setup does not link to ROM sites.
+Buddy does not download games. This setup does not link to game sites.
 
-If you own a cartridge, dump it with hardware you own, or copy a ROM file you already made. Put each file in the folder for that system.
+If you own a cartridge, dump it with hardware you own, or copy a game file you already made. Put the file in the SNES folder.
 
-NES, Super NES, and Genesis do not need a BIOS for the cores Buddy installs.
+Super NES does not need a BIOS for Snes9x.
 
-Buddy creates a Buddy Games folder with NES, SNES, and Genesis inside it, and can open that folder for you.
+Buddy creates a Buddy Games folder with SNES inside it, and can open that folder for you.
 """
 
 DEFAULT_STATE = {
@@ -188,9 +190,9 @@ def adopt_retroarch(exe: Path) -> str:
 
 
 def install_default_cores(bundle: Path, cores_dir: Path, checksums: dict[str, str], progress) -> tuple[list[str], list[str], str]:
-    """Copy the default GPL cores. Non-commercial cores are skipped even if present."""
+    """Copy the Super NES core. Everything else in the catalog is skipped."""
     installed: list[str] = []
-    skipped = [f"{core.name} ({core.license})" for core in blocked_cores()]
+    skipped = [f"{core.name} ({core.license})" for core in cores_not_installed()]
     cores_dir.mkdir(parents=True, exist_ok=True)
     for core in default_cores():
         source = Path(bundle) / core.filename
@@ -204,7 +206,7 @@ def install_default_cores(bundle: Path, cores_dir: Path, checksums: dict[str, st
         shutil.copy2(source, cores_dir / core.filename)
         installed.append(core.filename)
         setup_log(f"Installed core {core.name} ({core.license}) -> {cores_dir / core.filename}")
-    for core in blocked_cores():
+    for core in cores_not_installed():
         setup_log(f"Skipped {core.name}: {core.note}")
     progress(1.0, "Cores are in place.")
     return installed, skipped, ""
@@ -212,7 +214,7 @@ def install_default_cores(bundle: Path, cores_dir: Path, checksums: dict[str, st
 
 def create_games_tree(root: Path) -> Path:
     root = Path(root)
-    for folder in SYSTEM_FOLDERS.values():
+    for folder in offered_folders().values():
         (root / folder).mkdir(parents=True, exist_ok=True)
     note = root / "README.txt"
     note.write_text(GAMES_COPY, encoding="utf-8")
@@ -256,9 +258,8 @@ def games_list_rect(buddy: dict) -> dict[str, int]:
 
 
 def scan_summary(found: dict[str, list[str]]) -> str:
-    from .setup_catalog import SYSTEM_LABELS
     lines = []
-    for system in ("nes", "snes", "genesis"):
+    for system in offered_folders():
         names = found.get(system) or []
         label = SYSTEM_LABELS[system]
         if not names:
@@ -327,25 +328,39 @@ def apply_config(config, state: dict) -> None:
     data["provider"] = data.get("provider") or "offline"
     overlay = data.setdefault("overlay", {})
     if isinstance(overlay, dict):
-        overlay["theme"] = "auto"
-        overlay["frames"] = dict(state.get("frames") or DEFAULT_STATE["frames"])
+        overlay["theme"] = "snes"
+        overlay["frames"] = {"snes": "snes"}
     libraries = []
     games = state.get("games_dir") or ""
+    snes_core = ""
     if games:
         exe = state.get("retroarch_path") or ""
         core_dir = Path(exe).resolve().parent / "cores" if exe else None
-        for system, folder in SYSTEM_FOLDERS.items():
+        for system, folder in offered_folders().items():
             core = ""
             if core_dir is not None:
                 candidate = core_dir / f"{_core_file(system)}"
                 if candidate.is_file():
                     core = str(candidate)
+            if system == "snes":
+                snes_core = core
             libraries.append({
                 "system": system,
                 "path": str(Path(games) / folder),
                 "core": core,
             })
     data["libraries"] = libraries
+    if snes_core:
+        retro["core"] = snes_core
+    roms = []
+    scan = state.get("scan") if isinstance(state.get("scan"), dict) else {}
+    roms = list(scan.get("snes") or [])
+    if games and not roms:
+        folder = Path(games) / "SNES"
+        if folder.is_dir():
+            roms = [path.name for path in sorted(folder.iterdir()) if path.suffix.lower() in {".sfc", ".smc", ".fig", ".zip"}]
+    if games and roms:
+        retro["rom"] = str(Path(games) / "SNES" / roms[0])
     blob = json.dumps(data)
     if "api_key" in data or "BEGIN API" in blob:
         raise RuntimeError("Refusing to write a config that contains an API key.")
@@ -609,10 +624,12 @@ def install_portable(bundle: Path, dest: Path, checksums: dict[str, str], progre
         message = "RetroArch did not land in Buddy's folder. Nothing else was changed."
         progress(1.0, message)
         return message
-    for core in blocked_cores():
-        for leftover in dest.rglob(core.filename):
-            leftover.unlink()
-            setup_log(f"Removed {core.name} from the RetroArch folder. {core.note}")
+    keep = {core.filename.lower() for core in default_cores()}
+    for leftover in list(dest.rglob("*_libretro.dll")):
+        if leftover.name.lower() in keep:
+            continue
+        leftover.unlink()
+        setup_log(f"Removed {leftover.name} from the RetroArch folder. This setup installs Snes9x only.")
     progress(0.8, f"Checksum {checksums.get('retroarch.exe', '')[:12]}")
     setup_log(f"Installed portable RetroArch at {dest / 'retroarch.exe'}")
     return ""

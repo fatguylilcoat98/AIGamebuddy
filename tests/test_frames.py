@@ -91,25 +91,34 @@ def test_rest_pose_faces_left_until_talking():
         assert yaw_at(t, "smile", "left") <= -0.8
         assert abs(yaw_at(t, "talk", "left")) <= 0.05
     profile = frame_rest_pose()
-    # Male rest is the approved-frame profile, mirrored so the nose points left.
+    # Male rest is the unmirrored approved-frame cut. The brim points left.
     assert _pose_sprite("male", "idle", yaw_at(0.3, "idle", "left"), 0).tobytes() == profile.tobytes()
     assert profile.tobytes() != get_art("male").front["neutral"].tobytes()
     assert _cap_text_present(profile)
     female_rest = get_art("female").rest_left
     assert female_rest.tobytes() != get_art("female").front["neutral"].tobytes()
     assert _cap_text_present(female_rest)
-    from backend.hologram_art import nose_offset
+    from backend.hologram_art import brim_faces_left, key_black
+    from backend.frame_library import FRAME_DIR, PLACEMENTS
     from backend.overlay_view import compose_overlay, layout_boxes
-    # Positive nose_offset is screen-right, toward the bezel and away from the game.
-    for character in ("male", "female"):
-        assert nose_offset(get_art(character).rest_left) < -2, character
-        posed = render_hologram("idle", t=0.4, size=280, character=character, resting="left")
-        assert nose_offset(posed) < -2, character
+    raw_box = PLACEMENTS["snes"]["buddy"]
+    raw = key_black(Image.open(FRAME_DIR / "snes-sky-kingdom.jpg").convert("RGB").crop(
+        (raw_box["x"], raw_box["y"], raw_box["x"] + raw_box["width"], raw_box["y"] + raw_box["height"])))
+    mirrored = key_black(ImageOps.mirror(raw.convert("RGB")))
+    assert brim_faces_left(raw)
+    assert not brim_faces_left(mirrored)
+    assert brim_faces_left(profile)
+    assert profile.tobytes() == raw.tobytes()
+    assert brim_faces_left(female_rest)
+    assert not brim_faces_left(ImageOps.mirror(female_rest))
     for size in ((1280, 720), (1920, 1080), (2560, 1440)):
-        image = compose_overlay("snes", size, expression="idle", game_running=False)
-        box = layout_boxes("snes", size, game_running=False)["head"]
-        crop = image.crop((box["x"], box["y"], box["x"] + box["width"], box["y"] + box["height"]))
-        assert nose_offset(crop) < -2, size
+        for character in ("male", "female"):
+            image = compose_overlay(
+                "snes", size, expression="idle", game_running=False, character=character,
+            )
+            box = layout_boxes("snes", size, game_running=False)["head"]
+            crop = image.crop((box["x"], box["y"], box["x"] + box["width"], box["y"] + box["height"]))
+            assert brim_faces_left(crop), (character, size)
     rest = render_hologram("idle", t=0.3, mouth=0.0, size=140, character="male", resting="left")
     talking = render_hologram("talk", t=0.3, mouth=0.9, size=140, character="male", resting="left")
     assert rest.tobytes() != talking.tobytes()

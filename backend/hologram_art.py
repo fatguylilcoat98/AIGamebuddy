@@ -399,32 +399,50 @@ def build_character(character: str) -> CharacterArt:
     # The right-side front views are the same pictures; keep one set.
     art = CharacterArt(character, front_aligned, left_turns, right_turns, left_expr, right_expr, notes=notes)
     if character == "male":
-        # The turn sheet never reaches a side profile. The approved frames do,
-        # but that baked portrait looks toward the right bezel. face_left
-        # mirrors it so the nose points at the game, and redraws GB.
+        # The turn sheet never reaches a side profile. The approved frame's
+        # portrait already points left, brim toward the game. Do not mirror it.
         art.rest_left = frame_rest_pose()
-        art.notes.append("male rest pose is the approved-frame profile, mirrored to face left.")
+        art.notes.append("male rest pose is the unmirrored approved-frame profile.")
     else:
-        art.rest_left = face_left(left_turns[-1][1])
-        art.notes.append("female rest pose is the left-facing turn profile.")
+        rest = left_turns[-1][1]
+        if not brim_faces_left(rest):
+            rest = key_black(mirror_fix_gb(rest.convert("RGB")))
+        art.rest_left = rest
+        art.notes.append("female rest pose faces left, brim toward the game.")
     return art
 
 
-def face_left(image: Image.Image) -> Image.Image:
-    """Return a profile whose nose is left of the neck, toward the game window.
+def brim_faces_left(image: Image.Image) -> bool:
+    """True when the cap brim extends to the left of the head, toward the game.
 
-    Positive nose_offset means the nose points screen-right, at the bezel.
-    Mirroring that flips the nose toward the game hole. GB is redrawn so the
-    cap does not show reversed letters.
+    The nose-versus-neck offset measured the wrong side of this portrait.
+    The brim is the part that sticks out in the direction the face points.
     """
-    rgb = image.convert("RGB")
-    if nose_offset(rgb) > 0:
-        rgb = mirror_fix_gb(rgb)
-    return key_black(rgb)
+    array = np.asarray(image.convert("RGBA"))
+    # Color, not alpha. A composited well is opaque black, which would hide the brim.
+    lit = array[:, :, :3].max(axis=2) > 45
+    ys, xs = np.where(lit)
+    if len(xs) < 30:
+        return False
+    top, bottom = int(ys.min()), int(ys.max())
+    height = max(1, bottom - top)
+    head = ys < top + 0.72 * height
+    head_x = xs[head]
+    head_y = ys[head]
+    if len(head_x) < 30:
+        return False
+    center = float(head_x.mean())
+    cap = head_y < top + 0.30 * height
+    if int(cap.sum()) < 10:
+        return False
+    cap_x = head_x[cap]
+    left_reach = center - float(cap_x.min())
+    right_reach = float(cap_x.max()) - center
+    return left_reach > right_reach
 
 
 def frame_rest_pose() -> Image.Image:
-    """Rest head from the approved SNES frame, nose toward the game hole.
+    """Unmirrored head from the approved SNES frame. The brim already points left.
 
     The crop is the inner well only. The bezel and its glow stay out of the sprite.
     """
@@ -432,7 +450,7 @@ def frame_rest_pose() -> Image.Image:
     box = PLACEMENTS["snes"]["buddy"]
     image = Image.open(FRAME_DIR / "snes-sky-kingdom.jpg").convert("RGB")
     x, y, w, h = box["x"], box["y"], box["width"], box["height"]
-    return face_left(image.crop((x, y, x + w, y + h)))
+    return key_black(image.crop((x, y, x + w, y + h)))
 
 
 def get_art(character: str = "male") -> CharacterArt:

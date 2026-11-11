@@ -102,6 +102,8 @@ jobs:
             dist/screenshots/save-toast.jpg
             dist/screenshots/save-roundtrip.txt
             dist/screenshots/buddy-lines.txt
+            dist/screenshots/attitudes.txt
+            dist/screenshots/repetition.txt
             dist/screenshots/menu-bottom.jpg
             dist/screenshots/retroarch-menu.jpg
             dist/screenshots/exit-no-processes.txt

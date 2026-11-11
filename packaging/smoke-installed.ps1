@@ -216,6 +216,7 @@ $env:BUDDY_SMOKE_CMD = $cmdFile
 $env:BUDDY_SMOKE_PLAY = "1"
 $env:BUDDY_LOOK_SECONDS = "5"
 $env:BUDDY_SMOKE_CHATTY = "1"
+$env:BUDDY_FRAME_SCRIPT = Join-Path $PSScriptRoot "follow-frames.txt"
 $env:BUDDY_SAVE_LOG = Join-Path $shotDir "save-roundtrip.txt"
 if (Test-Path $cmdFile) { Remove-Item $cmdFile -Force }
 if (Test-Path $ackFile) { Remove-Item $ackFile -Force }
@@ -297,6 +298,15 @@ if ($LASTEXITCODE -ne 0) {
     Get-Content (Join-Path $shotDir "buddy-lines.txt")
     throw "Buddy did not keep talking from the frames"
 }
+$env:BUDDY_REPEAT_OUT = Join-Path $shotDir "repetition.txt"
+& $python $smokePy repeats
+if ($LASTEXITCODE -ne 0) {
+    Get-Content (Join-Path $shotDir "buddy-lines.txt")
+    throw "Buddy repeated himself"
+}
+$env:BUDDY_ATTITUDES = Join-Path $shotDir "attitudes.txt"
+& $python $smokePy attitudes
+if ($LASTEXITCODE -ne 0) { throw "The three attitudes did not sound different" }
 
 Send-Smoke "snap"
 Start-Sleep -Milliseconds 500

@@ -215,13 +215,19 @@ def cover_content_in_hole(hole: tuple[int, int, int, int], content_aspect: float
     return origin_x, origin_y, content_w, content_h
 
 
-def tuck_content_in_hole(hole: tuple[int, int, int, int], content_aspect: float,
-                         overhang: float = 0.025, limit: float = 0.04) -> tuple[int, int, int, int]:
-    """4:3 picture that slips a little under the frame, without eating the HUD.
+# Five percent of the picture sits under the art on the edges that meet the
+# opening. That is as far as the health bars and the timer can go.
+TUCK_OVERHANG = 0.05
+TUCK_LIMIT = 0.05
 
-    About 2.5% of the picture goes under the art on the edges that meet the
-    opening. No edge hides more than 4%. When the opening is not 4:3, the
-    other axis keeps a gap instead of cropping the health bars and the timer.
+
+def tuck_content_in_hole(hole: tuple[int, int, int, int], content_aspect: float,
+                         overhang: float = TUCK_OVERHANG, limit: float = TUCK_LIMIT) -> tuple[int, int, int, int]:
+    """4:3 picture that sits under the frame, without eating the HUD.
+
+    About 5% of the picture goes under the art on the top and the bottom when
+    the opening is wider than the game. No edge hides more than 5%. The spare
+    axis keeps a gap instead of cropping the health bars and the timer.
     """
     x, y, width, height = (int(v) for v in hole)
     if width < 1 or height < 1 or content_aspect <= 0:
@@ -241,7 +247,7 @@ def tuck_content_in_hole(hole: tuple[int, int, int, int], content_aspect: float,
     content_w = max(1, int(round(fit_w * scale)))
     content_h = max(1, int(round(content_w / content_aspect)))
     # Integer rounding can push an edge past the HUD limit. Shrink until it fits.
-    while content_w > 1 and content_h > 1 and max(hidden(content_w, width), hidden(content_h, height)) > limit + 0.005:
+    while content_w > 1 and content_h > 1 and max(hidden(content_w, width), hidden(content_h, height)) > limit + 0.004:
         content_w -= 1
         content_h = max(1, int(round(content_w / content_aspect)))
     origin_x = x + (width - content_w) // 2
@@ -273,19 +279,39 @@ def fit_content_in_hole(hole: tuple[int, int, int, int], content_aspect: float) 
     return origin_x, origin_y, content_w, content_h
 
 
-def hole_append_config(rect: tuple[int, int, int, int]) -> str:
-    """Windowed borderless RetroArch whose client area is the hole.
+def layout_for_hole(hole: tuple[int, int, int, int], content_aspect: float = SNES_DISPLAY_ASPECT,
+                    ) -> tuple[tuple[int, int, int, int], tuple[int, int, int, int]]:
+    """Window that covers the opening, and the 4:3 picture inside that window.
 
-    The window is the opening. Aspect index 22 is RetroArch's "Core provided",
-    so the core's picture is fitted inside that window and the spare space is
-    a bar. A custom viewport the size of the window would stretch instead.
-    RetroArch's own frame overlay stays off. Buddy already draws the scenery.
+    The picture is taller than a wide opening, so the window sticks out past
+    the hole on the top and the bottom. Buddy's frame is drawn on top of that
+    stick-out. Side gaps stay inside the window, which keeps the desktop covered.
     """
-    x, y, width, height = (int(v) for v in rect)
-    # Slip a 4:3 picture just under the art. A full cover would cut off the HUD
-    # when the opening is wider than the game. Integer scale stays off so the
-    # picture is not left at 3x in the middle of the window.
-    vx, vy, vw, vh = tuck_content_in_hole((0, 0, width, height), SNES_DISPLAY_ASPECT)
+    hx, hy, hw, hh = (int(v) for v in hole)
+    px, py, pw, ph = tuck_content_in_hole((hx, hy, hw, hh), content_aspect)
+    x0 = min(hx, px)
+    y0 = min(hy, py)
+    x1 = max(hx + hw, px + pw)
+    y1 = max(hy + hh, py + ph)
+    window = (x0, y0, x1 - x0, y1 - y0)
+    viewport = (px - x0, py - y0, pw, ph)
+    return window, viewport
+
+
+def game_window_for_hole(hole: tuple[int, int, int, int]) -> tuple[int, int, int, int]:
+    """Screen rect RetroArch should occupy so the picture tucks under the art."""
+    window, _viewport = layout_for_hole(hole)
+    return window
+
+
+def hole_append_config(rect: tuple[int, int, int, int]) -> str:
+    """Windowed borderless RetroArch. The picture tucks under Buddy's frame.
+
+    The window is the opening plus the overhang. The custom viewport is the
+    4:3 picture in that window. Integer scale stays off so the picture is not
+    left at 3x in the middle. RetroArch's own frame overlay stays off.
+    """
+    (x, y, width, height), (vx, vy, vw, vh) = layout_for_hole(rect)
     scale = max(vw / 256.0, vh / 224.0, 6.0)
     lines = [
         'video_fullscreen = "false"',

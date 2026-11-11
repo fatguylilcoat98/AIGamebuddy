@@ -163,7 +163,11 @@ class BuddySession:
         self._look_started = 0.0
         self._last_said = 0.0
         from .frame_comment import FrameCommentator
+        from .game_watch import GameWatch
         self._commentator = FrameCommentator()
+        self._watch = GameWatch()
+        self._script_lines: list[str] | None = None
+        self._script_index = 0
         self.announcer = False
         self._booth_turn = "male"
         self._speaking_as = self.buddy_character
@@ -398,6 +402,12 @@ class BuddySession:
         note = ""
         if self._helper_ready():
             note = self._screen_note()
+        heard = self._reply_from_watch(cleaned)
+        if heard is not None:
+            return heard
+        memory = self._watch.context()
+        if memory:
+            note = f"{note}\n{memory}".strip() if note else memory
         return self._banter(
             player_text=cleaned, spontaneous=False, event="", priority=2, direct=True, observation=note,
         )
@@ -578,13 +588,86 @@ class BuddySession:
         self._look_busy = True
         threading.Thread(target=self._look_worker, name="buddy-look", daemon=True).start()
 
+    def _next_scripted_frame(self) -> str:
+        """A CI match script, one frame per look, so the log can show a comeback."""
+        path = os.environ.get("BUDDY_FRAME_SCRIPT") or ""
+        if not path:
+            return ""
+        if self._script_lines is None:
+            try:
+                self._script_lines = [
+                    line.strip() for line in Path(path).read_text(encoding="utf-8").splitlines() if line.strip()
+                ]
+            except OSError:
+                self._script_lines = []
+        if self._script_index >= len(self._script_lines or []):
+            return ""
+        line = self._script_lines[self._script_index]
+        self._script_index += 1
+        return line
+
+    def _model_is_live(self) -> bool:
+        provider = str(self.config.get("provider") or "offline").strip().lower()
+        return provider not in {"", "offline", "none", "off"}
+
+    def _ask_follow(self, prompt: str) -> str:
+        """One short reply from the configured chat model. Offline stays empty."""
+        if not self._model_is_live():
+            return ""
+        try:
+            from .emotions import parse_tags
+            from .personas import persona_prompt
+            result = self.model.complete([
+                {"role": "system", "content": persona_prompt(self.personality)},
+                {"role": "user", "content": prompt},
+            ])
+            text = (getattr(result, "text", "") or "").strip()
+            if not text:
+                return ""
+            parsed = parse_tags(text)
+            text = (parsed.text or "").strip() or text
+        except Exception:
+            log.info("Follow model did not answer")
+            return ""
+        return text[:220]
+
+    def comment_on_frame(self, observation: str) -> str:
+        """Remember the frame, compare it with the last one, and say what changed."""
+        change = self._watch.update(observation)
+        log.info("Game memory %s", self._watch.context())
+        log.info("Frame change: %s", change or "none")
+        if not (observation or "").strip():
+            line, made = self._commentator.line("", self.personality, have_frame=False)
+            self._say_line(line, made)
+            return line
+        line, made = self._watch.comment(
+            self.personality, ask=self._ask_follow, history=self._watch.said,
+        )
+        self._say_line(line, made)
+        return line
+
+    def _reply_from_watch(self, text: str):
+        """Answer Chris from the match memory, using the model when it is on."""
+        if self._model_is_live():
+            spoken = self._ask_follow(self._watch.player_prompt(text, self.personality))
+            if spoken:
+                log.info("Spoke source=llm voice=%s: %s", self.buddy_character, spoken)
+                return self._show(spoken, category="chat", emotion="talk")
+        local = self._watch.answer(text, self.personality)
+        if not local:
+            return None
+        return self._show(local, category="chat", emotion="talk")
+
     def _look_worker(self) -> None:
         try:
             from .frame_comment import describe_frame
-            captured = self._capture_game_window()
-            observation = ""
-            source = "frame"
-            if captured is None:
+            scripted = self._next_scripted_frame()
+            captured = None if scripted else self._capture_game_window()
+            observation = scripted
+            source = "follow" if scripted else "frame"
+            if scripted:
+                log.info("Look tick scripted frame: %s", scripted)
+            elif captured is None:
                 log.info("Looked at the game. interval=%ss captured=no", self.look_interval)
             else:
                 _width, _height, jpeg = captured
@@ -601,12 +684,13 @@ class BuddySession:
                     if note:
                         observation = note
                         source = "vision"
-            line, made = self._commentator.line(
-                observation, self.personality, have_frame=bool(observation),
-            )
-            if made == "frame" and source == "vision":
-                made = "vision"
-            self._say_line(line, made)
+            if observation:
+                self.comment_on_frame(observation)
+            else:
+                line, made = self._commentator.line("", self.personality, have_frame=False)
+                if source == "vision":
+                    made = "vision"
+                self._say_line(line, made)
         except Exception:
             log.exception("Look at the game failed")
         finally:
@@ -621,7 +705,8 @@ class BuddySession:
         if getattr(self.audio, "speaking", False):
             log.info("Look tick held. someone is still talking")
             return
-        if now - self._last_said < gap:
+        scripted = source == "follow" and bool(os.environ.get("BUDDY_FRAME_SCRIPT"))
+        if not scripted and now - self._last_said < gap:
             log.info("Look tick held. next line in %.0fs", gap - (now - self._last_said))
             return
         self._last_said = now
@@ -1091,23 +1176,26 @@ class BuddySession:
         return placed
 
     def _place_hole(self, hwnd: int, rect: tuple[int, int, int, int]) -> ActionResult:
-        from .retroarch_finder import needs_replace
+        from .retroarch_finder import game_window_for_hole, needs_replace
         from .window_layout import client_screen_rect
         retro_log = logging.getLogger("buddy.retroarch")
+        # The visible opening stays `rect`. The window is taller so the picture
+        # continues under the frame art. Snapping to the hole would clip it.
+        window = game_window_for_hole(rect)
         # Every pass. RetroArch's GDI driver puts the File menu back after the first snap.
         retro_log.info("Removing window decorations hwnd=%s result=%s", hwnd, strip_window_decorations(hwnd))
         current = client_screen_rect(hwnd) or self._window_rect(hwnd)
-        retro_log.info("RetroArch hwnd=%s client=%s target=%s", hwnd, current, rect)
-        if not needs_replace(current, rect):
-            self._placed = (hwnd, rect)
-            return ActionResult(True, "RetroArch is already in the hole.", reason="stable",
-                                data={"hwnd": hwnd, "rect": list(rect)})
+        retro_log.info("RetroArch hwnd=%s client=%s opening=%s window=%s", hwnd, current, rect, window)
+        if not needs_replace(current, window):
+            self._placed = (hwnd, window)
+            return ActionResult(True, "RetroArch is already under the frame.", reason="stable",
+                                data={"hwnd": hwnd, "rect": list(window)})
         mover = self.window_positioner or position_hwnd
-        result = mover(hwnd, rect, self.overlay_hwnds)
+        result = mover(hwnd, window, self.overlay_hwnds)
         strip_window_decorations(hwnd)
-        retro_log.info("SetWindowPos hwnd=%s rect=%s ok=%s reason=%s", hwnd, rect, result.ok, result.reason)
+        retro_log.info("SetWindowPos hwnd=%s rect=%s ok=%s reason=%s", hwnd, window, result.ok, result.reason)
         if result.ok:
-            self._placed = (hwnd, rect)
+            self._placed = (hwnd, window)
         self._layout_note = result.message
         return result
 

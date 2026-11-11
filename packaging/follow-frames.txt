@@ -1,0 +1,7 @@
+Street Fighter II. Chris picked Ryu. Opponent is Ken. Round 1. Both health bars are full.
+Street Fighter II. Ryu versus Ken. Round 1. Ryu's health is dropping. Ken is ahead.
+Street Fighter II. Round 1 lost. Ken won the round. Ryu health empty.
+Street Fighter II. Round 2 started. Ryu versus Ken. Ryu health is full. Comeback round.
+Street Fighter II. Round 2. Ryu landed a combo. Ken health is low. Ryu is ahead.
+Street Fighter II. Round 2 won. Ryu took the round. Score is tied. Comeback.
+Street Fighter II. Round 3. Ryu versus Ken. Both health full. Ryu is on a win streak.

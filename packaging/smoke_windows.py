@@ -120,7 +120,10 @@ def close_window(title: str) -> None:
 
 def prove_lines(path: Path) -> None:
     from datetime import datetime
-    rows = [line for line in path.read_text(encoding="utf-8").splitlines() if "\tsource=frame" in line or "\tsource=vision" in line]
+    rows = [
+        line for line in path.read_text(encoding="utf-8").splitlines()
+        if any(tag in line for tag in ("\tsource=frame", "\tsource=vision", "\tsource=follow", "\tsource=llm"))
+    ]
     print(f"frame lines {len(rows)}")
     if len(rows) < 8:
         raise SystemExit(f"only {len(rows)} frame comments, wanted at least 8")
@@ -132,6 +135,80 @@ def prove_lines(path: Path) -> None:
     print(f"frame comments span {span:.0f}s unique {len(texts)}")
     if span < 150:
         raise SystemExit(f"frame comments only span {span:.0f}s, wanted 3 minutes")
+
+
+def prove_repeats(path: Path) -> None:
+    """Exact repeats and the near-duplicate rate across the spoken log."""
+    from backend.novelty import similarity
+    from backend.said_history import NEAR_DUP
+    rows = [
+        line.split("\t", 3)[-1].strip()
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if "\tsource=" in line and not line.endswith("\t")
+    ]
+    rows = [row for row in rows if row]
+    exact = 0
+    near_pairs = 0
+    pairs = 0
+    for index, line in enumerate(rows):
+        for earlier in rows[:index]:
+            pairs += 1
+            if " ".join(line.lower().split()) == " ".join(earlier.lower().split()):
+                exact += 1
+            elif similarity(line, earlier) >= NEAR_DUP:
+                near_pairs += 1
+    rate = (near_pairs / pairs) if pairs else 0.0
+    report = (
+        f"spoken={len(rows)}\nexact_repeats={exact}\nnear_dup_pairs={near_pairs}\n"
+        f"comparisons={pairs}\nnear_dup_rate={rate:.4f}\n"
+    )
+    print(report)
+    out = os.environ.get("BUDDY_REPEAT_OUT")
+    if out:
+        Path(out).write_text(report, encoding="utf-8")
+    if exact:
+        raise SystemExit(f"{exact} exact repeated lines")
+    if len(rows) >= 8 and rate > 0.12:
+        raise SystemExit(f"near-duplicate rate {rate:.2f} is too high")
+
+
+def prove_attitudes(script: Path, out: Path) -> None:
+    """Same frames, three attitudes. The tones have to read as different people."""
+    from backend.game_watch import GameWatch
+    from backend.novelty import similarity
+    from backend.personas import curses_in
+    frames = [line.strip() for line in script.read_text(encoding="utf-8").splitlines() if line.strip()]
+    blocks = []
+    loss = {}
+    comeback = {}
+    for personality in ("casual", "sassy", "extreme"):
+        watch = GameWatch()
+        lines = []
+        for frame in frames:
+            watch.update(frame)
+            spoken, _source = watch.comment(personality)
+            lines.append(spoken)
+        blocks.append(f"[{personality}]\n" + "\n".join(lines))
+        blob = "\n".join(lines).lower()
+        loss[personality] = next(line for line in lines if "round 1" in line.lower() and "lost" in line.lower())
+        comeback[personality] = next(line for line in lines if "comeback" in line.lower())
+        stats = watch.said.repetition()
+        if stats["exact_repeats"]:
+            raise SystemExit(f"{personality} repeated a line")
+        if personality == "casual" and curses_in(blob):
+            raise SystemExit("casual cursed")
+        if personality == "sassy" and any(word in blob for word in ("fuck", "shit")):
+            raise SystemExit("sassy was not clean-ish")
+        if personality == "extreme" and "fuck" not in blob:
+            raise SystemExit("extreme did not curse")
+    for left, right in (("casual", "sassy"), ("sassy", "extreme"), ("casual", "extreme")):
+        if similarity(loss[left], loss[right]) >= 0.55:
+            raise SystemExit(f"{left} and {right} loss lines are too alike")
+        if similarity(comeback[left], comeback[right]) >= 0.55:
+            raise SystemExit(f"{left} and {right} comeback lines are too alike")
+    text = "\n\n".join(blocks) + "\n"
+    out.write_text(text, encoding="utf-8")
+    print(text)
 
 
 def prove(path: Path, menu_open: bool) -> None:
@@ -161,6 +238,12 @@ def main(argv: list[str]) -> int:
     command = argv[1] if len(argv) > 1 else ""
     if command == "lines":
         prove_lines(Path(os.environ["BUDDY_LINES"]))
+        return 0
+    if command == "repeats":
+        prove_repeats(Path(os.environ["BUDDY_LINES"]))
+        return 0
+    if command == "attitudes":
+        prove_attitudes(Path(os.environ["BUDDY_FRAME_SCRIPT"]), Path(os.environ["BUDDY_ATTITUDES"]))
         return 0
     if command == "close":
         close_window(os.environ.get("BUDDY_WINDOW_TITLE") or "Buddy Setup")

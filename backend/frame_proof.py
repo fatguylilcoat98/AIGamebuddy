@@ -161,9 +161,9 @@ def _content_span(shot: np.ndarray, game: tuple[int, int, int, int]) -> list[str
     if picture_h < 8 or picture_w < 8:
         return ["the game picture is missing from the opening"]
     aspect = picture_w / picture_h
-    # A 2-4% tuck makes the visible slice a little wider than 4:3. A stretched
+    # A 5% tuck makes the visible slice a little wider than 4:3. A stretched
     # or fully covered opening is much wider than that.
-    if aspect < 1.20 or aspect > 1.55:
+    if aspect < 1.20 or aspect > 1.58:
         return [f"the picture aspect is {aspect:.2f}, not 4:3"]
     left = region[top_row + picture_h // 3: top_row + 2 * picture_h // 3, left_col:left_col + 8]
     right = region[top_row + picture_h // 3: top_row + 2 * picture_h // 3, right_col - 7:right_col + 1]

@@ -408,6 +408,21 @@ $proof = Join-Path $shotDir "exit-no-processes.txt"
 ) | Set-Content -Path $proof -Encoding utf8
 Write-Host "Exit to desktop left no Buddy or RetroArch process"
 
+# The runner's own display has no 3840x2160 mode. A virtual monitor does.
+$vddZip = Join-Path $env:TEMP "usbmmidd_v2.zip"
+$vddRoot = Join-Path $env:TEMP "usbmmidd"
+New-Item -ItemType Directory -Force -Path $vddRoot | Out-Null
+Write-Host "Installing a virtual 4K display"
+& curl.exe -L --fail --retry 5 --retry-all-errors --retry-delay 3 -o $vddZip "https://amyuni.com/downloads/usbmmidd_v2.zip"
+if ($LASTEXITCODE -ne 0) { throw "Could not download the virtual display driver" }
+Expand-Archive -Path $vddZip -DestinationPath $vddRoot -Force
+$vddInstaller = Get-ChildItem $vddRoot -Recurse -Filter "deviceinstaller64.exe" | Select-Object -First 1
+$vddInf = Get-ChildItem $vddRoot -Recurse -Filter "usbmmidd.inf" | Select-Object -First 1
+if (-not $vddInstaller -or -not $vddInf) { throw "The virtual display driver archive did not contain its installer" }
+& $vddInstaller.FullName install $vddInf.FullName usbmmidd
+& $vddInstaller.FullName enableidd 1
+Start-Sleep -Seconds 5
+
 # A real 3840x2160 desktop at 150% scaling, then the same frame check.
 $mode.dmPelsWidth = 3840
 $mode.dmPelsHeight = 2160
@@ -429,6 +444,51 @@ foreach ($dpiValue in 1, 2, 0) {
 }
 New-ItemProperty -Path "HKCU:\Control Panel\Desktop" -Name LogPixels -Value 144 -PropertyType DWord -Force | Out-Null
 New-ItemProperty -Path "HKCU:\Control Panel\Desktop" -Name Win8DpiScaling -Value 1 -PropertyType DWord -Force | Out-Null
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public static class BuddyDisplay {
+    [StructLayout(LayoutKind.Sequential, CharSet=CharSet.Auto)]
+    public struct DEVMODE {
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst=32)] public string dmDeviceName;
+        public short dmSpecVersion; public short dmDriverVersion; public short dmSize; public short dmDriverExtra;
+        public int dmFields; public int dmPositionX; public int dmPositionY;
+        public int dmDisplayOrientation; public int dmDisplayFixedOutput;
+        public short dmColor; public short dmDuplex; public short dmYResolution; public short dmTTOption; public short dmCollate;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst=32)] public string dmFormName;
+        public short dmLogPixels; public int dmBitsPerPel; public int dmPelsWidth; public int dmPelsHeight;
+        public int dmDisplayFlags; public int dmDisplayFrequency;
+    }
+    [StructLayout(LayoutKind.Sequential, CharSet=CharSet.Auto)]
+    public struct DISPLAY_DEVICE {
+        public int cb;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst=32)] public string DeviceName;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst=128)] public string DeviceString;
+        public int StateFlags;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst=128)] public string DeviceID;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst=128)] public string DeviceKey;
+    }
+    [DllImport("user32.dll", CharSet=CharSet.Auto)]
+    public static extern bool EnumDisplayDevices(string lpDevice, uint iDevNum, ref DISPLAY_DEVICE lpDisplayDevice, uint dwFlags);
+    [DllImport("user32.dll", CharSet=CharSet.Auto)]
+    public static extern int ChangeDisplaySettingsEx(string device, ref DEVMODE mode, IntPtr hwnd, int flags, IntPtr param);
+}
+"@
+for ($i = 0; $i -lt 8; $i++) {
+    $device = New-Object BuddyDisplay+DISPLAY_DEVICE
+    $device.cb = [Runtime.InteropServices.Marshal]::SizeOf($device)
+    if (-not [BuddyDisplay]::EnumDisplayDevices($null, [uint32]$i, [ref]$device, [uint32]0)) { break }
+    Write-Host "Display $i $($device.DeviceName) $($device.DeviceString)"
+    $deviceMode = New-Object BuddyDisplay+DEVMODE
+    $deviceMode.dmSize = [Runtime.InteropServices.Marshal]::SizeOf($deviceMode)
+    $deviceMode.dmPelsWidth = 3840
+    $deviceMode.dmPelsHeight = 2160
+    $deviceMode.dmBitsPerPel = 32
+    $deviceMode.dmFields = 0x1C0000
+    $deviceCode = [BuddyDisplay]::ChangeDisplaySettingsEx($device.DeviceName, [ref]$deviceMode, [IntPtr]::Zero, 0x40000011, [IntPtr]::Zero)
+    Write-Host "Set $($device.DeviceName) to 3840x2160 -> $deviceCode"
+}
+Start-Sleep -Seconds 2
 $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
 Write-Host "Primary screen after 4K request $($bounds.Width)x$($bounds.Height)"
 if ($bounds.Width -ne 3840 -or $bounds.Height -ne 2160) {

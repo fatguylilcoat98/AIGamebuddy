@@ -435,7 +435,9 @@ def _launch_buddy() -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    from .diagnostics import install
+    install()
+    logging.getLogger("buddy.startup").info("startup: wizard entry")
     args = list(sys.argv[1:] if argv is None else argv)
     if "--shots" in args:
         from .wizard_pages import write_shots

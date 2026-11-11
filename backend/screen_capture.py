@@ -28,6 +28,10 @@ class ScreenCapture:
         left, top, width, height = (int(v) for v in rect)
         if width < 2 or height < 2:
             raise ValueError("Capture rectangle is too small")
+        import os
+        import tempfile
+        if os.name == "nt":
+            return _jpeg_rect_isolated(left, top, width, height)
         import mss
         with mss.mss() as sct:
             shot = sct.grab({"left": left, "top": top, "width": width, "height": height})
@@ -40,3 +44,48 @@ class ScreenCapture:
 
     def close(self):
         pass
+
+
+def _jpeg_rect_isolated(left: int, top: int, width: int, height: int) -> bytes:
+    """mss runs in a child process so a capture crash does not kill Buddy."""
+    import logging
+    import subprocess
+    import tempfile
+    from pathlib import Path
+    from .native_guard import crashed, mark, probe, python_exe
+    import os
+    log = logging.getLogger("buddy.capture")
+    if probe("capture", "import mss") != "ok":
+        raise RuntimeError("Screen capture is off. The capture library did not load, so Buddy will not look at the screen.")
+    fd, dest = tempfile.mkstemp(suffix=".jpg", prefix="buddy-cap-")
+    os.close(fd)
+    try:
+        done = subprocess.run(
+            [python_exe(), "-m", "backend.capture_worker",
+             str(left), str(top), str(width), str(height), dest],
+            capture_output=True, text=True, timeout=12, check=False,
+        )
+        if crashed(done.returncode):
+            mark("capture", "crashed")
+            log.warning(
+                "Screen capture is off. The capture library crashed (code %s), so Buddy will not look at the screen.",
+                done.returncode,
+            )
+            raise RuntimeError("Screen capture crashed")
+        if done.returncode != 0:
+            detail = ((done.stderr or "") + (done.stdout or "")).strip()
+            log.warning("Screen capture failed. %s", detail[-300:])
+            raise RuntimeError(detail or "Screen capture failed")
+        data = Path(dest).read_bytes()
+        if not data:
+            raise RuntimeError("Screen capture returned an empty frame")
+        return data
+    except subprocess.TimeoutExpired:
+        mark("capture", "crashed")
+        log.warning("Screen capture is off. The capture hung, so Buddy will not look at the screen.")
+        raise RuntimeError("Screen capture hung")
+    finally:
+        try:
+            os.remove(dest)
+        except OSError:
+            pass

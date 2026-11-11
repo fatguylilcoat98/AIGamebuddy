@@ -77,6 +77,12 @@ def neural_voice(character: str) -> str:
 
 def synthesize_edge_wav(text: str, character: str = "male") -> bytes | None:
     """Natural speech. Returns WAV bytes, or None when the network voice is unavailable."""
+    from .native_guard import probe
+    if probe("audio", "import miniaudio") != "ok":
+        logging.getLogger("buddy.audio").warning(
+            "Neural voice is off. The audio library did not load, so Buddy will use the Windows voice.",
+        )
+        return None
     try:
         import asyncio
         import edge_tts
@@ -155,6 +161,68 @@ def _rms(samples) -> float:
     return max(0.0, min(1.0, value * 4))
 
 
+def _scaled_wav(wav_bytes: bytes, volume: float) -> bytes:
+    gain = max(0.0, min(1.0, volume / 100.0))
+    if gain >= 0.99:
+        return wav_bytes
+    import array
+    import io
+    with wave.open(io.BytesIO(wav_bytes), "rb") as handle:
+        params = handle.getparams()
+        frames = handle.readframes(handle.getnframes())
+    if params.sampwidth != 2:
+        return wav_bytes
+    samples = array.array("h")
+    samples.frombytes(frames)
+    scaled = array.array("h", (
+        max(-32767, min(32767, int(sample * gain))) for sample in samples
+    ))
+    output = io.BytesIO()
+    with wave.open(output, "wb") as handle:
+        handle.setparams(params)
+        handle.writeframes(scaled.tobytes())
+    return output.getvalue()
+
+
+def play_wav_windows(wav_bytes: bytes, volume: float, device: AudioDevice | None,
+                     on_level) -> None:
+    """Play a WAV with the Windows API. PortAudio stays out of speech playback.
+
+    Sharing PortAudio between the microphone and speech has crashed pythonw
+    with an access violation in ntdll. Playback uses the default endpoint.
+    """
+    del device
+    import tempfile
+    import time
+    import winsound
+    fd, path = tempfile.mkstemp(suffix=".wav", prefix="buddy-play-")
+    os.close(fd)
+    try:
+        Path(path).write_bytes(_scaled_wav(wav_bytes, volume))
+        with wave.open(path, "rb") as handle:
+            seconds = handle.getnframes() / float(handle.getframerate() or 1)
+        winsound.PlaySound(path, winsound.SND_FILENAME | winsound.SND_ASYNC)
+        steps = max(1, int(seconds / 0.05))
+        for _ in range(steps):
+            if on_level:
+                on_level(min(1.0, volume / 100.0))
+            time.sleep(0.05)
+        winsound.PlaySound(None, winsound.SND_PURGE)
+        if on_level:
+            on_level(0.0)
+    finally:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+
+def default_player():
+    if sys.platform == "win32":
+        return play_wav_windows
+    return play_wav_sounddevice
+
+
 def play_wav_sounddevice(wav_bytes: bytes, volume: float, device: AudioDevice | None,
                          on_level) -> None:
     import numpy as np
@@ -192,7 +260,7 @@ class AudioOutput:
     def __init__(self, *, synthesizer=None, player=None, device_lister=None):
         self.character = "male"
         self.synthesizer = synthesizer or self._synthesize
-        self.player = player or play_wav_sounddevice
+        self.player = player or default_player()
         self.device_lister = device_lister or list_sounddevice_devices
         self._lock = threading.Lock()
         self.playing = False
@@ -200,6 +268,13 @@ class AudioOutput:
 
     def stop(self) -> None:
         self._stop = True
+        if sys.platform == "win32":
+            try:
+                import winsound
+                winsound.PlaySound(None, winsound.SND_PURGE)
+            except Exception:
+                pass
+            return
         try:
             import sounddevice as sd
             sd.stop()
@@ -246,8 +321,15 @@ class AudioOutput:
             return ActionResult(False, "There was no line to speak.", reason="empty")
         if mute or volume <= 0:
             return ActionResult(False, "Audio is muted, so I did not speak that aloud.", reason="muted")
-        devices = self.device_lister()
-        device = resolve_device(device_name, devices)
+        if sys.platform == "win32":
+            if device_name.strip():
+                logging.getLogger("buddy.audio").info(
+                    "Playing on the default Windows device instead of '%s'.", device_name,
+                )
+            device = AudioDevice(None, "default")
+        else:
+            devices = self.device_lister()
+            device = resolve_device(device_name, devices)
         if device_name.strip() and device is None:
             names = ", ".join(item.name for item in devices) or "(none found)"
             return ActionResult(

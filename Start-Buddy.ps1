@@ -38,7 +38,7 @@ if (Test-Path $embedded) {
     $proc = Start-Process -FilePath $launcher -ArgumentList @("-m", "backend.wizard_app") -WorkingDirectory $PSScriptRoot -WindowStyle Hidden -Wait -PassThru
     $code = $proc.ExitCode
     if ($code -ne 0) {
-        $detail = "runtime\pythonw.exe exited with code $code. Read $logFile. This is not a request to reinstall."
+        $detail = "runtime\pythonw.exe exited with code $code. Read $logFile and crash.log in the same folder. This is not a request to reinstall."
         if ($code -eq -1) {
             $detail = "runtime\pythonw.exe was closed from outside (exit code -1). Read $logFile. Buddy does not ask you to reinstall."
         }

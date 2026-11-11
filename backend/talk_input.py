@@ -41,32 +41,56 @@ def utterance_after_wake(text: str) -> str:
 
 
 def start_wake_listener(session, stopped) -> str:
-    """Listen for Hey Buddy when the local mic helper is installed."""
-    try:
-        from .buddy_ears import BuddyEars
-    except Exception:
-        return "unavailable"
-    if not BuddyEars.available():
-        return "unavailable"
+    """Listen in a child process so a Whisper or PortAudio crash cannot kill Buddy."""
+    import logging
+    log = logging.getLogger("buddy.ears")
 
     def loop() -> None:
+        import subprocess
         import time
-        ears = BuddyEars(max_seconds=4)
-        while not stopped():
-            if getattr(session, "closed", False):
-                return
+        from .native_guard import crashed, probe, python_exe
+        if probe("microphone", "import sounddevice") != "ok" or probe("whisper", "import faster_whisper") != "ok":
+            log.warning("Microphone is off. The speech library did not load, so Buddy will not listen.")
+            return
+        misses = 0
+        while not stopped() and not getattr(session, "closed", False):
+            if getattr(getattr(session, "audio", None), "speaking", False):
+                time.sleep(0.3)
+                continue
             try:
-                ears.start()
-                time.sleep(2.2)
-                heard = ears.stop_and_transcribe()
-            except Exception:
+                done = subprocess.run(
+                    [python_exe(), "-m", "backend.mic_worker", "2.2"],
+                    capture_output=True, text=True, timeout=40, check=False,
+                )
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                log.warning("Microphone is off. The listener did not finish. %s", exc)
+                return
+            if crashed(done.returncode):
+                log.warning(
+                    "Microphone is off. The listener crashed (code %s), so Buddy will not listen.",
+                    done.returncode,
+                )
+                return
+            if done.returncode != 0:
+                misses += 1
+                detail = ((done.stderr or "") + (done.stdout or "")).strip()
+                log.warning("Microphone listen failed. %s", detail[-300:])
+                if misses >= 2:
+                    log.warning("Microphone is off. Listening failed twice, so Buddy will not listen.")
+                    return
                 time.sleep(1.0)
                 continue
-            text = " ".join((getattr(heard, "text", "") or "").split())
+            misses = 0
+            text = " ".join((done.stdout or "").split())
+            if text.startswith("ERROR"):
+                continue
             if is_wake_phrase(text):
                 text = utterance_after_wake(text) or text
             if text:
-                session.handle_text(text)
+                try:
+                    session.handle_text(text)
+                except Exception:
+                    log.exception("Could not handle what the microphone heard")
 
     import threading
     threading.Thread(target=loop, name="buddy-wake", daemon=True).start()

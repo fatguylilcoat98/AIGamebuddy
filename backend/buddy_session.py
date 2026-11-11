@@ -162,6 +162,9 @@ class BuddySession:
         self._look_busy = False
         self._look_started = 0.0
         self._last_said = 0.0
+        from .said_history import SaidHistory
+        self._said = SaidHistory()
+        self._quiet_logged = False
         from .frame_comment import FrameCommentator
         from .game_watch import GameWatch
         self._commentator = FrameCommentator()
@@ -270,10 +273,12 @@ class BuddySession:
             now = self.clock.unix()
             self.session_id = self.memory.start_session(now, self.personality)
             self.running = True
+            log.info("startup: session starting personality=%s look=%ss", self.personality, self.look_interval)
             from .talk_input import start_wake_listener
             heard = start_wake_listener(self, lambda: self.closed)
+            log.info("startup: microphone listener=%s", heard)
             if heard != "listening":
-                log.info("Mic helper is not installed, so Buddy cannot hear the room yet. Talking out loud still works once it is.")
+                log.info("Microphone is off, so Buddy cannot hear the room yet. Talking out loud still works once a game is visible.")
             self.memory.set_profile("personality", self.personality, "system", now)
         greeting = self._maybe_greet()
         message = f"{self.character} is running."
@@ -565,10 +570,23 @@ class BuddySession:
         label = "1 minute" if chosen == 60 else f"{chosen} seconds"
         return self._show(f"I'll look at the game every {label}.", category="status", emotion="talk")
 
+    def _game_visible(self) -> bool:
+        """True only when a game window is actually on screen."""
+        try:
+            return self._emulator_hwnd() is not None
+        except Exception:
+            log.exception("Could not check for a game window")
+            return False
+
     def maybe_look_at_game(self, now: float | None = None) -> None:
         """Capture the game window on the timer. Skip when a look is still running."""
         import threading
         from .look_schedule import look_due
+        if not self._game_visible():
+            if not self._quiet_logged:
+                self._quiet_logged = True
+                log.info("Staying quiet until a game window is visible.")
+            return
         moment = self.clock.mono() if now is None else now
         decision = look_due(
             last=self._last_look, now=moment, interval=self.look_interval, busy=self._look_busy,
@@ -643,9 +661,8 @@ class BuddySession:
         log.info("Game memory %s", self._watch.context())
         log.info("Frame change: %s", change or "none")
         if not (observation or "").strip():
-            line, made = self._commentator.line("", self.personality, have_frame=False)
-            self._say_line(line, made)
-            return line
+            log.info("No frame to comment on. Staying quiet.")
+            return ""
         line, made = self._watch.comment(
             self.personality, ask=self._ask_follow, history=self._watch.said,
         )
@@ -666,6 +683,9 @@ class BuddySession:
 
     def _look_worker(self) -> None:
         try:
+            if not self._game_visible():
+                log.info("Look tick skipped. No game window yet.")
+                return
             from .frame_comment import describe_frame
             scripted = self._next_scripted_frame()
             captured = None if scripted else self._capture_game_window()
@@ -693,16 +713,18 @@ class BuddySession:
             if observation:
                 self.comment_on_frame(observation)
             else:
-                line, made = self._commentator.line("", self.personality, have_frame=False)
-                if source == "vision":
-                    made = "vision"
-                self._say_line(line, made)
+                log.info("Look tick had no frame. Staying quiet.")
         except Exception:
-            log.exception("Look at the game failed")
+            log.exception("Look at the game failed. Capture or vision did not stop Buddy.")
         finally:
             self._look_busy = False
 
     def _say_line(self, text: str, source: str) -> None:
+        if not (text or "").strip():
+            return
+        if source in {"canned", "frame", "template", "vision", "follow"} and not self._game_visible():
+            log.info("Held a line. No game window yet.")
+            return
         if self.frequency == "off" or self.quiet_until_called:
             log.info("Look tick held. frequency=%s quiet=%s", self.frequency, self.quiet_until_called)
             return
@@ -1495,7 +1517,9 @@ class BuddySession:
         return self.handle_text(heard.text)
 
     def _maybe_greet(self) -> ActionResult:
-        # A greeting only when a previous session exists and a fresh line is available.
+        # A greeting only when a previous session exists and a game is already visible.
+        if not self._game_visible():
+            return ActionResult(True, "", reason="no_greeting")
         with self.memory._lock:
             count = self.memory._conn.execute("SELECT COUNT(*) AS n FROM sessions").fetchone()["n"]
         if count < 2:
@@ -1659,6 +1683,13 @@ class BuddySession:
                             data={"angle": angle, "callback": callback})
 
     def _play(self, text: str) -> tuple[bool, str]:
+        if not (text or "").strip():
+            return False, ""
+        why = self._said.clash(text)
+        if why:
+            log.info("Held a repeat (%s): %s", why, text)
+            return False, "Already said that."
+        self._said.add(text)
         if not self.speech_enabled:
             return False, "Speech is disabled, so I did not play audio."
         def on_level(level: float) -> None:

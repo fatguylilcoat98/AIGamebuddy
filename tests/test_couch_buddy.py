@@ -17,7 +17,9 @@ def test_extreme_roasts_a_death_and_casual_stays_clean():
     assert "not so bad" in respect.lower() or "clean" in respect.lower()
     missed, canned = extreme.line("", "sassy", have_frame=False)
     assert canned == "canned"
-    assert missed
+    assert missed == ""
+    again, _source = extreme.line("", "sassy", have_frame=False)
+    assert again == ""
 
 
 def test_contra_code_and_an_unsure_lookup():

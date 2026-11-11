@@ -135,10 +135,10 @@ class FrameCommentator:
         self.recent: deque[str] = deque(maxlen=8)
 
     def line(self, observation: str, personality: str, *, have_frame: bool) -> tuple[str, str]:
+        # No frame means silence. Saying a stock line here is what repeated
+        # before the game was even on screen.
         if not have_frame or not (observation or "").strip():
-            text = "I missed that screen, so I'm not gonna pretend I saw it."
-            self.recent.append(text)
-            return text, "canned"
+            return "", "canned"
         kind = _kind(observation)
         options = _tone(personality if personality in {"casual", "sassy", "extreme"} else "sassy", kind)
         fact = _fact(observation)

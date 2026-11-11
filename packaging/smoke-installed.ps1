@@ -221,6 +221,24 @@ $env:BUDDY_SAVE_LOG = Join-Path $shotDir "save-roundtrip.txt"
 if (Test-Path $cmdFile) { Remove-Item $cmdFile -Force }
 if (Test-Path $ackFile) { Remove-Item $ackFile -Force }
 
+# An upgraded PC keeps yesterday's config. A missing device name must not crash Buddy.
+$oldCfg = Join-Path $app "config\buddy.config.json"
+New-Item -ItemType Directory -Force -Path (Split-Path $oldCfg) | Out-Null
+@'
+{
+  "character_name": "Buddy",
+  "personality": "sassy",
+  "commentary": {"frequency": "chatty", "look_interval_seconds": 5, "cooldown_seconds": 8},
+  "voice": {"enabled": true, "volume": 70, "rate": 0, "output_device": "Speakers (Realtek Audio)", "mute": false},
+  "vision": {"enabled": false, "provider": "none"},
+  "wake_word": true,
+  "provider": "offline"
+}
+'@ | Set-Content -Path $oldCfg -Encoding ascii
+Write-Host "Planted an old config at $oldCfg"
+$spokenEarly = Join-Path $env:LOCALAPPDATA "VideoGameWingman\spoken.log"
+if (Test-Path $spokenEarly) { Remove-Item $spokenEarly -Force }
+
 Write-Host "Opening the Play screen"
 $play = Start-Process -FilePath $pythonw -ArgumentList @("-m", "backend.wizard_app", "--wizard") -WorkingDirectory $elsewhere -WindowStyle Hidden -PassThru
 $playShot = Join-Path $shotDir "wizard-play.jpg"
@@ -236,11 +254,18 @@ $ra = $null
 while ((Get-Date) -lt $deadline) {
     $ra = Get-Process -Name "retroarch" -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($ra) { break }
+    if (Test-Path $spokenEarly) {
+        $early = Get-Content -Raw $spokenEarly
+        if ($early -and $early.Trim().Length -gt 0) {
+            throw "Buddy spoke before the game was visible: $early"
+        }
+    }
     Start-Sleep -Seconds 1
 }
 function Write-BuddyLogs {
     foreach ($log in @(
         (Join-Path $env:LOCALAPPDATA "Buddy\logs\buddy.log"),
+        (Join-Path $env:LOCALAPPDATA "Buddy\logs\crash.log"),
         (Join-Path $env:LOCALAPPDATA "Buddy\logs\startup.log"),
         (Join-Path $env:LOCALAPPDATA "VideoGameWingman\buddy.log")
     )) {
@@ -289,8 +314,25 @@ if ($LASTEXITCODE -ne 0) {
 
 Write-Host "Listening for three minutes of frame comments"
 Start-Sleep -Seconds 185
+$launcherAlive = Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match "backend\.launcher" }
+if (-not $launcherAlive) { throw "Buddy's launcher is not running after three minutes" }
+$startupLog = Join-Path $env:LOCALAPPDATA "Buddy\logs\startup.log"
+if ((Test-Path $startupLog) -and (Select-String -Path $startupLog -Pattern "-1073741819" -Quiet)) {
+    throw "pythonw crashed with an access violation during the three minutes"
+}
+$buddyLog = Join-Path $env:LOCALAPPDATA "Buddy\logs\buddy.log"
+$crashLog = Join-Path $env:LOCALAPPDATA "Buddy\logs\crash.log"
+if (-not (Test-Path $buddyLog)) { throw "buddy.log was not written" }
+if (-not (Test-Path $crashLog)) { throw "crash.log was not written" }
+if (-not (Select-String -Path $buddyLog -Pattern "startup:" -Quiet)) {
+    throw "buddy.log has no startup record"
+}
 $spoken = Join-Path $env:LOCALAPPDATA "VideoGameWingman\spoken.log"
 if (-not (Test-Path $spoken)) { throw "Buddy did not write spoken.log" }
+if (Select-String -Path $spoken -Pattern "missed that screen" -Quiet) {
+    Get-Content $spoken
+    throw "The missed-screen fallback was spoken"
+}
 Copy-Item $spoken (Join-Path $shotDir "buddy-lines.txt") -Force
 $env:BUDDY_LINES = Join-Path $shotDir "buddy-lines.txt"
 & $python $smokePy lines

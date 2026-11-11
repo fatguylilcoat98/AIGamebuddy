@@ -155,10 +155,15 @@ def load_config(path: Path | None = None) -> Config:
     if chosen is None:
         chosen = LOCAL_PATH if LOCAL_PATH.exists() else SAMPLE_PATH
     if chosen and Path(chosen).exists():
-        text = Path(chosen).read_text(encoding="utf-8")
-        raw = json.loads(strip_json_comments(text) or "{}")
+        try:
+            text = Path(chosen).read_text(encoding="utf-8")
+            raw = json.loads(strip_json_comments(text) or "{}")
+        except (OSError, json.JSONDecodeError, UnicodeError) as exc:
+            warnings.append(f"Could not read {chosen}: {exc}. Using defaults.")
+            raw = {}
         if not isinstance(raw, dict):
-            raise ValueError(f"Config must be a JSON object: {chosen}")
+            warnings.append(f"Config must be a JSON object: {chosen}. Using defaults.")
+            raw = {}
     data = _deep_merge(DEFAULTS, raw)
     character = str(data.get("character_name") or "Buddy").strip() or "Buddy"
     if character.lower() == "zion":

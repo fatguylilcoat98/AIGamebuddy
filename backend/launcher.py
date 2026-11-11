@@ -57,18 +57,13 @@ def _install_console_stop() -> None:
 
 
 def main() -> int:
+    from .diagnostics import install
+    install()
     config = load_config()
     data_dir = default_data_dir(config)
     data_dir.mkdir(parents=True, exist_ok=True)
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-        handlers=[
-            logging.FileHandler(data_dir / "buddy.log", encoding="utf-8"),
-            logging.StreamHandler(),
-        ],
-    )
     log = logging.getLogger("buddy.launcher")
+    log.info("startup: config loaded from %s", getattr(config, "path", ""))
     for warning in config.warnings:
         log.warning("%s", warning)
     _dpi()
@@ -86,6 +81,7 @@ def main() -> int:
     thread = threading.Thread(target=_serve, args=(port,), name="buddy-api", daemon=True)
     thread.start()
     log.info("Local API at http://127.0.0.1:%s", port)
+    log.info("startup: overlay opening")
     try:
         run_overlay(session)
     finally:

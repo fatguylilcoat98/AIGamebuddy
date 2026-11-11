@@ -87,6 +87,20 @@ def session_for(tmp_path, *, model=None, personality="sassy"):
     return buddy, clock, audio, model
 
 
+def test_missing_portaudio_does_not_stop_buddy_from_starting(monkeypatch):
+    import builtins
+    from backend.buddy_ears import BuddyEars
+    real_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == "sounddevice":
+            raise OSError("PortAudio library not found")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+    assert BuddyEars.available() is False
+
+
 def test_packs_validate():
     errors = validate_tree()
     assert errors == []

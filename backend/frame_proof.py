@@ -246,7 +246,8 @@ def prove_snes_screen(screenshot: Image.Image, *, menu_open: bool, frame_path: P
     # Right-hand scenery. The menu panel sits on the left, so these stay visible.
     for name, box in (
         ("top-right art", (2140, 40, 280, 120)),
-        ("right scenery", (2060, 360, 180, 140)),
+        # Far enough into the dragon that the blue gap beside it is not in the sample.
+        ("right scenery", (2200, 400, 180, 140)),
     ):
         screen_box = _scale_box(
             {"x": box[0], "y": box[1], "width": box[2], "height": box[3]},

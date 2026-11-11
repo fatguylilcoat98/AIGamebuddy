@@ -77,17 +77,18 @@ jobs:
           gh release edit buddy-v0.1.0-pre8 --repo ${{ github.repository }} --notes "BROKEN. Do not install this build. The Windows screenshots show a bare RetroArch window and console logs, not the SNES frame or Buddy. python.exe was force-killed during the test (exit code -1), which left the console open, and the overlay was not in front. Use pre9."
 
       - name: Publish prerelease
-        if: false
+        if: success()
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: buddy-v0.1.0-pre13
-          name: Buddy 0.1.0 pre13
+          tag_name: buddy-v0.1.0-pre14
+          name: Buddy 0.1.0 pre14
           prerelease: true
           make_latest: false
           generate_release_notes: false
           body: |
             Prerelease installer for Super NES. Double-click BuddySetup.exe.
-            pre8 is broken. pre12 talked once and then went quiet. Use pre13.
+            The blue fills the black opening. The game is a 4:3 picture on that blue.
+            Hologram Boy is the original. pre8 is broken. Do not install pre8.
             Snes9x is included for personal use. It is not the latest stable release.
           files: |
             dist/BuddySetup.exe

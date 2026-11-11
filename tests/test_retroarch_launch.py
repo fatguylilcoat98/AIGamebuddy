@@ -131,7 +131,8 @@ def test_hole_config_letterboxes_inside_the_opening(tmp_path):
     assert 'video_window_width = "900"' in text
     assert 'video_window_height = "700"' in text
     assert 'aspect_ratio_index = "23"' in text
-    assert 'video_crop_overscan = "false"' in text
+    assert 'video_crop_overscan = "true"' in text
+    assert 'snes9x_overscan = "disabled"' in text
     assert 'custom_viewport_width = "900"' in text
     assert 'custom_viewport_height = "700"' in text
     assert 'custom_viewport_x = "0"' in text

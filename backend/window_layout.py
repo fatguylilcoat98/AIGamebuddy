@@ -209,29 +209,35 @@ def strip_window_decorations(hwnd: int) -> str:
         thick = 0x00040000
         border = 0x00800000
         dialog = 0x00400000
-        style = int(get_long(int(hwnd), style_index))
         sysmenu = 0x00080000
-        cleaned = style & ~caption & ~thick & ~border & ~dialog & ~sysmenu
+        overlapped = 0x00CF0000
+        popup = 0x80000000
+        style = int(get_long(int(hwnd), style_index))
+        cleaned = (style & ~caption & ~thick & ~border & ~dialog & ~sysmenu & ~overlapped) | popup
+        if style & 0x10000000:  # WS_VISIBLE
+            cleaned |= 0x10000000
         user32.SetWindowPos.argtypes = [
             wintypes.HWND, ctypes.c_void_p, ctypes.c_int, ctypes.c_int,
             ctypes.c_int, ctypes.c_int, wintypes.UINT,
         ]
         user32.SetWindowPos.restype = wintypes.BOOL
+        user32.GetMenu.argtypes = [wintypes.HWND]
+        user32.GetMenu.restype = wintypes.HMENU
+        menu = user32.GetMenu(int(hwnd))
+        changed = cleaned != style or bool(menu)
         if cleaned != style:
             set_long(int(hwnd), style_index, cleaned)
+        # The GDI driver draws File / Command / Window even after the frame is gone.
+        user32.SetMenu.argtypes = [wintypes.HWND, wintypes.HMENU]
+        user32.SetMenu.restype = wintypes.BOOL
+        user32.SetMenu(int(hwnd), None)
+        user32.DrawMenuBar.argtypes = [wintypes.HWND]
+        user32.DrawMenuBar.restype = wintypes.BOOL
+        user32.DrawMenuBar(int(hwnd))
+        if changed:
             # SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED
             user32.SetWindowPos(int(hwnd), ctypes.c_void_p(0), 0, 0, 0, 0, 0x0020 | 0x0004 | 0x0002 | 0x0001)
-        # The GDI driver draws File / Command / Window even when the frame is already gone.
-        try:
-            user32.SetMenu.argtypes = [wintypes.HWND, wintypes.HMENU]
-            user32.SetMenu.restype = wintypes.BOOL
-            user32.SetMenu(int(hwnd), None)
-            user32.DrawMenuBar.argtypes = [wintypes.HWND]
-            user32.DrawMenuBar.restype = wintypes.BOOL
-            user32.DrawMenuBar(int(hwnd))
-        except Exception:
-            pass
-        return "stripped" if cleaned != style else "already_borderless"
+        return "stripped" if changed else "already_borderless"
     except Exception as exc:
         log.warning("Could not remove decorations on %s: %s", hwnd, exc)
         return "failed"

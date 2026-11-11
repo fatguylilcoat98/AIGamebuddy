@@ -119,6 +119,55 @@ def _edge_strip(region: np.ndarray, side: str) -> np.ndarray:
     return region[max(0, height - 12):height - 2, width // 3: 2 * width // 3]
 
 
+def _near_black(pixel: np.ndarray) -> bool:
+    return int(pixel.max()) < 28
+
+
+def _is_backing_blue(pixel: np.ndarray) -> bool:
+    red, green, blue = int(pixel[0]), int(pixel[1]), int(pixel[2])
+    return blue > 140 and blue > red + 40 and green < 160
+
+
+def _black_gap(shot: np.ndarray, opening: tuple[int, int, int, int]) -> list[str]:
+    """Near-black pixels between the blue and the frame art are still the old gap."""
+    x, y, w, h = opening
+    height, width = shot.shape[:2]
+
+    def walk(samples) -> int:
+        run = 0
+        for px, py in samples:
+            if not (0 <= px < width and 0 <= py < height):
+                break
+            pixel = shot[py, px]
+            if _is_backing_blue(pixel):
+                run = 0
+                continue
+            if _near_black(pixel):
+                run += 1
+                if run >= 8:
+                    return run
+                continue
+            return run if run >= 8 else 0
+        return run if run >= 8 else 0
+
+    problems = []
+    mid_y = min(height - 1, max(0, y + h // 2))
+    mid_x = min(width - 1, max(0, x + w // 2))
+    right = walk((xx, mid_y) for xx in range(x + w, min(width, x + w + 160)))
+    left = walk((xx, mid_y) for xx in range(x - 1, max(-1, x - 160), -1))
+    top = walk((mid_x, yy) for yy in range(y - 1, max(-1, y - 90), -1))
+    bottom = walk((mid_x, yy) for yy in range(y + h, min(height, y + h + 90)))
+    if left:
+        problems.append("a black band is still between the blue and the art on the left")
+    if right:
+        problems.append("a black band is still between the blue and the art on the right")
+    if top:
+        problems.append("a black band is still between the blue and the art on the top")
+    if bottom:
+        problems.append("a black band is still between the blue and the art on the bottom")
+    return problems
+
+
 def _content_span(shot: np.ndarray, game: tuple[int, int, int, int]) -> list[str]:
     """The colored picture must fill the opening on its long side. A 3x core does not.
 
@@ -130,27 +179,7 @@ def _content_span(shot: np.ndarray, game: tuple[int, int, int, int]) -> list[str
     if region.size == 0:
         return ["the game opening is off the screen"]
     height, width = region.shape[:2]
-    bright = region.max(axis=2) > 28
-    cy, cx = height // 2, width // 2
-    if not bool(bright[cy, cx]):
-        return ["the game picture is missing from the opening"]
-    top_row = cy
-    while top_row > 0 and bool(bright[top_row - 1, cx]):
-        top_row -= 1
-    bottom_row = cy
-    while bottom_row < height - 1 and bool(bright[bottom_row + 1, cx]):
-        bottom_row += 1
-    left_col = cx
-    while left_col > 0 and bool(bright[cy, left_col - 1]):
-        left_col -= 1
-    right_col = cx
-    while right_col < width - 1 and bool(bright[cy, right_col + 1]):
-        right_col += 1
-    span_h = float(bottom_row - top_row + 1) / height
-    span_w = float(right_col - left_col + 1) / width
-    # Walk stops at the black gap, so frame art past the letterbox is ignored.
-    # A wide opening keeps side gaps. The picture still has to meet the top and bottom.
-    # The side bars are the blue backing. The center is the 4:3 game.
+
     def blue_mask(sample: np.ndarray) -> np.ndarray:
         red = sample[:, :, 0].astype(np.int16)
         green = sample[:, :, 1].astype(np.int16)
@@ -162,18 +191,41 @@ def _content_span(shot: np.ndarray, game: tuple[int, int, int, int]) -> list[str
         return ["the blue backing does not reach the left edge of the opening"]
     if other.size and float(blue_mask(other).mean()) < 0.45:
         return ["the blue backing does not reach the right edge of the opening"]
-    game = bright & ~blue_mask(region)
-    if not game.any():
+    # Stop at the blue bars. Art outside those bars must not widen the picture.
+    picture = ~blue_mask(region) & (region.max(axis=2) > 28)
+    cy, cx = height // 2, width // 2
+    if not bool(picture[cy, cx]):
         return ["the 4:3 game picture is missing from the blue opening"]
-    grows = np.where(game.any(axis=1))[0]
-    gcols = np.where(game.any(axis=0))[0]
-    picture_h = int(grows[-1] - grows[0] + 1)
-    picture_w = int(gcols[-1] - gcols[0] + 1)
+    top_row = cy
+    while top_row > 0 and bool(picture[top_row - 1, cx]):
+        top_row -= 1
+    bottom_row = cy
+    while bottom_row < height - 1 and bool(picture[bottom_row + 1, cx]):
+        bottom_row += 1
+    left_col = cx
+    while left_col > 0 and bool(picture[cy, left_col - 1]):
+        left_col -= 1
+    right_col = cx
+    while right_col < width - 1 and bool(picture[cy, right_col + 1]):
+        right_col += 1
+    picture_h = bottom_row - top_row + 1
+    picture_w = right_col - left_col + 1
     if picture_h / height < 0.90:
         return [f"the game only fills {picture_h / height:.0%} of the opening height"]
     aspect = picture_w / max(1, picture_h)
     if aspect < 1.20 or aspect > 1.55:
         return [f"the picture aspect is {aspect:.2f}, not a 4:3 core frame"]
+    core = region[height // 5: 4 * height // 5, width // 3: 2 * width // 3]
+    if core.size and float(blue_mask(core).mean()) > 0.85:
+        return ["the game picture is the same blue as the backing"]
+    if core.size and float(core.std()) < 12:
+        return ["the game picture is a flat color, not a visible pattern"]
+    for name, strip in (
+        ("top", region[2:16, width // 3: 2 * width // 3]),
+        ("bottom", region[max(0, height - 16):height - 2, width // 3: 2 * width // 3]),
+    ):
+        if strip.size and float((strip.max(axis=2) < 28).mean()) > 0.55:
+            return [f"a black band is still across the {name} of the game"]
     return []
 
 
@@ -208,6 +260,7 @@ def prove_snes_screen(screenshot: Image.Image, *, menu_open: bool, frame_path: P
     problems.extend(_opening_ring(shot, game))
     problems.extend(_opening_interior(shot, game))
     problems.extend(_menubar(shot, game))
+    problems.extend(_black_gap(shot, game))
     if expect_game:
         problems.extend(_content_span(shot, game))
     buddy = _scale_box(record["buddy"], (origin_x, origin_y), (frame_w, frame_h))

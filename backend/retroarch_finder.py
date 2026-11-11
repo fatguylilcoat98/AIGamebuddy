@@ -356,7 +356,9 @@ def hole_append_config(rect: tuple[int, int, int, int]) -> str:
         f'video_window_height = "{height}"',
         f'video_scale = "{scale:.3f}"',
         'video_scale_integer = "false"',
-        'video_crop_overscan = "false"',
+        # Crop the core's overscan border so the 224-line picture fills the window.
+        'video_crop_overscan = "true"',
+        'snes9x_overscan = "disabled"',
         f'aspect_ratio_index = "{ASPECT_RATIO_CUSTOM}"',
         f'custom_viewport_x = "{vx}"',
         f'custom_viewport_y = "{vy}"',

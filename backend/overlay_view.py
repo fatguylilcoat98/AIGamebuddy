@@ -45,6 +45,10 @@ def _frame_art(frame_id: str) -> Image.Image:
     art = punch_screen(source, record["screen"], frame_id=frame_id)
     if frame_id == "snes":
         art = seal_opening(art, record["screen"])
+        # The three bars are part of the painting. Draw them again so a black
+        # plate cannot cover the skyline.
+        from .menu_button_art import paint_menu_button
+        art = paint_menu_button(art, record.get("menu"))
     return art
 
 
@@ -144,31 +148,98 @@ def rects_overlap(a: tuple[int, int, int, int], b: tuple[int, int, int, int]) ->
     return ax < bx + bw and ax + aw > bx and ay < by + bh and ay + ah > by
 
 
+def _dilate(mask, steps: int):
+    import numpy as np
+    out = mask.copy()
+    for _ in range(max(0, steps)):
+        grown = out.copy()
+        grown[1:] |= out[:-1]
+        grown[:-1] |= out[1:]
+        grown[:, 1:] |= out[:, :-1]
+        grown[:, :-1] |= out[:, 1:]
+        out = grown
+    return out
+
+
+def _erode(mask, steps: int):
+    import numpy as np
+    return ~_dilate(~mask, steps)
+
+
+def _rect_mask(shape, rect):
+    import numpy as np
+    height, width = shape
+    mask = np.zeros(shape, dtype=bool)
+    x, y, w, h = rect
+    x0, y0 = max(0, int(x)), max(0, int(y))
+    x1, y1 = min(width, int(x) + int(w)), min(height, int(y) + int(h))
+    if x1 > x0 and y1 > y0:
+        mask[y0:y1, x0:x1] = True
+    return mask
+
+
+def _black_opening_mask(array, opening, keep) :
+    """Every near-black pixel of the opening, plus a few pixels under the art.
+
+    Thin dark lines in the painting are eroded away so the flood stays in the
+    solid black gap and does not repaint the dragon or the hamburger.
+    """
+    import numpy as np
+    rgb = array[:, :, :3]
+    height, width = rgb.shape[:2]
+    blocked = np.zeros((height, width), dtype=bool)
+    for rect in keep:
+        blocked |= _rect_mask((height, width), rect)
+    dark = (rgb.max(axis=2) <= 10) & ~blocked
+    solid = _erode(dark, 4) & ~blocked
+    reach = _rect_mask((height, width), opening)
+    reach = _erode(reach, 4) & ~blocked
+    if not reach.any():
+        reach = _rect_mask((height, width), opening) & ~blocked
+    for _ in range(480):
+        grown = _dilate(reach, 1)
+        nxt = (grown & (solid | reach)) & ~blocked
+        if np.array_equal(nxt, reach):
+            break
+        reach = nxt
+    # Grow back across the eroded edge and a few pixels under the real art.
+    covered = _dilate(reach, 4 + 6) | _rect_mask((height, width), opening)
+    return covered & ~blocked
+
+
 def paint_blue_opening(canvas: Image.Image, frame_id: str, monitor: tuple[int, int]) -> Image.Image:
-    """Blue fills the opening and tucks under the art. The 4:3 game hole stays clear."""
+    """Blue fills the whole black opening and tucks under the art.
+
+    The 4:3 game hole stays clear. Colorful art, the hamburger, and Buddy's
+    well stay in front of the blue.
+    """
     import numpy as np
     from .display_info import hole_screen_rect
-    from .retroarch_finder import blue_backing_rect, picture_on_blue
+    from .retroarch_finder import picture_on_blue
     record = frame_record(frame_id)
-    opening = hole_screen_rect(record["screen"], (0, 0, monitor[0], monitor[1]))
-    blue = blue_backing_rect(opening)
+    monitor_box = (0, 0, monitor[0], monitor[1])
+    opening = hole_screen_rect(record["screen"], monitor_box)
     game = picture_on_blue(opening)
+    keep = [
+        hole_screen_rect(record["menu"], monitor_box),
+        hole_screen_rect(record.get("well") or record["buddy"], monitor_box),
+    ]
     array = np.array(canvas.convert("RGBA"))
-    height, width = array.shape[:2]
     saved = array.copy()
-    art = saved[:, :, 3] > 200
-    bx, by, bw, bh = blue
-    x0, y0 = max(0, bx), max(0, by)
-    x1, y1 = min(width, bx + bw), min(height, by + bh)
-    array[y0:y1, x0:x1] = (0, 40, 220, 255)
-    # The painting covers the tuck. Only the original opening stays blue.
-    ox, oy, ow, oh = opening
-    outside = np.ones((height, width), dtype=bool)
-    outside[max(0, oy):min(height, oy + oh), max(0, ox):min(width, ox + ow)] = False
-    restore = art & outside
+    blue = _black_opening_mask(array, opening, keep)
+    array[blue] = (0, 40, 220, 255)
+    # The painting covers the tuck. Near-black gap pixels are not art.
+    colorful = (saved[:, :, 3] > 180) & (saved[:, :, :3].max(axis=2) >= 32)
+    restore = colorful & blue
     array[restore] = saved[restore]
+    for rect in keep:
+        hold = _rect_mask(array.shape[:2], rect)
+        array[hold] = saved[hold]
     gx, gy, gw, gh = game
-    array[max(0, gy):min(height, gy + gh), max(0, gx):min(width, gx + gw), 3] = 0
+    game_mask = _rect_mask(array.shape[:2], (gx, gy, gw, gh))
+    # Art that overlaps the picture stays opaque and in front.
+    punch = game_mask & ~colorful
+    array[punch, 3] = 0
     return Image.fromarray(array, "RGBA")
 
 

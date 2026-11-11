@@ -148,7 +148,10 @@ def run_overlay(session) -> None:
         hud = session.hud()
         who = "Female" if hud.get("buddy_character") == "female" else "Male"
         toggle.configure(text=f"Buddy: {who}")
-        mode.configure(text=f"Mode: {hud.get('personality', '').title()}")
+        attitude = {"casual": "Friendly", "sassy": "Sassy", "extreme": "Extreme"}.get(
+            hud.get("personality", ""), str(hud.get("personality", "")).title(),
+        )
+        mode.configure(text=f"Mode: {attitude}")
         voice.configure(text="Voice off" if session.muted else "Voice on")
         settings.configure(text=f"Rest: {hud.get('resting_direction', 'left')}")
         sound.configure(text=f"Sound {session.volume}")

@@ -15,7 +15,7 @@ def test_menu_uses_plain_words_and_a_check():
     assert any(title.startswith("✓ ") and "Woman" in title for title in titles)
     assert any(title.startswith("✓ ") and "Sassy" in title for title in titles)
     assert any("Man" in title and not title.startswith("✓") for title in titles)
-    assert any("Chill" in title for title in titles)
+    assert any("Friendly" in title for title in titles)
     assert any("Savage-Extreme" in title for title in titles)
     assert any("Set up my controller" in title for title in titles)
     assert any("RetroArch settings" in title for title in titles)

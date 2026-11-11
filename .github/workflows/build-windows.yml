@@ -80,15 +80,15 @@ jobs:
         if: success()
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: buddy-v0.1.0-pre15
-          name: Buddy 0.1.0 pre15
+          tag_name: buddy-v0.1.0-pre16
+          name: Buddy 0.1.0 pre16
           prerelease: true
           make_latest: false
           generate_release_notes: false
           body: |
             Prerelease installer for Super NES. Double-click BuddySetup.exe.
-            Buddy stays quiet until a game window is visible.
-            A native library crash is logged in crash.log and does not have to take the app down.
+            Buddy talks through the brain once a game is on screen.
+            He stays quiet when the brain is not configured.
             pre8 is broken. Do not install pre8.
             Snes9x is included for personal use. It is not the latest stable release.
           files: |

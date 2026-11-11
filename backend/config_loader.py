@@ -175,7 +175,7 @@ def load_config(path: Path | None = None) -> Config:
     banner = str(data.get("banner_title") or "GAME WINGMAN").strip() or "GAME WINGMAN"
     data["banner_title"] = banner[:22]
     personality = str(data.get("personality") or "sassy").strip().lower()
-    if personality == "regular":
+    if personality in {"regular", "friendly"}:
         personality = "casual"
     data["personality"] = personality
     buddy_character = str(data.get("buddy_character") or "male").strip().lower()

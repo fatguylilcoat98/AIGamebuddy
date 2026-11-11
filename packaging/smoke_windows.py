@@ -120,6 +120,18 @@ def close_window(title: str) -> None:
 
 def prove_lines(path: Path) -> None:
     from datetime import datetime
+    if os.environ.get("BUDDY_EXPECT_SILENT") == "1":
+        text = path.read_text(encoding="utf-8") if path.is_file() else ""
+        if "missed that screen" in text.lower():
+            raise SystemExit("the missed-screen fallback was spoken")
+        rows = [
+            line for line in text.splitlines()
+            if "\tsource=" in line and line.split("\t")[-1].strip()
+        ]
+        if rows:
+            raise SystemExit(f"Buddy spoke {len(rows)} lines with no brain configured")
+        print("silent without a brain: ok")
+        return
     rows = [
         line for line in path.read_text(encoding="utf-8").splitlines()
         if any(tag in line for tag in ("\tsource=frame", "\tsource=vision", "\tsource=follow", "\tsource=template", "\tsource=llm"))

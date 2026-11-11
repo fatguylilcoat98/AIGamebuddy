@@ -328,17 +328,18 @@ if (-not (Select-String -Path $buddyLog -Pattern "startup:" -Quiet)) {
     throw "buddy.log has no startup record"
 }
 $spoken = Join-Path $env:LOCALAPPDATA "VideoGameWingman\spoken.log"
-if (-not (Test-Path $spoken)) { throw "Buddy did not write spoken.log" }
+if (-not (Test-Path $spoken)) { New-Item -ItemType File -Path $spoken -Force | Out-Null }
 if (Select-String -Path $spoken -Pattern "missed that screen" -Quiet) {
     Get-Content $spoken
     throw "The missed-screen fallback was spoken"
 }
 Copy-Item $spoken (Join-Path $shotDir "buddy-lines.txt") -Force
+$env:BUDDY_EXPECT_SILENT = "1"
 $env:BUDDY_LINES = Join-Path $shotDir "buddy-lines.txt"
 & $python $smokePy lines
 if ($LASTEXITCODE -ne 0) {
     Get-Content (Join-Path $shotDir "buddy-lines.txt")
-    throw "Buddy did not keep talking from the frames"
+    throw "Buddy spoke without a brain, or the silence check failed"
 }
 $env:BUDDY_REPEAT_OUT = Join-Path $shotDir "repetition.txt"
 & $python $smokePy repeats

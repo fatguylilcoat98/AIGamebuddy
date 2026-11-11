@@ -165,6 +165,9 @@ class BuddySession:
         from .said_history import SaidHistory
         self._said = SaidHistory()
         self._quiet_logged = False
+        self._brain_speaking = False
+        from .brain_link import BrainLink
+        self._brain = BrainLink(self)
         from .frame_comment import FrameCommentator
         from .game_watch import GameWatch
         self._commentator = FrameCommentator()
@@ -274,11 +277,14 @@ class BuddySession:
             self.session_id = self.memory.start_session(now, self.personality)
             self.running = True
             log.info("startup: session starting personality=%s look=%ss", self.personality, self.look_interval)
-            from .talk_input import start_wake_listener
-            heard = start_wake_listener(self, lambda: self.closed)
-            log.info("startup: microphone listener=%s", heard)
-            if heard != "listening":
-                log.info("Microphone is off, so Buddy cannot hear the room yet. Talking out loud still works once a game is visible.")
+            if self._brain.configured():
+                log.info("startup: brain config found. The couch call starts when a game is on screen.")
+            else:
+                from .talk_input import start_wake_listener
+                heard = start_wake_listener(self, lambda: self.closed)
+                log.info("startup: no brain config, microphone listener=%s", heard)
+                if heard != "listening":
+                    log.info("Microphone is off, so Buddy cannot hear the room yet.")
             self.memory.set_profile("personality", self.personality, "system", now)
         greeting = self._maybe_greet()
         message = f"{self.character} is running."
@@ -297,6 +303,8 @@ class BuddySession:
             self.memory.end_session(session_id, self.clock.unix())
         if self._ears is not None:
             self._ears.cancel()
+        if getattr(self, "_brain", None) is not None:
+            self._brain.close()
         self.audio.stop()
         self._release_retroarch()
         self._save_ui()
@@ -352,11 +360,13 @@ class BuddySession:
 
     def tick_animation(self, now: float | None = None) -> None:
         moment = self.clock.mono() if now is None else now
-        speaking = bool(getattr(self.audio, "speaking", False))
+        speaking = bool(getattr(self.audio, "speaking", False) or self._brain_speaking)
         self.emotion.tick(moment, speaking=speaking, mouth=self.mouth)
-        if speaking:
+        if speaking and not self._brain_speaking:
             self.emotion.set_expression("talk", moment, 0.5)
             self.mouth = self.mouth if self.mouth > 0 else 0.35
+        elif self._brain_speaking:
+            self.emotion.set_expression("talk", moment, 0.5)
         held = self._yaw_hold
         if held and moment < held[1] and not speaking:
             target = held[0]
@@ -533,7 +543,10 @@ class BuddySession:
         self.pack = load_pack(chosen)
         self.memory.set_profile("personality", chosen, "user_reported", self.clock.unix())
         self._save_ui()
-        return self._show(f"Personality is now {self.pack.display_name}. I will help the same either way.",
+        from .brain_link import brain_attitude
+        self._brain.set_attitude(brain_attitude(chosen))
+        label = "Friendly" if chosen == "casual" else self.pack.display_name
+        return self._show(f"Personality is now {label}. I will help the same either way.",
                           category="status", emotion="smile")
 
     def set_volume(self, level: int) -> ActionResult:
@@ -582,6 +595,8 @@ class BuddySession:
         """Capture the game window on the timer. Skip when a look is still running."""
         import threading
         from .look_schedule import look_due
+        from .brain_link import brain_attitude
+        self._brain.sync(self._game_visible(), brain_attitude(self.personality))
         if not self._game_visible():
             if not self._quiet_logged:
                 self._quiet_logged = True
@@ -629,45 +644,29 @@ class BuddySession:
         return provider not in {"", "offline", "none", "off"}
 
     def _ask_follow(self, prompt: str) -> str:
-        """One short reply from the configured chat model. Offline stays empty."""
-        if not self._model_is_live():
-            return ""
-        try:
-            from .emotions import parse_tags
-            from .personas import persona_prompt
-            result = self.model.complete([
-                {"role": "system", "content": persona_prompt(self.personality)},
-                {"role": "user", "content": prompt},
-            ])
-            text = (getattr(result, "text", "") or "").strip()
-            if not text:
-                return ""
-            parsed = parse_tags(text)
-            text = (parsed.text or "").strip() or text
-        except Exception:
-            log.info("Follow model did not answer")
-            return ""
-        return text[:220]
+        """Muse, inside the brain, is the only model. This path stays empty."""
+        del prompt
+        if not getattr(self, "_one_ai_logged", False):
+            self._one_ai_logged = True
+            log.info("The chat model is not used. Muse in the brain is the only AI.")
+        return ""
 
     def comment_on_frame(self, observation: str) -> str:
         """Remember the frame, compare it with the last one, and say what changed."""
         if not getattr(self, "_commentary_source_logged", False):
             self._commentary_source_logged = True
-            if self._model_is_live() or self._helper_ready():
-                log.info("Commentary can use the configured vision or chat model.")
-            else:
-                log.info("Commentary source=template. No vision model is configured.")
+            log.info("Screen comments go to the brain. No other model is used.")
         change = self._watch.update(observation)
         log.info("Game memory %s", self._watch.context())
         log.info("Frame change: %s", change or "none")
         if not (observation or "").strip():
             log.info("No frame to comment on. Staying quiet.")
             return ""
-        line, made = self._watch.comment(
-            self.personality, ask=self._ask_follow, history=self._watch.said,
-        )
-        self._say_line(line, made)
-        return line
+        react = self.frequency != "off"
+        if self._brain.push_game(observation, react=react):
+            return ""
+        log.info("Brain is not connected. Staying quiet.")
+        return ""
 
     def _reply_from_watch(self, text: str):
         """Answer Chris from the match memory, using the model when it is on."""

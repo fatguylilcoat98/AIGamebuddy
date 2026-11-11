@@ -31,6 +31,10 @@ TALK_AMOUNTS = (
 
 SAVE_SLOTS = (1, 2, 3)
 
+from .look_schedule import LOOK_INTERVALS
+
+LOOK_EVERY = LOOK_INTERVALS
+
 # Words that do not belong on a TV menu without a plain explanation beside them.
 JARGON = ("cfg", "endpoint", "libretro", "dll", "json", "udp", "shader")
 
@@ -60,6 +64,13 @@ def talk_amount_line(key: str, current: str) -> str:
     return ""
 
 
+def look_line(seconds: int, current: int) -> str:
+    mark = check_mark(int(current) == int(seconds))
+    if seconds == 60:
+        return f"{mark}How often Buddy looks: 1 minute"
+    return f"{mark}How often Buddy looks: {int(seconds)} seconds"
+
+
 def attitude_line(key: str, current: str) -> str:
     for ident, label, _note in ATTITUDES:
         if ident == key:
@@ -68,7 +79,8 @@ def attitude_line(key: str, current: str) -> str:
 
 
 def menu_lines(voice: str, attitude: str, volume: int, hidden: bool,
-               talk_mode: str = "hold", talk_amount: str = "normal") -> list[tuple[str, str]]:
+               talk_mode: str = "hold", talk_amount: str = "normal",
+               look_interval: int = 10) -> list[tuple[str, str]]:
     """(title, one-line explanation) for every row a person sees."""
     rows = [
         ("Start Buddy", "Buddy talks again and shows his face."),
@@ -78,6 +90,8 @@ def menu_lines(voice: str, attitude: str, volume: int, hidden: bool,
         rows.append((talk_mode_line(key, talk_mode), note))
     for key, _label, note in TALK_AMOUNTS:
         rows.append((talk_amount_line(key, talk_amount), note))
+    for seconds in LOOK_EVERY:
+        rows.append((look_line(seconds, look_interval), "Buddy looks at the game this often."))
     rows.extend([
         ("Save my spot", "Saves exactly where you are."),
         ("Load my spot", "Goes back to your last save."),

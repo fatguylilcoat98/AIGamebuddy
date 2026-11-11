@@ -481,6 +481,10 @@ def run_overlay(session) -> None:
             session.poll_game_status()
         except Exception:
             logging.getLogger("buddy.retroarch").exception("Game status poll failed")
+        try:
+            session.maybe_look_at_game()
+        except Exception:
+            logging.getLogger("buddy.retroarch").exception("Game look failed")
         root.after(2000, maintain)
 
     def _boot_retroarch():
@@ -640,7 +644,9 @@ def run_overlay(session) -> None:
                     menu_ui._rebuild()
                     holder["menu_open"] = True
                     menu_ui.place(design_box(holder))
+                    root.update_idletasks()
                     menu_ui.scroll_to_bottom()
+                    root.after(300, menu_ui.scroll_to_bottom)
                 elif command == "scroll-saves":
                     menu_ui.open = True
                     menu_ui.page = "main"

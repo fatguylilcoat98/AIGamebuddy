@@ -8,9 +8,10 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from .look_schedule import LOOK_INTERVALS
 from .menu_copy import (
     ATTITUDES, SAVE_SLOTS, TALK_AMOUNTS, TALK_MODES, VOICES,
-    attitude_line, talk_amount_line, talk_mode_line, voice_line,
+    attitude_line, look_line, talk_amount_line, talk_mode_line, voice_line,
 )
 
 
@@ -70,10 +71,18 @@ class HamburgerMenu:
         self.on_change()
 
     def scroll_to_bottom(self):
+        self.root.update_idletasks()
         self.inner.update_idletasks()
         self.canvas.update_idletasks()
         self.canvas.configure(scrollregion=self.canvas.bbox("all"))
-        self.canvas.yview_moveto(1.0)
+        widget = getattr(self, "_exit_anchor", None)
+        total = max(1, int(self.inner.winfo_reqheight()))
+        view = max(1, int(self.canvas.winfo_height()))
+        if widget is not None:
+            top = max(0, int(widget.winfo_y()) + int(widget.winfo_reqheight()) - view + 4)
+            self.canvas.yview_moveto(min(1.0, top / float(total)))
+        else:
+            self.canvas.yview_moveto(1.0)
 
     def scroll_to_saves(self):
         """Bring Save my spot and Load my spot into view. The menu is already open."""
@@ -191,6 +200,11 @@ class HamburgerMenu:
         for key, _label, note in TALK_AMOUNTS:
             self._button(talk_amount_line(key, talk_amount), lambda name=key: self._talk_amount(name))
             self._note(note)
+        self._title("How often Buddy looks at the game")
+        every = int(getattr(self.session, "look_interval", 10) or 10)
+        for seconds in LOOK_INTERVALS:
+            self._button(look_line(seconds, every), lambda value=seconds: self._look_every(value))
+        self._note("Buddy looks at the game picture, not the frame around it.")
         self._title("Your spot")
         self._save_anchor = self._button("Save my spot", lambda: self._show_slots("save"))
         self._note("Saves exactly where you are.")
@@ -219,7 +233,7 @@ class HamburgerMenu:
         self._note("Optional online helper key, where RetroArch is installed, or run setup again.")
         self._button("Close the game", self._close_game)
         self._note("Closes the game. Buddy stays on screen.")
-        self._button("Exit to desktop", self._exit, primary=True)
+        self._exit_anchor = self._button("Exit to desktop", self._exit, primary=True)
         self._note("Closes the game and Buddy, and leaves the desktop.")
 
     def _settings_page(self):
@@ -273,6 +287,10 @@ class HamburgerMenu:
 
     def _talk_amount(self, name: str):
         self.session.set_talk_amount(name)
+        self._rebuild()
+
+    def _look_every(self, seconds: int):
+        self.session.set_look_interval(seconds)
         self._rebuild()
 
     def _start(self):

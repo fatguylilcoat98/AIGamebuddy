@@ -156,6 +156,10 @@ class BuddySession:
         self.current_rom = ""
         self.continue_on_launch = False
         self.toast = ""
+        from .look_schedule import normalize_look_interval
+        self.look_interval = normalize_look_interval(config.get("commentary", "look_interval_seconds"))
+        self._last_look = 0.0
+        self._look_busy = False
         self._load_ui()
 
     def _initial_personality(self) -> str:
@@ -218,6 +222,9 @@ class BuddySession:
         if data.get("talk_mode") in {"hold", "wake"}:
             self.talk_mode = data["talk_mode"]
         self.quiet_until_called = bool(data.get("quiet_until_called", False))
+        if "look_interval" in data:
+            from .look_schedule import normalize_look_interval
+            self.look_interval = normalize_look_interval(data.get("look_interval"))
 
     def _save_ui(self) -> None:
         payload = {
@@ -231,6 +238,7 @@ class BuddySession:
             "buddy_hidden": self.buddy_hidden,
             "talk_mode": self.talk_mode,
             "quiet_until_called": self.quiet_until_called,
+            "look_interval": self.look_interval,
         }
         try:
             self._ui_path().write_text(json.dumps(payload, indent=2), encoding="utf-8")
@@ -518,6 +526,75 @@ class BuddySession:
         self.running = True
         self._save_ui()
         return self._show("I'm here.", category="status", emotion="smile")
+
+    def set_look_interval(self, seconds: int) -> ActionResult:
+        from .look_schedule import LOOK_INTERVALS, normalize_look_interval
+        chosen = normalize_look_interval(seconds)
+        if int(seconds) not in LOOK_INTERVALS:
+            return ActionResult(False, "I did not change how often I look.", reason="bad_look_interval")
+        self.look_interval = chosen
+        self._save_ui()
+        label = "1 minute" if chosen == 60 else f"{chosen} seconds"
+        return self._show(f"I'll look at the game every {label}.", category="status", emotion="talk")
+
+    def maybe_look_at_game(self, now: float | None = None) -> None:
+        """Capture the game window on the timer. Skip when a look is still running."""
+        import threading
+        from .look_schedule import look_due
+        moment = self.clock.mono() if now is None else now
+        decision = look_due(
+            last=self._last_look, now=moment, interval=self.look_interval, busy=self._look_busy,
+        )
+        if decision == "wait":
+            return
+        if decision == "skip":
+            log.info("Skipped a look; the previous one is still running")
+            return
+        self._last_look = moment
+        self._look_busy = True
+        threading.Thread(target=self._look_worker, name="buddy-look", daemon=True).start()
+
+    def _look_worker(self) -> None:
+        try:
+            captured = self._capture_game_window()
+            if captured is None:
+                log.info("Looked at the game. interval=%ss captured=no", self.look_interval)
+                return
+            width, height, jpeg = captured
+            log.info(
+                "Looked at the game. interval=%ss captured=%sx%s bytes=%s",
+                self.look_interval, width, height, len(jpeg),
+            )
+            if not self._helper_ready():
+                return
+            note = self._screen_note()
+            if note:
+                self._banter(
+                    player_text="", spontaneous=True, event="look", priority=1, direct=False,
+                    observation=note,
+                )
+        except Exception:
+            log.exception("Look at the game failed")
+        finally:
+            self._look_busy = False
+
+    def _capture_game_window(self):
+        """JPEG of the emulator window only. The frame around it is not included."""
+        try:
+            from .game_capture import GameCapture
+            shot = GameCapture(own_hwnds=set(self.overlay_hwnds)).snapshot()
+        except Exception:
+            return None
+        if not shot:
+            return None
+        target, jpeg = shot
+        rect = target.window_rect or (0, 0, 0, 0)
+        width = max(0, int(rect[2]) - int(rect[0])) if len(rect) == 4 else 0
+        height = max(0, int(rect[3]) - int(rect[1])) if len(rect) == 4 else 0
+        if width < 1 or height < 1:
+            width = len(jpeg)
+            height = 1
+        return width, height, jpeg
 
     def set_talk_mode(self, mode: str) -> ActionResult:
         if mode not in {"hold", "wake"}:

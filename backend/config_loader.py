@@ -51,7 +51,7 @@ DEFAULTS: dict[str, Any] = {
         "enabled": False,
     },
     "voice": {"enabled": True, "volume": 80, "rate": 0, "output_device": "", "mute": False},
-    "commentary": {"frequency": "normal", "cooldown_seconds": 18},
+    "commentary": {"frequency": "normal", "cooldown_seconds": 18, "look_interval_seconds": 10},
     "display": {"mode": "720p"},
     "overlay": {
         "theme": "auto",

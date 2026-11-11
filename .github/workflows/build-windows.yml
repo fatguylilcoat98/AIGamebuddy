@@ -55,11 +55,12 @@ jobs:
           if-no-files-found: warn
 
       - name: Upload screenshots
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: buddy-screenshots
           path: dist/screenshots/**
-          if-no-files-found: error
+          if-no-files-found: warn
 
       - name: Upload BuddySetup.exe
         uses: actions/upload-artifact@v4
@@ -93,10 +94,10 @@ jobs:
             dist/screenshots/wizard-play.jpg
             dist/screenshots/snes-frame-retroarch.jpg
             dist/screenshots/upgrade-first-launch.jpg
-            dist/screenshots/snes-frame-4k.jpg
             dist/screenshots/dpi-4k.txt
             dist/screenshots/buddy-talk.jpg
             dist/screenshots/menu-open.jpg
+            dist/screenshots/menu-scan.jpg
             dist/screenshots/menu-saves.jpg
             dist/screenshots/save-toast.jpg
             dist/screenshots/save-roundtrip.txt

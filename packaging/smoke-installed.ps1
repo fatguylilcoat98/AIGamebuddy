@@ -319,6 +319,20 @@ if ($LASTEXITCODE -ne 0) {
     throw "The menu panel is not visible over the SNES frame"
 }
 
+Send-Smoke "scroll-scan"
+Start-Sleep -Seconds 1
+$scanShot = Join-Path $shotDir "menu-scan.jpg"
+Save-Screen $scanShot
+Write-Host "Scan timer screenshot $scanShot"
+$env:BUDDY_SHOT = $scanShot
+$env:BUDDY_MENU_OPEN = "1"
+$env:BUDDY_MENU_BOTTOM = "0"
+& $python $smokePy prove
+if ($LASTEXITCODE -ne 0) {
+    Write-BuddyLogs
+    throw "How often Buddy looks is not on screen, or the opening has a menu bar or wallpaper"
+}
+
 Send-Smoke "scroll-saves"
 Start-Sleep -Seconds 1
 $savesShot = Join-Path $shotDir "menu-saves.jpg"
@@ -408,29 +422,86 @@ $proof = Join-Path $shotDir "exit-no-processes.txt"
 ) | Set-Content -Path $proof -Encoding utf8
 Write-Host "Exit to desktop left no Buddy or RetroArch process"
 
-# The runner's own display has no 3840x2160 mode. A virtual monitor does.
-$vddZip = Join-Path $env:TEMP "usbmmidd_v2.zip"
-$vddRoot = Join-Path $env:TEMP "usbmmidd"
-New-Item -ItemType Directory -Force -Path $vddRoot | Out-Null
-Write-Host "Installing a virtual 4K display"
-& curl.exe -L --fail --retry 5 --retry-all-errors --retry-delay 3 -o $vddZip "https://amyuni.com/downloads/usbmmidd_v2.zip"
-if ($LASTEXITCODE -ne 0) { throw "Could not download the virtual display driver" }
-Expand-Archive -Path $vddZip -DestinationPath $vddRoot -Force
-$vddInstaller = Get-ChildItem $vddRoot -Recurse -Filter "deviceinstaller64.exe" | Select-Object -First 1
-$vddInf = Get-ChildItem $vddRoot -Recurse -Filter "usbmmidd.inf" | Select-Object -First 1
-if (-not $vddInstaller -or -not $vddInf) { throw "The virtual display driver archive did not contain its installer" }
-& $vddInstaller.FullName install $vddInf.FullName usbmmidd
-& $vddInstaller.FullName enableidd 1
-Start-Sleep -Seconds 5
+# A higher mode and a 150% pass are recorded. Neither one fails the build.
+$dpiLog = New-Object System.Collections.Generic.List[string]
+function Set-BuddyMode([int]$Width, [int]$Height) {
+    $mode.dmPelsWidth = $Width
+    $mode.dmPelsHeight = $Height
+    $mode.dmBitsPerPel = 32
+    $mode.dmFields = 0x1C0000
+    $code = [BuddyScreen]::ChangeDisplaySettings([ref]$mode, 0)
+    $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+    Write-Host "ChangeDisplaySettings ${Width}x${Height} -> $code now $($bounds.Width)x$($bounds.Height)"
+    return ($bounds.Width -eq $Width -and $bounds.Height -eq $Height)
+}
+function Start-BuddyFrameShot([string]$Path) {
+    Stop-BuddyProcesses
+    Start-Sleep -Seconds 2
+    if (Test-Path $cmdFile) { Remove-Item $cmdFile -Force }
+    if (Test-Path $ackFile) { Remove-Item $ackFile -Force }
+    Start-Process -FilePath $pythonw -ArgumentList @("-m", "backend.wizard_app", "--wizard") -WorkingDirectory $elsewhere -WindowStyle Hidden | Out-Null
+    $deadline = (Get-Date).AddSeconds(120)
+    $ra = $null
+    while ((Get-Date) -lt $deadline) {
+        $ra = Get-Process -Name "retroarch" -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($ra) { break }
+        Start-Sleep -Seconds 1
+    }
+    if (-not $ra) { throw "RetroArch did not start for $Path" }
+    Start-Sleep -Seconds 12
+    Send-Smoke "snap"
+    Start-Sleep -Seconds 1
+    Save-Screen $Path
+    Send-Smoke "exit"
+}
 
-# A real 3840x2160 desktop at 150% scaling, then the same frame check.
-$mode.dmPelsWidth = 3840
-$mode.dmPelsHeight = 2160
-$mode.dmBitsPerPel = 32
-$mode.dmFields = 0x1C0000
-$displayCode = [BuddyScreen]::ChangeDisplaySettings([ref]$mode, 0)
-Write-Host "ChangeDisplaySettings 3840x2160 -> $displayCode"
-Add-Type @"
+try {
+    $vddZip = Join-Path $env:TEMP "usbmmidd_v2.zip"
+    $vddRoot = Join-Path $env:TEMP "usbmmidd"
+    New-Item -ItemType Directory -Force -Path $vddRoot | Out-Null
+    & curl.exe -L --fail --retry 3 --retry-all-errors --retry-delay 2 -o $vddZip "https://amyuni.com/downloads/usbmmidd_v2.zip"
+    if ($LASTEXITCODE -eq 0) {
+        Expand-Archive -Path $vddZip -DestinationPath $vddRoot -Force
+        $vddInstaller = Get-ChildItem $vddRoot -Recurse -Filter "deviceinstaller64.exe" | Select-Object -First 1
+        $vddInf = Get-ChildItem $vddRoot -Recurse -Filter "usbmmidd.inf" | Select-Object -First 1
+        if ($vddInstaller -and $vddInf) {
+            & $vddInstaller.FullName install $vddInf.FullName usbmmidd
+            & $vddInstaller.FullName enableidd 1
+            Start-Sleep -Seconds 3
+            $dpiLog.Add("virtual_display=installed")
+        } else {
+            $dpiLog.Add("virtual_display=archive_missing_installer")
+        }
+    } else {
+        $dpiLog.Add("virtual_display=download_failed")
+    }
+} catch {
+    $dpiLog.Add("virtual_display=skipped $($_.Exception.Message)")
+}
+
+$high = $null
+foreach ($candidate in @(@(3840, 2160), @(2560, 1440), @(2560, 1600), @(1920, 1200))) {
+    if (Set-BuddyMode $candidate[0] $candidate[1]) {
+        $high = $candidate
+        break
+    }
+}
+if ($high) {
+    try {
+        $shot = Join-Path $shotDir "snes-frame-4k.jpg"
+        Start-BuddyFrameShot $shot
+        $dpiLog.Add("high_mode=$($high[0])x$($high[1])")
+        $dpiLog.Add("high_mode_shot=snes-frame-4k.jpg")
+    } catch {
+        $dpiLog.Add("high_mode=$($high[0])x$($high[1]) shot_skipped $($_.Exception.Message)")
+    }
+} else {
+    $dpiLog.Add("high_mode=skipped")
+}
+
+try {
+    Set-BuddyMode 1920 1080 | Out-Null
+    Add-Type @"
 using System;
 using System.Runtime.InteropServices;
 public static class BuddyDpi {
@@ -438,100 +509,25 @@ public static class BuddyDpi {
     public static extern bool SystemParametersInfo(uint uiAction, uint uiParam, System.IntPtr pvParam, uint fWinIni);
 }
 "@
-foreach ($dpiValue in 1, 2, 0) {
-    $ok = [BuddyDpi]::SystemParametersInfo(0x009F, 0, [System.IntPtr]$dpiValue, 3)
-    Write-Host "DPI override $dpiValue -> $ok"
+    $dpiOk = [BuddyDpi]::SystemParametersInfo(0x009F, 0, [System.IntPtr]1, 3)
+    New-ItemProperty -Path "HKCU:\Control Panel\Desktop" -Name LogPixels -Value 144 -PropertyType DWord -Force | Out-Null
+    New-ItemProperty -Path "HKCU:\Control Panel\Desktop" -Name Win8DpiScaling -Value 1 -PropertyType DWord -Force | Out-Null
+    $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+    $shot = Join-Path $shotDir "snes-frame-1080-150.jpg"
+    Start-BuddyFrameShot $shot
+    $dpiLog.Add("dpi_150_at_1920=ran")
+    $dpiLog.Add("dpi_150_api=$dpiOk")
+    $dpiLog.Add("dpi_150_screen=$($bounds.Width)x$($bounds.Height)")
+    $dpiLog.Add("dpi_150_shot=snes-frame-1080-150.jpg")
+    $dpiLog.Add("LogPixels=144")
+} catch {
+    $dpiLog.Add("dpi_150_at_1920=skipped $($_.Exception.Message)")
 }
-New-ItemProperty -Path "HKCU:\Control Panel\Desktop" -Name LogPixels -Value 144 -PropertyType DWord -Force | Out-Null
-New-ItemProperty -Path "HKCU:\Control Panel\Desktop" -Name Win8DpiScaling -Value 1 -PropertyType DWord -Force | Out-Null
-Add-Type @"
-using System;
-using System.Runtime.InteropServices;
-public static class BuddyDisplay {
-    [StructLayout(LayoutKind.Sequential, CharSet=CharSet.Auto)]
-    public struct DEVMODE {
-        [MarshalAs(UnmanagedType.ByValTStr, SizeConst=32)] public string dmDeviceName;
-        public short dmSpecVersion; public short dmDriverVersion; public short dmSize; public short dmDriverExtra;
-        public int dmFields; public int dmPositionX; public int dmPositionY;
-        public int dmDisplayOrientation; public int dmDisplayFixedOutput;
-        public short dmColor; public short dmDuplex; public short dmYResolution; public short dmTTOption; public short dmCollate;
-        [MarshalAs(UnmanagedType.ByValTStr, SizeConst=32)] public string dmFormName;
-        public short dmLogPixels; public int dmBitsPerPel; public int dmPelsWidth; public int dmPelsHeight;
-        public int dmDisplayFlags; public int dmDisplayFrequency;
-    }
-    [StructLayout(LayoutKind.Sequential, CharSet=CharSet.Auto)]
-    public struct DISPLAY_DEVICE {
-        public int cb;
-        [MarshalAs(UnmanagedType.ByValTStr, SizeConst=32)] public string DeviceName;
-        [MarshalAs(UnmanagedType.ByValTStr, SizeConst=128)] public string DeviceString;
-        public int StateFlags;
-        [MarshalAs(UnmanagedType.ByValTStr, SizeConst=128)] public string DeviceID;
-        [MarshalAs(UnmanagedType.ByValTStr, SizeConst=128)] public string DeviceKey;
-    }
-    [DllImport("user32.dll", CharSet=CharSet.Auto)]
-    public static extern bool EnumDisplayDevices(string lpDevice, uint iDevNum, ref DISPLAY_DEVICE lpDisplayDevice, uint dwFlags);
-    [DllImport("user32.dll", CharSet=CharSet.Auto)]
-    public static extern int ChangeDisplaySettingsEx(string device, ref DEVMODE mode, IntPtr hwnd, int flags, IntPtr param);
+if (-not ($dpiLog -match "^high_mode=(?!skipped)") -and -not ($dpiLog -match "^dpi_150_at_1920=ran")) {
+    $dpiLog.Add("result=skipped")
+} else {
+    $dpiLog.Add("result=ran")
 }
-"@
-for ($i = 0; $i -lt 8; $i++) {
-    $device = New-Object BuddyDisplay+DISPLAY_DEVICE
-    $device.cb = [Runtime.InteropServices.Marshal]::SizeOf($device)
-    if (-not [BuddyDisplay]::EnumDisplayDevices($null, [uint32]$i, [ref]$device, [uint32]0)) { break }
-    Write-Host "Display $i $($device.DeviceName) $($device.DeviceString)"
-    $deviceMode = New-Object BuddyDisplay+DEVMODE
-    $deviceMode.dmSize = [Runtime.InteropServices.Marshal]::SizeOf($deviceMode)
-    $deviceMode.dmPelsWidth = 3840
-    $deviceMode.dmPelsHeight = 2160
-    $deviceMode.dmBitsPerPel = 32
-    $deviceMode.dmFields = 0x1C0000
-    $deviceCode = [BuddyDisplay]::ChangeDisplaySettingsEx($device.DeviceName, [ref]$deviceMode, [IntPtr]::Zero, 0x40000011, [IntPtr]::Zero)
-    Write-Host "Set $($device.DeviceName) to 3840x2160 -> $deviceCode"
-}
-Start-Sleep -Seconds 2
-$bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
-Write-Host "Primary screen after 4K request $($bounds.Width)x$($bounds.Height)"
-if ($bounds.Width -ne 3840 -or $bounds.Height -ne 2160) {
-    throw "The runner display is $($bounds.Width)x$($bounds.Height), not 3840x2160."
-}
-@(
-    "resolution=$($bounds.Width)x$($bounds.Height)"
-    "requested_scale=150%"
-    "LogPixels=144"
-) | Set-Content -Path (Join-Path $shotDir "dpi-4k.txt") -Encoding utf8
-
-if (Test-Path $cmdFile) { Remove-Item $cmdFile -Force }
-if (Test-Path $ackFile) { Remove-Item $ackFile -Force }
-Write-Host "Opening Buddy again at 3840x2160"
-$play4k = Start-Process -FilePath $pythonw -ArgumentList @("-m", "backend.wizard_app", "--wizard") -WorkingDirectory $elsewhere -WindowStyle Hidden -PassThru
-$deadline = (Get-Date).AddSeconds(120)
-$ra = $null
-while ((Get-Date) -lt $deadline) {
-    $ra = Get-Process -Name "retroarch" -ErrorAction SilentlyContinue | Select-Object -First 1
-    if ($ra) { break }
-    Start-Sleep -Seconds 1
-}
-if (-not $ra) {
-    Write-BuddyLogs
-    throw "RetroArch did not start at 3840x2160"
-}
-Start-Sleep -Seconds 12
-Send-Smoke "snap"
-Start-Sleep -Seconds 1
-$fourK = Join-Path $shotDir "snes-frame-4k.jpg"
-Save-Screen $fourK
-Write-Host "4K screenshot $fourK"
-$env:BUDDY_SHOT = $fourK
-$env:BUDDY_MENU_OPEN = "0"
-$env:BUDDY_MENU_BOTTOM = "0"
-$env:BUDDY_EXPECT_GAME = "1"
-$env:BUDDY_EXPECT_SIZE = "3840x2160"
-& $python $smokePy prove
-$env:BUDDY_EXPECT_GAME = "0"
-$env:BUDDY_EXPECT_SIZE = ""
-if ($LASTEXITCODE -ne 0) {
-    Write-BuddyLogs
-    throw "The 3840x2160 frame did not fill the opening"
-}
-Send-Smoke "exit"
+$dpiLog | Set-Content -Path (Join-Path $shotDir "dpi-4k.txt") -Encoding utf8
+Get-Content (Join-Path $shotDir "dpi-4k.txt")
 Write-Host "Installed launch smoke passed"

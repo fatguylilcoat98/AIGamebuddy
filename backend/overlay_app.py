@@ -647,6 +647,14 @@ def run_overlay(session) -> None:
                     root.update_idletasks()
                     menu_ui.scroll_to_bottom()
                     root.after(300, menu_ui.scroll_to_bottom)
+                elif command == "scroll-scan":
+                    menu_ui.open = True
+                    menu_ui.page = "main"
+                    menu_ui._rebuild()
+                    holder["menu_open"] = True
+                    menu_ui.place(design_box(holder))
+                    root.update_idletasks()
+                    menu_ui.scroll_to_scan()
                 elif command == "scroll-saves":
                     menu_ui.open = True
                     menu_ui.page = "main"

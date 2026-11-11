@@ -84,6 +84,17 @@ class HamburgerMenu:
         else:
             self.canvas.yview_moveto(1.0)
 
+    def scroll_to_scan(self):
+        """Bring the look-at-the-game choices into view. The menu is already open."""
+        self.root.update_idletasks()
+        self.inner.update_idletasks()
+        self.canvas.update_idletasks()
+        self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+        widget = getattr(self, "_scan_anchor", None)
+        total = max(1, int(self.inner.winfo_reqheight()))
+        y = int(widget.winfo_y()) if widget is not None else int(total * 0.28)
+        self.canvas.yview_moveto(min(0.9, max(0.0, (y - 48) / float(total))))
+
     def scroll_to_saves(self):
         """Bring Save my spot and Load my spot into view. The menu is already open."""
         self.inner.update_idletasks()
@@ -202,8 +213,11 @@ class HamburgerMenu:
             self._note(note)
         self._title("How often Buddy looks at the game")
         every = int(getattr(self.session, "look_interval", 10) or 10)
+        self._scan_anchor = None
         for seconds in LOOK_INTERVALS:
-            self._button(look_line(seconds, every), lambda value=seconds: self._look_every(value))
+            button = self._button(look_line(seconds, every), lambda value=seconds: self._look_every(value))
+            if self._scan_anchor is None:
+                self._scan_anchor = button
         self._note("Buddy looks at the game picture, not the frame around it.")
         self._title("Your spot")
         self._save_anchor = self._button("Save my spot", lambda: self._show_slots("save"))

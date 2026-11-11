@@ -105,11 +105,16 @@ def test_picture_spans_the_opening_at_1080p_and_at_4k_150_percent():
     for size, dpi in (((1920, 1080), 1.0), ((3840, 2160), 1.5)):
         hole = hole_screen_rect(screen, (0, 0, size[0], size[1]))
         _x, _y, width, height = hole
-        vx, vy, vw, vh = fit_content_in_hole((0, 0, width, height), SNES_DISPLAY_ASPECT)
-        assert abs((vw / vh) - SNES_DISPLAY_ASPECT) < 0.03
-        assert vx >= 0 and vy >= 0
-        assert vx + vw <= width and vy + vh <= height
-        assert vh == height or vw == width
+        text = hole_append_config((0, 0, width, height))
+        assert f'video_window_width = "{width}"' in text
+        assert f'video_window_height = "{height}"' in text
+        vw = int(text.split('custom_viewport_width = "')[1].split('"')[0])
+        vh = int(text.split('custom_viewport_height = "')[1].split('"')[0])
+        vy = int(text.split('custom_viewport_y = "')[1].split('"')[0])
+        assert abs((vw / vh) - SNES_DISPLAY_ASPECT) < 0.04
+        hidden = max(0, -vy) / vh
+        assert hidden <= 0.04
+        assert vh >= height
     assert dpi_aware_compat("") == "~ HIGHDPIAWARE"
     assert dpi_aware_compat("~ GDIDPISCALING") == "~ GDIDPISCALING HIGHDPIAWARE"
     assert "HIGHDPIAWARE" in dpi_aware_compat("~ HIGHDPIAWARE")
@@ -130,13 +135,12 @@ def test_hole_config_letterboxes_inside_the_opening(tmp_path):
     assert 'video_window_x = "120"' in text
     assert 'video_window_width = "900"' in text
     assert 'video_window_height = "700"' in text
-    vx, vy, vw, vh = fit_content_in_hole((0, 0, 900, 700), 4 / 3)
     assert 'aspect_ratio_index = "23"' in text
     assert 'video_crop_overscan = "false"' in text
-    assert f'custom_viewport_width = "{vw}"' in text
-    assert f'custom_viewport_height = "{vh}"' in text
-    assert vx >= 0 and vy >= 0
-    assert vw <= 900 and vh <= 700
+    vw = int(text.split('custom_viewport_width = "')[1].split('"')[0])
+    vh = int(text.split('custom_viewport_height = "')[1].split('"')[0])
+    assert abs((vw / vh) - (4 / 3)) < 0.04
+    assert vw <= 960 and vh <= 760
     assert 'input_overlay_enable = "false"' in text
     # 4:3 in a wide hole keeps 4:3 and leaves bars on the sides.
     wide = fit_content_in_hole((0, 0, 1600, 900), 4 / 3)

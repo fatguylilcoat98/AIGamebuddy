@@ -156,10 +156,17 @@ def _content_span(shot: np.ndarray, game: tuple[int, int, int, int]) -> list[str
         return ["the game does not reach the bottom edge of the opening"]
     if span_h < 0.90:
         return [f"the game only fills {span_h:.0%} of the opening height"]
-    if max(span_w, span_h) < 0.90:
-        return [
-            f"the game only fills {span_w:.0%} of the opening width and {span_h:.0%} of its height"
-        ]
+    picture_h = bottom_row - top_row + 1
+    picture_w = right_col - left_col + 1
+    aspect = picture_w / max(1, picture_h)
+    # A full-window blue fill is the opening's aspect, about 1.78. A 4:3
+    # picture is near 1.33, a little wider when the top and bottom tuck under the art.
+    if aspect < 1.20 or aspect > 1.55:
+        return [f"the picture aspect is {aspect:.2f}, not a 4:3 core frame"]
+    left = region[top_row + picture_h // 3: top_row + 2 * picture_h // 3, left_col:left_col + 8]
+    right = region[top_row + picture_h // 3: top_row + 2 * picture_h // 3, right_col - 7:right_col + 1]
+    if left.size and right.size and float(np.abs(left.mean(axis=(0, 1)) - right.mean(axis=(0, 1))).sum()) < 18:
+        return ["the picture is one flat color, not the bordered test pattern"]
     return []
 
 

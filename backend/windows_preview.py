@@ -150,6 +150,12 @@ def grab_window(directory: Path) -> Path | None:
 def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     directory = Path(args[0]) if args else Path("assets/previews")
+    from .config_loader import ROOT as root
+    strip = root / "assets" / "previews" / "buddy-frame-strip.png"
+    if strip.exists() and directory.resolve() != strip.parent.resolve():
+        target = directory / "buddy-frame-strip.png"
+        target.write_bytes(strip.read_bytes())
+        print(target)
     for path in write_previews(directory):
         print(path)
     grabbed = grab_window(directory)

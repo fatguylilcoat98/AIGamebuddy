@@ -21,7 +21,7 @@ def _play(personality: str) -> tuple[GameWatch, list[str]]:
     for frame in FRAMES:
         watch.update(frame)
         line, source = watch.comment(personality)
-        assert source == "follow"
+        assert source == "template"
         spoken.append(line)
     return watch, spoken
 
@@ -98,5 +98,5 @@ def test_live_model_gets_the_memory_and_is_not_repeated():
     assert line.startswith("Alright")
     assert "Ryu" in seen["prompt"] and "snarky" in seen["prompt"].lower()
     again, source = watch.comment("sassy", ask=ask)
-    assert source == "follow"
+    assert source == "template"
     assert again != line

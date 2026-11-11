@@ -122,7 +122,7 @@ def prove_lines(path: Path) -> None:
     from datetime import datetime
     rows = [
         line for line in path.read_text(encoding="utf-8").splitlines()
-        if any(tag in line for tag in ("\tsource=frame", "\tsource=vision", "\tsource=follow", "\tsource=llm"))
+        if any(tag in line for tag in ("\tsource=frame", "\tsource=vision", "\tsource=follow", "\tsource=template", "\tsource=llm"))
     ]
     print(f"frame lines {len(rows)}")
     if len(rows) < 8:

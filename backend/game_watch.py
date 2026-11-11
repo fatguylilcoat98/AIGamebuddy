@@ -237,7 +237,7 @@ class GameWatch:
         line = book.pick(options)
         book.add(line)
         self.recent.append(line)
-        source = "llm" if spoken and line == spoken[:220] else "follow"
+        source = "llm" if spoken and line == spoken[:220] else "template"
         return line, source
 
     def answer(self, text: str, personality: str) -> str:

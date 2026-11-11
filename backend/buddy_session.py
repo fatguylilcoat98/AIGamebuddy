@@ -633,6 +633,12 @@ class BuddySession:
 
     def comment_on_frame(self, observation: str) -> str:
         """Remember the frame, compare it with the last one, and say what changed."""
+        if not getattr(self, "_commentary_source_logged", False):
+            self._commentary_source_logged = True
+            if self._model_is_live() or self._helper_ready():
+                log.info("Commentary can use the configured vision or chat model.")
+            else:
+                log.info("Commentary source=template. No vision model is configured.")
         change = self._watch.update(observation)
         log.info("Game memory %s", self._watch.context())
         log.info("Frame change: %s", change or "none")
@@ -664,7 +670,7 @@ class BuddySession:
             scripted = self._next_scripted_frame()
             captured = None if scripted else self._capture_game_window()
             observation = scripted
-            source = "follow" if scripted else "frame"
+            source = "template" if scripted else "frame"
             if scripted:
                 log.info("Look tick scripted frame: %s", scripted)
             elif captured is None:
@@ -705,7 +711,7 @@ class BuddySession:
         if getattr(self.audio, "speaking", False):
             log.info("Look tick held. someone is still talking")
             return
-        scripted = source == "follow" and bool(os.environ.get("BUDDY_FRAME_SCRIPT"))
+        scripted = source in {"follow", "template"} and bool(os.environ.get("BUDDY_FRAME_SCRIPT"))
         if not scripted and now - self._last_said < gap:
             log.info("Look tick held. next line in %.0fs", gap - (now - self._last_said))
             return

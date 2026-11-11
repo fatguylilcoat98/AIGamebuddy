@@ -312,8 +312,18 @@ def hole_append_config(rect: tuple[int, int, int, int]) -> str:
     The 4:3 viewport stays inside the window, so nothing is drawn off the client.
     """
     x, y, width, height = (int(v) for v in rect)
-    vx, vy, vw, vh = fit_content_in_hole((0, 0, width, height), SNES_DISPLAY_ASPECT)
-    scale = max(width / 256.0, height / 224.0, 6.0)
+    # The window stays the opening. The 4:3 picture is about 2% taller than
+    # that opening so the top and bottom sit under the frame. It is not the
+    # whole window, which is wider than 4:3.
+    if width / max(1, height) > SNES_DISPLAY_ASPECT:
+        vh = max(height + 2, int(round(height / 0.96)))
+        vw = max(1, int(round(vh * SNES_DISPLAY_ASPECT)))
+    else:
+        vw = max(width + 2, int(round(width / 0.96)))
+        vh = max(1, int(round(vw / SNES_DISPLAY_ASPECT)))
+    vx = (width - vw) // 2
+    vy = (height - vh) // 2
+    scale = max(vw / 256.0, vh / 224.0, 6.0)
     lines = [
         'video_fullscreen = "false"',
         'video_windowed_fullscreen = "false"',

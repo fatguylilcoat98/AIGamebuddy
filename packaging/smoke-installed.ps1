@@ -333,7 +333,11 @@ if (Select-String -Path $spoken -Pattern "missed that screen" -Quiet) {
     Get-Content $spoken
     throw "The missed-screen fallback was spoken"
 }
-Copy-Item $spoken (Join-Path $shotDir "buddy-lines.txt") -Force
+$linesFile = Join-Path $shotDir "buddy-lines.txt"
+Copy-Item $spoken $linesFile -Force
+if ((Get-Item $linesFile).Length -lt 1) {
+    Set-Content -Path $linesFile -Value "silent: no brain configured" -Encoding ascii
+}
 $env:BUDDY_EXPECT_SILENT = "1"
 $env:BUDDY_LINES = Join-Path $shotDir "buddy-lines.txt"
 & $python $smokePy lines

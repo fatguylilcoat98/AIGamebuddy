@@ -241,8 +241,12 @@ def _compose(expression: str, t: float, mouth: float, gaze: str, size: int,
              character: str, resting: str, yaw_override: float | None = None) -> Image.Image:
     yaw = yaw_at(t, expression, resting, gaze) if yaw_override is None else max(-1.0, min(1.0, float(yaw_override)))
     sprite = _pose_sprite(character, expression, yaw, mouth)
-    # Cross-fade the turn sheets. Do not skew the whole bitmap; that reads as a choppy tilt.
-    sprite = _parallax(sprite, yaw * 0.15, t)
+    # Talking turns toward the player. Idle still floats, it does not freeze.
+    if expression == "talk" or abs(yaw) < 0.75:
+        sprite = _squash_skew(sprite, yaw)
+        sprite = _parallax(sprite, yaw, t)
+    else:
+        sprite = _parallax(sprite, yaw * 0.15, t)
     sprite = _blink(sprite, _blink_amount(t, expression))
     bob = math.sin(t * 1.7) * size * 0.02
     sway = math.sin(t * 0.8) * size * 0.012

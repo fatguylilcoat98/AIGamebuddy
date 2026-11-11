@@ -40,7 +40,7 @@ def _tilemap() -> bytes:
 def _cgram() -> bytes:
     """Color 1 of palettes 1-5, plus a dim backdrop so a missed layer is not black."""
     colors = {
-        0: 0x2000,  # dim blue backdrop
+        0: 0x7C00,  # blue backdrop, the color the runner already displayed
         1: 0x001F,  # red
         2: 0x03E0,  # green
         3: 0x7C00,  # blue

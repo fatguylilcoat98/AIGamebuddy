@@ -1176,16 +1176,16 @@ class BuddySession:
         return placed
 
     def _place_hole(self, hwnd: int, rect: tuple[int, int, int, int]) -> ActionResult:
-        from .retroarch_finder import game_window_for_hole, needs_replace
+        from .retroarch_finder import needs_replace
         from .window_layout import client_screen_rect
         retro_log = logging.getLogger("buddy.retroarch")
-        # The visible opening stays `rect`. The window is taller so the picture
-        # continues under the frame art. Snapping to the hole would clip it.
-        window = game_window_for_hole(rect)
+        # The window is the opening. A window shifted above the hole leaves the
+        # transparent opening looking at empty client area.
+        window = rect
         # Every pass. RetroArch's GDI driver puts the File menu back after the first snap.
         retro_log.info("Removing window decorations hwnd=%s result=%s", hwnd, strip_window_decorations(hwnd))
         current = client_screen_rect(hwnd) or self._window_rect(hwnd)
-        retro_log.info("RetroArch hwnd=%s client=%s opening=%s window=%s", hwnd, current, rect, window)
+        retro_log.info("RetroArch hwnd=%s client=%s target=%s", hwnd, current, window)
         if not needs_replace(current, window):
             self._placed = (hwnd, window)
             return ActionResult(True, "RetroArch is already under the frame.", reason="stable",

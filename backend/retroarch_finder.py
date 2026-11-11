@@ -305,14 +305,15 @@ def game_window_for_hole(hole: tuple[int, int, int, int]) -> tuple[int, int, int
 
 
 def hole_append_config(rect: tuple[int, int, int, int]) -> str:
-    """Windowed borderless RetroArch. The picture tucks under Buddy's frame.
+    """Windowed borderless RetroArch whose client area is the opening.
 
-    The window is the opening plus the overhang. The custom viewport is the
-    4:3 picture in that window. Integer scale stays off so the picture is not
-    left at 3x in the middle. RetroArch's own frame overlay stays off.
+    The window is the hole, the same rect pre12 snapped to. A taller window
+    sits partly behind the frame and the opening stays black on the GDI driver.
+    The 4:3 viewport stays inside the window, so nothing is drawn off the client.
     """
-    (x, y, width, height), (vx, vy, vw, vh) = layout_for_hole(rect)
-    scale = max(vw / 256.0, vh / 224.0, 6.0)
+    x, y, width, height = (int(v) for v in rect)
+    vx, vy, vw, vh = fit_content_in_hole((0, 0, width, height), SNES_DISPLAY_ASPECT)
+    scale = max(width / 256.0, height / 224.0, 6.0)
     lines = [
         'video_fullscreen = "false"',
         'video_windowed_fullscreen = "false"',

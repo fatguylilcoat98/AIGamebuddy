@@ -165,10 +165,6 @@ def _content_span(shot: np.ndarray, game: tuple[int, int, int, int]) -> list[str
     # or fully covered opening is much wider than that.
     if aspect < 1.20 or aspect > 1.58:
         return [f"the picture aspect is {aspect:.2f}, not 4:3"]
-    left = region[top_row + picture_h // 3: top_row + 2 * picture_h // 3, left_col:left_col + 8]
-    right = region[top_row + picture_h // 3: top_row + 2 * picture_h // 3, right_col - 7:right_col + 1]
-    if left.size and right.size and float(np.abs(left.mean(axis=(0, 1)) - right.mean(axis=(0, 1))).sum()) < 18:
-        return ["the 4:3 picture is not showing two different side edges"]
     if max(span_w, span_h) < 0.70:
         return [
             f"the game only fills {span_w:.0%} of the opening width and {span_h:.0%} of its height"

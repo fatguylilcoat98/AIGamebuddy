@@ -105,13 +105,11 @@ def test_picture_spans_the_opening_at_1080p_and_at_4k_150_percent():
     for size, dpi in (((1920, 1080), 1.0), ((3840, 2160), 1.5)):
         hole = hole_screen_rect(screen, (0, 0, size[0], size[1]))
         _x, _y, width, height = hole
-        from backend.retroarch_finder import tuck_content_in_hole
-        vx, vy, vw, vh = tuck_content_in_hole((0, 0, width, height), SNES_DISPLAY_ASPECT)
+        vx, vy, vw, vh = fit_content_in_hole((0, 0, width, height), SNES_DISPLAY_ASPECT)
         assert abs((vw / vh) - SNES_DISPLAY_ASPECT) < 0.03
-        hidden_w = max(0, -vx) / vw
-        hidden_h = max(0, -vy) / vh
-        assert hidden_w <= 0.055 and hidden_h <= 0.055
-        assert max(hidden_w, hidden_h) >= 0.04
+        assert vx >= 0 and vy >= 0
+        assert vx + vw <= width and vy + vh <= height
+        assert vh == height or vw == width
     assert dpi_aware_compat("") == "~ HIGHDPIAWARE"
     assert dpi_aware_compat("~ GDIDPISCALING") == "~ GDIDPISCALING HIGHDPIAWARE"
     assert "HIGHDPIAWARE" in dpi_aware_compat("~ HIGHDPIAWARE")
@@ -129,23 +127,16 @@ def test_hole_config_letterboxes_inside_the_opening(tmp_path):
     assert 'pause_nonactive' not in text
     assert 'menu_enable_widgets' not in text
     assert 'video_scale_integer = "false"' in text
-    from backend.retroarch_finder import layout_for_hole
-    (wx, wy, ww, wh), (vx, vy, vw, vh) = layout_for_hole(rect)
-    assert f'video_window_x = "{wx}"' in text
-    assert f'video_window_width = "{ww}"' in text
-    assert f'video_window_height = "{wh}"' in text
-    # The window is at least the opening, and it sticks out where the picture tucks under the art.
-    assert ww >= 900 and wh >= 700
-    assert wh > 700 or ww > 900
+    assert 'video_window_x = "120"' in text
+    assert 'video_window_width = "900"' in text
+    assert 'video_window_height = "700"' in text
+    vx, vy, vw, vh = fit_content_in_hole((0, 0, 900, 700), 4 / 3)
     assert 'aspect_ratio_index = "23"' in text
     assert 'video_crop_overscan = "false"' in text
     assert f'custom_viewport_width = "{vw}"' in text
     assert f'custom_viewport_height = "{vh}"' in text
     assert vx >= 0 and vy >= 0
-    hidden_w = max(0, (vw - 900) / 2) / vw
-    hidden_h = max(0, (vh - 700) / 2) / vh
-    assert hidden_w <= 0.055 and hidden_h <= 0.055
-    assert max(hidden_w, hidden_h) >= 0.04
+    assert vw <= 900 and vh <= 700
     assert 'input_overlay_enable = "false"' in text
     # 4:3 in a wide hole keeps 4:3 and leaves bars on the sides.
     wide = fit_content_in_hole((0, 0, 1600, 900), 4 / 3)
@@ -247,24 +238,21 @@ def test_launch_places_a_new_window_and_adopts_an_existing_one(tmp_path):
     assert seen["command"][0] == str(exe)
     cfg = Path(seen["command"][seen["command"].index("--appendconfig") + 1])
     text = cfg.read_text(encoding="utf-8")
-    from backend.retroarch_finder import game_window_for_hole
-    window = game_window_for_hole(hole)
-    assert f'video_window_width = "{window[2]}"' in text
-    assert window[3] > hole[3]
+    assert 'video_window_width = "900"' in text
     assert 'video_fullscreen = "false"' in text
-    assert placed == [(77, window)]
+    assert placed == [(77, hole)]
     assert buddy.retroarch_started_by_buddy is True
     assert buddy.retroarch_pid == 42
 
-    buddy.rect_source = lambda _hwnd: window
+    buddy.rect_source = lambda _hwnd: hole
     stable = buddy.maintain_layout((0, 0), (1920, 1080), hole=hole)
     assert stable.reason == "stable"
-    assert placed == [(77, window)]
+    assert placed == [(77, hole)]
 
     buddy.rect_source = lambda _hwnd: (1, 1, 50, 50)
     nudged = buddy.maintain_layout((0, 0), (1920, 1080), hole=hole)
     assert nudged.reason == "moved"
-    assert placed[-1] == (77, window)
+    assert placed[-1] == (77, hole)
 
     stopped = []
     buddy.process_stopper = lambda pid: stopped.append(pid)

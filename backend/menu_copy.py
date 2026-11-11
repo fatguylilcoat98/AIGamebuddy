@@ -13,7 +13,7 @@ VOICES = (
 ATTITUDES = (
     ("casual", "Chill", "Friendly and calm."),
     ("sassy", "Sassy", "Teases you, and still helps."),
-    ("extreme", "Savage-Extreme", "Swears. For adults."),
+    ("extreme", "Savage-Extreme", "18+. Curses and roasts. Funny, not mean about who you are."),
 )
 
 TALK_MODES = (

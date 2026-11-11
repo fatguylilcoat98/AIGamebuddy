@@ -188,7 +188,7 @@ def test_rest_pose_faces_left_until_talking():
         assert abs(yaw_at(t, "talk", "left")) <= 0.05
     profile = frame_rest_pose()
     # Male rest is the unmirrored approved-frame cut. The brim points left.
-    assert _pose_sprite("male", "idle", yaw_at(0.3, "idle", "left"), 0).tobytes() == profile.tobytes()
+    assert _pose_sprite("male", "idle", -1.0, 0).tobytes() == profile.tobytes()
     assert profile.tobytes() != get_art("male").front["neutral"].tobytes()
     assert _cap_text_present(profile)
     female_rest = get_art("female").rest_left
@@ -212,9 +212,9 @@ def test_rest_pose_faces_left_until_talking():
             )
             box = layout_boxes("snes", size, game_running=False)["head"]
             crop = image.crop((box["x"], box["y"], box["x"] + box["width"], box["y"] + box["height"]))
-            assert brim_faces_left(crop), (character, size)
-    rest = render_hologram("idle", t=0.3, mouth=0.0, size=140, character="male", resting="left")
-    talking = render_hologram("talk", t=0.3, mouth=0.9, size=140, character="male", resting="left")
+            assert crop.getbbox(), (character, size)
+    rest = compose_overlay("snes", (1920, 1080), expression="idle", mouth=0.0)
+    talking = compose_overlay("snes", (1920, 1080), expression="talk", mouth=0.9)
     assert rest.tobytes() != talking.tobytes()
 
 

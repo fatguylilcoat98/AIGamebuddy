@@ -26,7 +26,7 @@ def test_menu_uses_plain_words_and_a_check():
     assert any("Save my spot" in title for title in titles)
     assert any("Load my spot" in title for title in titles)
     assert any("shoulder" in note.lower() for _title, note in rows)
-    assert any("swears" in note.lower() for _title, note in rows)
+    assert any("18+" in note for _title, note in rows)
 
 
 def test_controller_setup_opens_the_menu_then_controls():

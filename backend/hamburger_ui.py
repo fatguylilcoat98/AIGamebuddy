@@ -211,6 +211,9 @@ class HamburgerMenu:
         for key, _label, note in TALK_AMOUNTS:
             self._button(talk_amount_line(key, talk_amount), lambda name=key: self._talk_amount(name))
             self._note(note)
+        booth = bool(getattr(self.session, "announcer", False))
+        self._button(("✓ " if booth else "    ") + "Announcer booth", self._announcer)
+        self._note("Guy and girl Buddy call the game. They take turns, and both sit in the box.")
         self._title("How often Buddy looks at the game")
         every = int(getattr(self.session, "look_interval", 10) or 10)
         self._scan_anchor = None
@@ -301,6 +304,10 @@ class HamburgerMenu:
 
     def _talk_amount(self, name: str):
         self.session.set_talk_amount(name)
+        self._rebuild()
+
+    def _announcer(self):
+        self.session.set_announcer(not bool(getattr(self.session, "announcer", False)))
         self._rebuild()
 
     def _look_every(self, seconds: int):

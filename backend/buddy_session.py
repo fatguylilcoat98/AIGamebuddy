@@ -160,7 +160,17 @@ class BuddySession:
         self.look_interval = normalize_look_interval(config.get("commentary", "look_interval_seconds"))
         self._last_look = 0.0
         self._look_busy = False
+        self._look_started = 0.0
+        self._last_said = 0.0
+        from .frame_comment import FrameCommentator
+        self._commentator = FrameCommentator()
+        self.announcer = False
+        self._booth_turn = "male"
+        self._speaking_as = self.buddy_character
         self._load_ui()
+        if os.environ.get("BUDDY_LOOK_SECONDS"):
+            from .look_schedule import normalize_look_interval
+            self.look_interval = normalize_look_interval(os.environ.get("BUDDY_LOOK_SECONDS"))
 
     def _initial_personality(self) -> str:
         saved = self.memory.get_profile("personality")
@@ -225,6 +235,7 @@ class BuddySession:
         if "look_interval" in data:
             from .look_schedule import normalize_look_interval
             self.look_interval = normalize_look_interval(data.get("look_interval"))
+        self.announcer = bool(data.get("announcer", False))
 
     def _save_ui(self) -> None:
         payload = {
@@ -239,6 +250,7 @@ class BuddySession:
             "talk_mode": self.talk_mode,
             "quiet_until_called": self.quiet_until_called,
             "look_interval": self.look_interval,
+            "announcer": self.announcer,
         }
         try:
             self._ui_path().write_text(json.dumps(payload, indent=2), encoding="utf-8")
@@ -254,9 +266,10 @@ class BuddySession:
             now = self.clock.unix()
             self.session_id = self.memory.start_session(now, self.personality)
             self.running = True
-            if self.talk_mode == "wake" or self.config.get("wake_word"):
-                from .talk_input import start_wake_listener
-                start_wake_listener(self, lambda: self.closed)
+            from .talk_input import start_wake_listener
+            heard = start_wake_listener(self, lambda: self.closed)
+            if heard != "listening":
+                log.info("Mic helper is not installed, so Buddy cannot hear the room yet. Talking out loud still works once it is.")
             self.memory.set_profile("personality", self.personality, "system", now)
         greeting = self._maybe_greet()
         message = f"{self.character} is running."
@@ -305,6 +318,8 @@ class BuddySession:
                 "gaze": emotion["gaze"],
                 "mouth": self.mouth,
                 "yaw": self.anim_yaw,
+                "announcer": self.announcer,
+                "speaking_as": getattr(self, "_speaking_as", self.buddy_character),
                 "talk_mode": self.talk_mode,
                 "quiet_until_called": self.quiet_until_called,
                 "toast": self.toast,
@@ -349,7 +364,7 @@ class BuddySession:
                 self._next_glance = moment + 8.0 + self.rng.random() * 7.0
                 target = -0.2
         from .hologram import step_yaw
-        self.anim_yaw = step_yaw(self.anim_yaw, target)
+        self.anim_yaw = step_yaw(self.anim_yaw, target, 0.14)
 
     def refresh_identity(self):
         found = self.detector.detect()
@@ -369,6 +384,9 @@ class BuddySession:
         if not cleaned:
             return ActionResult(False, "I did not hear anything.", reason="empty")
         self.memory.add_message(unix=self.clock.unix(), role="player", text=cleaned, source="user_reported")
+        helped = self._offer_help(cleaned)
+        if helped is not None:
+            return helped
         intent = match_intent(cleaned)
         if intent:
             result = self._dispatch(intent)
@@ -548,35 +566,115 @@ class BuddySession:
         if decision == "wait":
             return
         if decision == "skip":
-            log.info("Skipped a look; the previous one is still running")
-            return
+            if moment - self._look_started > 12:
+                log.warning("Watchdog restarted a stuck look")
+                self._look_busy = False
+            else:
+                log.info("Skipped a look; the previous one is still running")
+                return
+        log.info("Look tick interval=%ss", self.look_interval)
         self._last_look = moment
+        self._look_started = moment
         self._look_busy = True
         threading.Thread(target=self._look_worker, name="buddy-look", daemon=True).start()
 
     def _look_worker(self) -> None:
         try:
+            from .frame_comment import describe_frame
             captured = self._capture_game_window()
+            observation = ""
+            source = "frame"
             if captured is None:
                 log.info("Looked at the game. interval=%ss captured=no", self.look_interval)
-                return
-            width, height, jpeg = captured
-            log.info(
-                "Looked at the game. interval=%ss captured=%sx%s bytes=%s",
-                self.look_interval, width, height, len(jpeg),
-            )
-            if not self._helper_ready():
-                return
-            note = self._screen_note()
-            if note:
-                self._banter(
-                    player_text="", spontaneous=True, event="look", priority=1, direct=False,
-                    observation=note,
+            else:
+                _width, _height, jpeg = captured
+                log.info(
+                    "Looked at the game. interval=%ss captured=%sx%s bytes=%s",
+                    self.look_interval, _width, _height, len(jpeg),
                 )
+                try:
+                    observation = describe_frame(jpeg)
+                except Exception:
+                    observation = ""
+                if self._helper_ready():
+                    note = self._screen_note()
+                    if note:
+                        observation = note
+                        source = "vision"
+            line, made = self._commentator.line(
+                observation, self.personality, have_frame=bool(observation),
+            )
+            if made == "frame" and source == "vision":
+                made = "vision"
+            self._say_line(line, made)
         except Exception:
             log.exception("Look at the game failed")
         finally:
             self._look_busy = False
+
+    def _say_line(self, text: str, source: str) -> None:
+        if self.frequency == "off" or self.quiet_until_called:
+            log.info("Look tick held. frequency=%s quiet=%s", self.frequency, self.quiet_until_called)
+            return
+        gap = 5 if os.environ.get("BUDDY_SMOKE_CHATTY") == "1" else {"chatty": 6, "normal": 12, "rare": 25}.get(self.frequency, 12)
+        now = self.clock.mono()
+        if getattr(self.audio, "speaking", False):
+            log.info("Look tick held. someone is still talking")
+            return
+        if now - self._last_said < gap:
+            log.info("Look tick held. next line in %.0fs", gap - (now - self._last_said))
+            return
+        self._last_said = now
+        if self.announcer:
+            self._booth_turn = "female" if self._booth_turn == "male" else "male"
+            self._speaking_as = self._booth_turn
+            role = "play-by-play" if self._booth_turn == "male" else "color"
+            text = f"{role}: {text}"
+        else:
+            self._speaking_as = self.buddy_character
+        log.info("Spoke source=%s voice=%s: %s", source, self._speaking_as, text)
+        self._append_spoken(text, source)
+        import threading
+        worker = threading.Thread(target=self._play, args=(text,), name="buddy-say", daemon=True)
+        worker.start()
+        worker.join(8)
+        if worker.is_alive():
+            log.warning("Speech timed out. Buddy will keep talking.")
+            try:
+                self.audio.stop()
+            except Exception:
+                pass
+
+    def _append_spoken(self, text: str, source: str) -> None:
+        path = self.data_dir / "spoken.log"
+        stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("a", encoding="utf-8") as handle:
+                handle.write(f"{stamp}\tsource={source}\tvoice={getattr(self, '_speaking_as', '')}\t{text}\n")
+        except OSError:
+            log.warning("Could not write spoken.log")
+
+    def set_announcer(self, enabled: bool) -> ActionResult:
+        self.announcer = bool(enabled)
+        self._save_ui()
+        line = "We're on the call together." if self.announcer else "Just me again."
+        return self._show(line, category="status", emotion="talk")
+
+    def _offer_help(self, text: str) -> ActionResult | None:
+        lower = text.lower()
+        if not any(word in lower for word in (
+            "stuck", "where do i", "where should", "cheat", "code", "konami", "look it up", "how do i", "i'm lost", "im lost",
+        )):
+            return None
+        from .game_help import lookup_help
+        game = self._status_game or getattr(self.identity, "title", "") or ""
+        line, source = lookup_help(game, text)
+        log.info("Help source=%s game=%s", source, game)
+        self._speaking_as = self.buddy_character
+        self._append_spoken(line, "help")
+        log.info("Spoke source=help: %s", line)
+        return self._show(line, category="help", emotion="talk")
 
     def _capture_game_window(self):
         """JPEG of the emulator window only. The frame around it is not included."""
@@ -1087,7 +1185,7 @@ class BuddySession:
             frame = frame_for_assignment(self.config, status.system)
             if self.theme_mode == "auto" and frame:
                 self.theme = frame
-            self._show(announce_line(status.game, status.system), category="game", emotion="talk")
+            log.info("Game on screen: %s %s", status.game, status.system)
             return
         if not status.game:
             self._status_game = ""
@@ -1474,7 +1572,7 @@ class BuddySession:
         heard = self.audio.speak(
             text, volume=self.volume, rate=int(self.config.get("voice", "rate") or 0),
             device_name=self.output_device, mute=self.muted, on_level=on_level,
-            character=self.buddy_character,
+            character=getattr(self, "_speaking_as", None) or self.buddy_character,
         )
         if not heard.ok:
             self.mouth = 0.0

@@ -105,11 +105,13 @@ def test_picture_spans_the_opening_at_1080p_and_at_4k_150_percent():
     for size, dpi in (((1920, 1080), 1.0), ((3840, 2160), 1.5)):
         hole = hole_screen_rect(screen, (0, 0, size[0], size[1]))
         _x, _y, width, height = hole
-        _vx, _vy, vw, vh = fit_content_in_hole((0, 0, width, height), SNES_DISPLAY_ASPECT)
-        assert max(vw / width, vh / height) >= 0.90, (size, vw, vh, width, height)
-        assert abs((vw / vh) - SNES_DISPLAY_ASPECT) < 0.02
-        logical = fit_content_in_hole((0, 0, width / dpi, height / dpi), SNES_DISPLAY_ASPECT)
-        assert max(logical[2] / (width / dpi), logical[3] / (height / dpi)) >= 0.90
+        from backend.retroarch_finder import tuck_content_in_hole
+        vx, vy, vw, vh = tuck_content_in_hole((0, 0, width, height), SNES_DISPLAY_ASPECT)
+        assert abs((vw / vh) - SNES_DISPLAY_ASPECT) < 0.03
+        hidden_w = max(0, -vx) / vw
+        hidden_h = max(0, -vy) / vh
+        assert hidden_w <= 0.04 + 0.01 and hidden_h <= 0.04 + 0.01
+        assert max(hidden_w, hidden_h) >= 0.015
     assert dpi_aware_compat("") == "~ HIGHDPIAWARE"
     assert dpi_aware_compat("~ GDIDPISCALING") == "~ GDIDPISCALING HIGHDPIAWARE"
     assert "HIGHDPIAWARE" in dpi_aware_compat("~ HIGHDPIAWARE")
@@ -130,10 +132,15 @@ def test_hole_config_letterboxes_inside_the_opening(tmp_path):
     assert 'video_window_x = "120"' in text
     assert 'video_window_width = "900"' in text
     assert 'video_window_height = "700"' in text
-    # 900x700 is taller than 4:3, so the picture uses the full width and does not stretch.
+    # 900x700 is only a little taller than 4:3, so a few percent tuck under the art.
     assert 'aspect_ratio_index = "23"' in text
-    assert 'custom_viewport_width = "900"' in text
-    assert 'custom_viewport_height = "675"' in text
+    assert 'video_crop_overscan = "false"' in text
+    from backend.retroarch_finder import tuck_content_in_hole
+    _vx, _vy, vw, vh = tuck_content_in_hole((0, 0, 900, 700), 4 / 3)
+    assert f'custom_viewport_width = "{vw}"' in text
+    assert f'custom_viewport_height = "{vh}"' in text
+    assert max(0, -_vx) / vw <= 0.045
+    assert max(0, -_vy) / vh <= 0.045
     assert 'input_overlay_enable = "false"' in text
     # 4:3 in a wide hole keeps 4:3 and leaves bars on the sides.
     wide = fit_content_in_hole((0, 0, 1600, 900), 4 / 3)

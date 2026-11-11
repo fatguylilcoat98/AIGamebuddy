@@ -88,7 +88,10 @@ def synthesize_edge_wav(text: str, character: str = "male") -> bytes | None:
     wav_path = ""
     try:
         async def _save() -> None:
-            await edge_tts.Communicate(text[:1500], neural_voice(character)).save(mp3_path)
+            voice = neural_voice(character)
+            await edge_tts.Communicate(
+                text[:1500], voice, rate="+8%", pitch="+2Hz",
+            ).save(mp3_path)
         asyncio.run(_save())
         if not Path(mp3_path).exists() or Path(mp3_path).stat().st_size < 64:
             return None

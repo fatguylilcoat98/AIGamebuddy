@@ -220,7 +220,7 @@ def test_game_list_stays_in_buddy_and_status_is_spoken(tmp_path):
     buddy.status_query = lambda: next(replies)
     buddy.poll_game_status(now=0)
     buddy.poll_game_status(now=50)
-    assert any("Owned Game" in line and "NES" in line for line in audio.lines)
+    assert not any(line.lower().startswith("you're playing") for line in audio.lines)
     assert any("item you already have" in line for line in audio.lines)
 
 

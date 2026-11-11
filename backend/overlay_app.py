@@ -56,7 +56,6 @@ def run_overlay(session) -> None:
     import tkinter as tk
     from PIL import ImageTk
 
-    from .hologram import render_hologram
     from .window_layout import apply_hole_region
 
     root = tk.Tk()
@@ -364,14 +363,22 @@ def run_overlay(session) -> None:
         hud = session.hud()
         expression = hud["expression"]
         mouth = hud["mouth"] if hud["mouth"] else (0.62 if expression == "talk" else 0.0)
-        head = render_hologram(
-            expression, t=session.clock.mono(), mouth=mouth, gaze=hud["gaze"],
-            size=max(well["width"], well["height"], 64),
-            character=hud.get("buddy_character", "male"),
-            resting=hud.get("resting_direction", "left"),
-            from_expression=hud.get("from_expression"), blend=hud.get("expression_blend", 1.0),
-            yaw=hud.get("yaw"),
-        )
+        from .cartoon_buddy import render_booth, render_cartoon
+        moment = session.clock.mono()
+        yaw = hud.get("yaw")
+        if yaw is None:
+            yaw = -0.9
+        talking = bool(getattr(session.audio, "speaking", False)) or expression == "talk"
+        if hud.get("announcer"):
+            head = render_booth(
+                max(well["width"], well["height"], 64), moment, float(yaw), mouth, expression,
+                hud.get("speaking_as") or "male",
+            )
+        else:
+            head = render_cartoon(
+                max(well["width"], well["height"], 64), moment, float(yaw), mouth, expression,
+                hud.get("buddy_character", "male"), talking,
+            )
         if not hud.get("buddy_hidden"):
             image = paste_head(image, head, well)
         if os.name == "nt" and holder["game"]:
@@ -399,7 +406,7 @@ def run_overlay(session) -> None:
             holder["shown"] = session.theme
             _rebuild_static()
         _paint_head()
-        root.after(80, animate)
+        root.after(33, animate)
 
     def _keep_menu_clickable():
         """The game hole is the only click-through part. Buddy and the menu stay solid."""

@@ -79,14 +79,14 @@ jobs:
       - name: Publish prerelease
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: buddy-v0.1.0-pre12
-          name: Buddy 0.1.0 pre12
+          tag_name: buddy-v0.1.0-pre13
+          name: Buddy 0.1.0 pre13
           prerelease: true
           make_latest: false
           generate_release_notes: false
           body: |
             Prerelease installer for Super NES. Double-click BuddySetup.exe.
-            pre8 is broken. pre11 still had a flat menu button and, on some shots, RetroArch's menu bar. Use pre12.
+            pre8 is broken. pre12 talked once and then went quiet. Use pre13.
             Snes9x is included for personal use. It is not the latest stable release.
           files: |
             dist/BuddySetup.exe
@@ -101,6 +101,7 @@ jobs:
             dist/screenshots/menu-saves.jpg
             dist/screenshots/save-toast.jpg
             dist/screenshots/save-roundtrip.txt
+            dist/screenshots/buddy-lines.txt
             dist/screenshots/menu-bottom.jpg
             dist/screenshots/retroarch-menu.jpg
             dist/screenshots/exit-no-processes.txt

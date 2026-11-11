@@ -195,6 +195,60 @@ def locate_and_remember(config: Config) -> str:
     return found
 
 
+def cover_content_in_hole(hole: tuple[int, int, int, int], content_aspect: float) -> tuple[int, int, int, int]:
+    """Largest 4:3 (or other) picture that covers the hole. Extra hangs off the edges.
+
+    The frame art is drawn on top, so the cropped edges sit under the painting.
+    The picture is never stretched.
+    """
+    x, y, width, height = (int(v) for v in hole)
+    if width < 1 or height < 1 or content_aspect <= 0:
+        return x, y, max(1, width), max(1, height)
+    if width / height > content_aspect:
+        content_w = width
+        content_h = max(height, int(round(width / content_aspect)))
+    else:
+        content_h = height
+        content_w = max(width, int(round(height * content_aspect)))
+    origin_x = x + (width - content_w) // 2
+    origin_y = y + (height - content_h) // 2
+    return origin_x, origin_y, content_w, content_h
+
+
+def tuck_content_in_hole(hole: tuple[int, int, int, int], content_aspect: float,
+                         overhang: float = 0.025, limit: float = 0.04) -> tuple[int, int, int, int]:
+    """4:3 picture that slips a little under the frame, without eating the HUD.
+
+    About 2.5% of the picture goes under the art on the edges that meet the
+    opening. No edge hides more than 4%. When the opening is not 4:3, the
+    other axis keeps a gap instead of cropping the health bars and the timer.
+    """
+    x, y, width, height = (int(v) for v in hole)
+    if width < 1 or height < 1 or content_aspect <= 0:
+        return x, y, max(1, width), max(1, height)
+    _fx, _fy, fit_w, fit_h = fit_content_in_hole((0, 0, width, height), content_aspect)
+    overhang = min(max(0.0, overhang), limit)
+
+    def hidden(game: float, hole_size: int) -> float:
+        if game <= hole_size or game <= 0:
+            return 0.0
+        return ((game - hole_size) / 2.0) / game
+
+    # Scale the fitted picture so each tight edge hides `overhang` of the game.
+    scale = 1.0 / max(0.5, 1.0 - 2.0 * overhang)
+    while scale > 1.0 and max(hidden(fit_w * scale, width), hidden(fit_h * scale, height)) > limit:
+        scale *= 0.99
+    content_w = max(1, int(round(fit_w * scale)))
+    content_h = max(1, int(round(content_w / content_aspect)))
+    # Integer rounding can push an edge past the HUD limit. Shrink until it fits.
+    while content_w > 1 and content_h > 1 and max(hidden(content_w, width), hidden(content_h, height)) > limit + 0.005:
+        content_w -= 1
+        content_h = max(1, int(round(content_w / content_aspect)))
+    origin_x = x + (width - content_w) // 2
+    origin_y = y + (height - content_h) // 2
+    return origin_x, origin_y, content_w, content_h
+
+
 def fit_content_in_hole(hole: tuple[int, int, int, int], content_aspect: float) -> tuple[int, int, int, int]:
     """Largest rectangle of `content_aspect` (width/height) inside the hole.
 
@@ -228,11 +282,11 @@ def hole_append_config(rect: tuple[int, int, int, int]) -> str:
     RetroArch's own frame overlay stays off. Buddy already draws the scenery.
     """
     x, y, width, height = (int(v) for v in rect)
-    # Viewport is inside the window, in the window's own pixels, at 4:3.
-    # A viewport the size of the window would stretch. A 3x core scale would
-    # leave the picture in the middle, which is what showed up on the TV.
-    vx, vy, vw, vh = fit_content_in_hole((0, 0, width, height), SNES_DISPLAY_ASPECT)
-    scale = max(width / 256.0, height / 224.0, 6.0)
+    # Slip a 4:3 picture just under the art. A full cover would cut off the HUD
+    # when the opening is wider than the game. Integer scale stays off so the
+    # picture is not left at 3x in the middle of the window.
+    vx, vy, vw, vh = tuck_content_in_hole((0, 0, width, height), SNES_DISPLAY_ASPECT)
+    scale = max(vw / 256.0, vh / 224.0, 6.0)
     lines = [
         'video_fullscreen = "false"',
         'video_windowed_fullscreen = "false"',
@@ -249,6 +303,7 @@ def hole_append_config(rect: tuple[int, int, int, int]) -> str:
         f'video_window_height = "{height}"',
         f'video_scale = "{scale:.3f}"',
         'video_scale_integer = "false"',
+        'video_crop_overscan = "false"',
         f'aspect_ratio_index = "{ASPECT_RATIO_CUSTOM}"',
         f'custom_viewport_x = "{vx}"',
         f'custom_viewport_y = "{vy}"',

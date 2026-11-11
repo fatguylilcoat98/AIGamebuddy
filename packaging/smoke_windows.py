@@ -118,6 +118,22 @@ def close_window(title: str) -> None:
     print(f"closed hwnd={hwnd} title={title}")
 
 
+def prove_lines(path: Path) -> None:
+    from datetime import datetime
+    rows = [line for line in path.read_text(encoding="utf-8").splitlines() if "\tsource=frame" in line or "\tsource=vision" in line]
+    print(f"frame lines {len(rows)}")
+    if len(rows) < 8:
+        raise SystemExit(f"only {len(rows)} frame comments, wanted at least 8")
+    texts = {row.split("\t", 3)[-1] for row in rows}
+    if len(texts) < 6:
+        raise SystemExit("the frame comments did not vary")
+    stamps = [datetime.strptime(row.split("\t", 1)[0], "%Y-%m-%dT%H:%M:%SZ") for row in rows]
+    span = (max(stamps) - min(stamps)).total_seconds()
+    print(f"frame comments span {span:.0f}s unique {len(texts)}")
+    if span < 150:
+        raise SystemExit(f"frame comments only span {span:.0f}s, wanted 3 minutes")
+
+
 def prove(path: Path, menu_open: bool) -> None:
     from PIL import Image
     from backend.frame_proof import prove_snes_screen
@@ -143,6 +159,9 @@ def prove(path: Path, menu_open: bool) -> None:
 
 def main(argv: list[str]) -> int:
     command = argv[1] if len(argv) > 1 else ""
+    if command == "lines":
+        prove_lines(Path(os.environ["BUDDY_LINES"]))
+        return 0
     if command == "close":
         close_window(os.environ.get("BUDDY_WINDOW_TITLE") or "Buddy Setup")
         return 0

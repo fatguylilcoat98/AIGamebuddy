@@ -214,6 +214,8 @@ $cmdFile = Join-Path $env:LOCALAPPDATA "Buddy\smoke-cmd.txt"
 $ackFile = Join-Path $env:LOCALAPPDATA "Buddy\smoke-ack.txt"
 $env:BUDDY_SMOKE_CMD = $cmdFile
 $env:BUDDY_SMOKE_PLAY = "1"
+$env:BUDDY_LOOK_SECONDS = "5"
+$env:BUDDY_SMOKE_CHATTY = "1"
 $env:BUDDY_SAVE_LOG = Join-Path $shotDir "save-roundtrip.txt"
 if (Test-Path $cmdFile) { Remove-Item $cmdFile -Force }
 if (Test-Path $ackFile) { Remove-Item $ackFile -Force }
@@ -282,6 +284,18 @@ $env:BUDDY_EXPECT_GAME = "0"
 if ($LASTEXITCODE -ne 0) {
     Write-BuddyLogs
     throw "The SNES frame, Buddy, or the hamburger is not on screen"
+}
+
+Write-Host "Listening for three minutes of frame comments"
+Start-Sleep -Seconds 185
+$spoken = Join-Path $env:LOCALAPPDATA "VideoGameWingman\spoken.log"
+if (-not (Test-Path $spoken)) { throw "Buddy did not write spoken.log" }
+Copy-Item $spoken (Join-Path $shotDir "buddy-lines.txt") -Force
+$env:BUDDY_LINES = Join-Path $shotDir "buddy-lines.txt"
+& $python $smokePy lines
+if ($LASTEXITCODE -ne 0) {
+    Get-Content (Join-Path $shotDir "buddy-lines.txt")
+    throw "Buddy did not keep talking from the frames"
 }
 
 Send-Smoke "snap"

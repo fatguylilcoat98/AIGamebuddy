@@ -108,30 +108,68 @@ def _menu_bottom(shot: np.ndarray, button: tuple[int, int, int, int], height: in
     return []
 
 
+def _edge_strip(region: np.ndarray, side: str) -> np.ndarray:
+    height, width = region.shape[:2]
+    if side == "left":
+        return region[height // 3: 2 * height // 3, 2:12]
+    if side == "right":
+        return region[height // 3: 2 * height // 3, max(0, width - 12):width - 2]
+    if side == "top":
+        return region[2:12, width // 3: 2 * width // 3]
+    return region[max(0, height - 12):height - 2, width // 3: 2 * width // 3]
+
+
 def _content_span(shot: np.ndarray, game: tuple[int, int, int, int]) -> list[str]:
     """The colored picture must fill the opening on its long side. A 3x core does not.
 
     A thin rim is ignored because the painted frame overlaps the rectangle's corners.
     """
     x, y, w, h = game
-    rim_x = max(4, int(w * 0.04))
-    rim_y = max(4, int(h * 0.04))
-    region = _crop(shot, (x + rim_x, y + rim_y, max(1, w - 2 * rim_x), max(1, h - 2 * rim_y)))
+    inset = 4
+    region = _crop(shot, (x + inset, y + inset, max(1, w - 2 * inset), max(1, h - 2 * inset)))
     if region.size == 0:
         return ["the game opening is off the screen"]
-    center = region[region.shape[0] // 2, region.shape[1] // 2]
-    # The CI game is a solid blue screen. Real games are just not black.
-    if int(center[2]) > 180 and int(center[0]) < 80 and int(center[1]) < 80:
-        mask = (region[:, :, 2] > 180) & (region[:, :, 0] < 80) & (region[:, :, 1] < 80)
-    else:
-        mask = region.max(axis=2) > 28
-    if not mask.any():
+    height, width = region.shape[:2]
+    bright = region.max(axis=2) > 28
+    cy, cx = height // 2, width // 2
+    if not bool(bright[cy, cx]):
         return ["the game picture is missing from the opening"]
-    rows = np.where(mask.any(axis=1))[0]
-    cols = np.where(mask.any(axis=0))[0]
-    span_h = float(rows[-1] - rows[0] + 1) / mask.shape[0]
-    span_w = float(cols[-1] - cols[0] + 1) / mask.shape[1]
-    if max(span_w, span_h) < 0.90:
+    top_row = cy
+    while top_row > 0 and bool(bright[top_row - 1, cx]):
+        top_row -= 1
+    bottom_row = cy
+    while bottom_row < height - 1 and bool(bright[bottom_row + 1, cx]):
+        bottom_row += 1
+    left_col = cx
+    while left_col > 0 and bool(bright[cy, left_col - 1]):
+        left_col -= 1
+    right_col = cx
+    while right_col < width - 1 and bool(bright[cy, right_col + 1]):
+        right_col += 1
+    span_h = float(bottom_row - top_row + 1) / height
+    span_w = float(right_col - left_col + 1) / width
+    # Walk stops at the black gap, so frame art past the letterbox is ignored.
+    # A wide opening keeps side gaps. The picture still has to meet the top and bottom.
+    if top_row > max(8, int(height * 0.03)):
+        return ["the game does not reach the top edge of the opening"]
+    if (height - 1 - bottom_row) > max(8, int(height * 0.03)):
+        return ["the game does not reach the bottom edge of the opening"]
+    if span_h < 0.94:
+        return [f"the game only fills {span_h:.0%} of the opening height"]
+    picture_h = bottom_row - top_row + 1
+    picture_w = right_col - left_col + 1
+    if picture_h < 8 or picture_w < 8:
+        return ["the game picture is missing from the opening"]
+    aspect = picture_w / picture_h
+    # A 2-4% tuck makes the visible slice a little wider than 4:3. A stretched
+    # or fully covered opening is much wider than that.
+    if aspect < 1.20 or aspect > 1.55:
+        return [f"the picture aspect is {aspect:.2f}, not 4:3"]
+    left = region[top_row + picture_h // 3: top_row + 2 * picture_h // 3, left_col:left_col + 8]
+    right = region[top_row + picture_h // 3: top_row + 2 * picture_h // 3, right_col - 7:right_col + 1]
+    if left.size and right.size and float(np.abs(left.mean(axis=(0, 1)) - right.mean(axis=(0, 1))).sum()) < 18:
+        return ["the 4:3 picture is not showing two different side edges"]
+    if max(span_w, span_h) < 0.70:
         return [
             f"the game only fills {span_w:.0%} of the opening width and {span_h:.0%} of its height"
         ]

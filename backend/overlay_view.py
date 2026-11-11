@@ -13,7 +13,7 @@ from PIL import Image, ImageDraw, ImageFont
 from .config_loader import ROOT
 from .capture_safety import fit_frame
 from .frame_library import DESIGN, PLACEMENTS, clear_painted_head, frame_record, paste_head, punch_screen
-from .hologram import render_hologram
+from .cartoon_buddy import render_cartoon
 
 _FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 
@@ -175,8 +175,9 @@ def compose_overlay(frame_id: str, monitor: tuple[int, int], *, expression: str 
     """Full monitor image. The game hole is dark until a game is running."""
     canvas = static_frame(frame_id, monitor, game_running=game_running)
     head_box = layout_boxes(frame_id, monitor, game_running=game_running)["head"]
-    head = render_hologram(
-        expression, t=t, mouth=mouth, size=max(head_box["width"], head_box["height"]),
-        character=character, resting=resting,
+    yaw = 0.0 if expression == "talk" else -0.85
+    head = render_cartoon(
+        max(head_box["width"], head_box["height"]), t, yaw, mouth, expression, character,
+        talking=expression == "talk" or mouth > 0.2,
     )
     return paste_head(canvas, head, head_box)

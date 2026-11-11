@@ -53,9 +53,8 @@ def start_wake_listener(session, stopped) -> str:
         import time
         ears = BuddyEars(max_seconds=4)
         while not stopped():
-            if getattr(session, "talk_mode", "") != "wake" or getattr(session, "closed", False):
-                time.sleep(0.4)
-                continue
+            if getattr(session, "closed", False):
+                return
             try:
                 ears.start()
                 time.sleep(2.2)
@@ -63,20 +62,11 @@ def start_wake_listener(session, stopped) -> str:
             except Exception:
                 time.sleep(1.0)
                 continue
-            text = getattr(heard, "text", "") or ""
-            if not is_wake_phrase(text):
-                continue
-            follow = utterance_after_wake(text)
-            if not follow:
-                try:
-                    ears.start()
-                    time.sleep(3.0)
-                    heard = ears.stop_and_transcribe()
-                    follow = getattr(heard, "text", "") or ""
-                except Exception:
-                    follow = ""
-            if follow:
-                session.handle_text(follow)
+            text = " ".join((getattr(heard, "text", "") or "").split())
+            if is_wake_phrase(text):
+                text = utterance_after_wake(text) or text
+            if text:
+                session.handle_text(text)
 
     import threading
     threading.Thread(target=loop, name="buddy-wake", daemon=True).start()

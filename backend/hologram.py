@@ -91,7 +91,7 @@ def _pose_sprite(character: str, expression: str, yaw: float, mouth: float) -> I
     side_expr = art.left_expr if yaw < 0 else art.right_expr
     base = _blend_pair(side_turns, magnitude)
     name = _FRONT.get(expression, "neutral")
-    if expression != "talk" and yaw <= -0.75 and art.rest_left is not None:
+    if expression != "talk" and yaw <= -0.98 and art.rest_left is not None:
         if expression in {"laugh", "shocked", "celebrate"} and name in side_expr:
             return side_expr[name]
         return art.rest_left

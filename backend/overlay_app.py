@@ -235,6 +235,14 @@ def run_overlay(session) -> None:
         record = frame_record(_frame_id())
         return hole_screen_rect(record["screen"], (0, 0, holder["target"][0], holder["target"][1]))
 
+    def _screen_picture() -> tuple[int, int, int, int]:
+        from .retroarch_finder import picture_on_blue
+        return picture_on_blue(_screen_hole())
+
+    def _client_picture() -> tuple[int, int, int, int]:
+        from .retroarch_finder import picture_on_blue
+        return picture_on_blue(_client_hole())
+
     def _apply_geometry():
         info = _read_monitor()
         holder["monitor_info"] = info
@@ -341,7 +349,7 @@ def run_overlay(session) -> None:
 
         def work():
             try:
-                session.launch_into_hole(_screen_hole(), force=True)
+                session.launch_into_hole(_screen_picture(), force=True)
             except Exception:
                 logging.getLogger("buddy.retroarch").exception("Find RetroArch launch failed")
                 session.retroarch_notice = NOTICE_FAILED
@@ -363,21 +371,20 @@ def run_overlay(session) -> None:
         hud = session.hud()
         expression = hud["expression"]
         mouth = hud["mouth"] if hud["mouth"] else (0.62 if expression == "talk" else 0.0)
-        from .cartoon_buddy import render_booth, render_cartoon
+        from .hologram import render_hologram, render_hologram_booth
         moment = session.clock.mono()
         yaw = hud.get("yaw")
         if yaw is None:
             yaw = -0.9
-        talking = bool(getattr(session.audio, "speaking", False)) or expression == "talk"
         if hud.get("announcer"):
-            head = render_booth(
-                max(well["width"], well["height"], 64), moment, float(yaw), mouth, expression,
+            head = render_hologram_booth(
+                max(well["width"], well["height"], 64), moment, mouth, expression,
                 hud.get("speaking_as") or "male",
             )
         else:
-            head = render_cartoon(
-                max(well["width"], well["height"], 64), moment, float(yaw), mouth, expression,
-                hud.get("buddy_character", "male"), talking,
+            head = render_hologram(
+                expression, moment, mouth, size=max(well["width"], well["height"], 64),
+                character=hud.get("buddy_character", "male"), resting="left", yaw=float(yaw),
             )
         if not hud.get("buddy_hidden"):
             image = paste_head(image, head, well)
@@ -449,7 +456,7 @@ def run_overlay(session) -> None:
         if os.name != "nt" or not holder["game"] or session.layout != "full":
             return
         root.update_idletasks()
-        hole = _client_hole()
+        hole = _client_picture()
         apply_hole_region(
             root.winfo_id(), holder["target"][0], holder["target"][1], hole, keep=_keep_rects(),
         )
@@ -473,8 +480,12 @@ def run_overlay(session) -> None:
             raise_overlay_front(
                 int(root.winfo_id() or 0), info["width"], info["height"], (info["left"], info["top"]),
             )
-        hole = _screen_hole()
+        hole = _screen_picture()
         session.game_hole = hole
+        if os.name == "nt" and holder["game"]:
+            from .retroarch_finder import blue_backing_rect
+            from .window_layout import place_blue_backing
+            place_blue_backing(blue_backing_rect(_screen_hole()))
         present = session._emulator_hwnd() is not None
         if present != holder["game"]:
             holder["game"] = present
@@ -500,7 +511,7 @@ def run_overlay(session) -> None:
 
         def work():
             try:
-                session.launch_into_hole(_screen_hole())
+                session.launch_into_hole(_screen_picture())
             except Exception:
                 logging.getLogger("buddy.retroarch").exception("RetroArch launch failed")
                 session.retroarch_notice = NOTICE_FAILED
@@ -689,7 +700,7 @@ def run_overlay(session) -> None:
                             encoding="utf-8",
                         )
                 elif command == "snap":
-                    hole = _screen_hole()
+                    hole = _screen_picture()
                     hwnd = session._emulator_hwnd()
                     if hwnd:
                         session._place_hole(hwnd, hole)

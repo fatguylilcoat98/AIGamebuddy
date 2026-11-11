@@ -150,23 +150,30 @@ def _content_span(shot: np.ndarray, game: tuple[int, int, int, int]) -> list[str
     span_w = float(right_col - left_col + 1) / width
     # Walk stops at the black gap, so frame art past the letterbox is ignored.
     # A wide opening keeps side gaps. The picture still has to meet the top and bottom.
-    if top_row > max(8, int(height * 0.03)):
-        return ["the game does not reach the top edge of the opening"]
-    if (height - 1 - bottom_row) > max(8, int(height * 0.03)):
-        return ["the game does not reach the bottom edge of the opening"]
-    if span_h < 0.90:
-        return [f"the game only fills {span_h:.0%} of the opening height"]
-    picture_h = bottom_row - top_row + 1
-    picture_w = right_col - left_col + 1
+    # The side bars are the blue backing. The center is the 4:3 game.
+    def blue_mask(sample: np.ndarray) -> np.ndarray:
+        red = sample[:, :, 0].astype(np.int16)
+        green = sample[:, :, 1].astype(np.int16)
+        blue = sample[:, :, 2].astype(np.int16)
+        return (blue > 140) & (blue > red + 40) & (green < 160)
+    side = region[height // 3: 2 * height // 3, 2:18]
+    other = region[height // 3: 2 * height // 3, width - 18:width - 2]
+    if side.size and float(blue_mask(side).mean()) < 0.45:
+        return ["the blue backing does not reach the left edge of the opening"]
+    if other.size and float(blue_mask(other).mean()) < 0.45:
+        return ["the blue backing does not reach the right edge of the opening"]
+    game = bright & ~blue_mask(region)
+    if not game.any():
+        return ["the 4:3 game picture is missing from the blue opening"]
+    grows = np.where(game.any(axis=1))[0]
+    gcols = np.where(game.any(axis=0))[0]
+    picture_h = int(grows[-1] - grows[0] + 1)
+    picture_w = int(gcols[-1] - gcols[0] + 1)
+    if picture_h / height < 0.90:
+        return [f"the game only fills {picture_h / height:.0%} of the opening height"]
     aspect = picture_w / max(1, picture_h)
-    # A full-window blue fill is the opening's aspect, about 1.78. A 4:3
-    # picture is near 1.33, a little wider when the top and bottom tuck under the art.
     if aspect < 1.20 or aspect > 1.55:
         return [f"the picture aspect is {aspect:.2f}, not a 4:3 core frame"]
-    left = region[top_row + picture_h // 3: top_row + 2 * picture_h // 3, left_col:left_col + 8]
-    right = region[top_row + picture_h // 3: top_row + 2 * picture_h // 3, right_col - 7:right_col + 1]
-    if left.size and right.size and float(np.abs(left.mean(axis=(0, 1)) - right.mean(axis=(0, 1))).sum()) < 18:
-        return ["the picture is one flat color, not the bordered test pattern"]
     return []
 
 

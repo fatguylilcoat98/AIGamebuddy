@@ -1,5 +1,5 @@
 """Frame lines, help, and the cartoon rig."""
-from backend.cartoon_buddy import render_booth, render_cartoon
+from backend.hologram import render_hologram, render_hologram_booth
 from backend.frame_comment import FrameCommentator, describe_frame
 from backend.game_help import known_help, lookup_help
 
@@ -29,19 +29,19 @@ def test_contra_code_and_an_unsure_lookup():
     assert source == "known"
 
 
-def test_cartoon_frames_are_not_a_single_tilt():
+def test_hologram_boy_and_girl_are_not_a_tilt():
     from io import BytesIO
-    left = render_cartoon(160, t=0.2, yaw=-0.9, mouth=0.0, expression="idle", talking=False)
-    player = render_cartoon(160, t=0.2, yaw=0.0, mouth=0.8, expression="talk", talking=True)
-    laugh = render_cartoon(160, t=0.2, yaw=0.0, mouth=0.9, expression="laugh", talking=True)
-    later = render_cartoon(160, t=1.1, yaw=-0.9, mouth=0.0, expression="idle", talking=False)
-    assert left.tobytes() != player.tobytes()
-    assert player.tobytes() != laugh.tobytes()
-    assert left.tobytes() != later.tobytes()
-    booth = render_booth(180, 0.4, -0.4, 0.7, "talk", "female")
+    boy_game = render_hologram("idle", t=0.2, mouth=0.0, size=160, character="male", resting="left", yaw=-0.9)
+    boy_talk = render_hologram("talk", t=0.2, mouth=0.8, size=160, character="male", resting="left", yaw=0.0)
+    boy_laugh = render_hologram("laugh", t=0.2, mouth=0.9, size=160, character="male", resting="left", yaw=0.0)
+    girl = render_hologram("idle", t=0.2, mouth=0.0, size=160, character="female", resting="left", yaw=-0.9)
+    assert boy_game.tobytes() != boy_talk.tobytes()
+    assert boy_talk.tobytes() != boy_laugh.tobytes()
+    assert boy_game.tobytes() != girl.tobytes()
+    booth = render_hologram_booth(180, 0.4, 0.7, "talk", "female")
     assert booth.size == (180, 180)
     # A described frame mentions both sides, so a line can use them.
-    image = left.convert("RGB")
+    image = boy_game.convert("RGB")
     buf = BytesIO()
     image.save(buf, format="JPEG")
     text = describe_frame(buf.getvalue())

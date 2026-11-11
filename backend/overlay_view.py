@@ -13,7 +13,7 @@ from PIL import Image, ImageDraw, ImageFont
 from .config_loader import ROOT
 from .capture_safety import fit_frame
 from .frame_library import DESIGN, PLACEMENTS, clear_painted_head, frame_record, paste_head, punch_screen
-from .cartoon_buddy import render_cartoon
+from .hologram import render_hologram
 
 _FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 
@@ -144,6 +144,34 @@ def rects_overlap(a: tuple[int, int, int, int], b: tuple[int, int, int, int]) ->
     return ax < bx + bw and ax + aw > bx and ay < by + bh and ay + ah > by
 
 
+def paint_blue_opening(canvas: Image.Image, frame_id: str, monitor: tuple[int, int]) -> Image.Image:
+    """Blue fills the opening and tucks under the art. The 4:3 game hole stays clear."""
+    import numpy as np
+    from .display_info import hole_screen_rect
+    from .retroarch_finder import blue_backing_rect, picture_on_blue
+    record = frame_record(frame_id)
+    opening = hole_screen_rect(record["screen"], (0, 0, monitor[0], monitor[1]))
+    blue = blue_backing_rect(opening)
+    game = picture_on_blue(opening)
+    array = np.array(canvas.convert("RGBA"))
+    height, width = array.shape[:2]
+    saved = array.copy()
+    art = saved[:, :, 3] > 200
+    bx, by, bw, bh = blue
+    x0, y0 = max(0, bx), max(0, by)
+    x1, y1 = min(width, bx + bw), min(height, by + bh)
+    array[y0:y1, x0:x1] = (0, 40, 220, 255)
+    # The painting covers the tuck. Only the original opening stays blue.
+    ox, oy, ow, oh = opening
+    outside = np.ones((height, width), dtype=bool)
+    outside[max(0, oy):min(height, oy + oh), max(0, ox):min(width, ox + ow)] = False
+    restore = art & outside
+    array[restore] = saved[restore]
+    gx, gy, gw, gh = game
+    array[max(0, gy):min(height, gy + gh), max(0, gx):min(width, gx + gw), 3] = 0
+    return Image.fromarray(array, "RGBA")
+
+
 def static_frame(frame_id: str, monitor: tuple[int, int], *, game_running: bool,
                  notice: str = "") -> Image.Image:
     """Frame art only. The live head is drawn later, inside the buddy well."""
@@ -159,6 +187,8 @@ def static_frame(frame_id: str, monitor: tuple[int, int], *, game_running: bool,
     array = np.array(canvas)
     array[origin_y:origin_y + frame_h, origin_x:origin_x + frame_w] = np.array(art)
     canvas = Image.fromarray(array, "RGBA")
+    if game_running and frame_id == "snes":
+        canvas = paint_blue_opening(canvas, frame_id, monitor)
     boxes = layout_boxes(frame_id, monitor, game_running=game_running, reserve_button=show_button)
     if not game_running:
         if show_button:
@@ -176,8 +206,8 @@ def compose_overlay(frame_id: str, monitor: tuple[int, int], *, expression: str 
     canvas = static_frame(frame_id, monitor, game_running=game_running)
     head_box = layout_boxes(frame_id, monitor, game_running=game_running)["head"]
     yaw = 0.0 if expression == "talk" else -0.85
-    head = render_cartoon(
-        max(head_box["width"], head_box["height"]), t, yaw, mouth, expression, character,
-        talking=expression == "talk" or mouth > 0.2,
+    head = render_hologram(
+        expression, t, mouth, size=max(head_box["width"], head_box["height"]),
+        character=character, resting=resting, yaw=yaw,
     )
     return paste_head(canvas, head, head_box)

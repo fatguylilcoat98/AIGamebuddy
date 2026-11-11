@@ -241,12 +241,8 @@ def _compose(expression: str, t: float, mouth: float, gaze: str, size: int,
              character: str, resting: str, yaw_override: float | None = None) -> Image.Image:
     yaw = yaw_at(t, expression, resting, gaze) if yaw_override is None else max(-1.0, min(1.0, float(yaw_override)))
     sprite = _pose_sprite(character, expression, yaw, mouth)
-    # Talking turns toward the player. Idle still floats, it does not freeze.
-    if expression == "talk" or abs(yaw) < 0.75:
-        sprite = _squash_skew(sprite, yaw)
-        sprite = _parallax(sprite, yaw, t)
-    else:
-        sprite = _parallax(sprite, yaw * 0.15, t)
+    # Cross-fade the turn sheets. Do not skew the whole bitmap; that reads as a choppy tilt.
+    sprite = _parallax(sprite, yaw * 0.15, t)
     sprite = _blink(sprite, _blink_amount(t, expression))
     bob = math.sin(t * 1.7) * size * 0.02
     sway = math.sin(t * 0.8) * size * 0.012
@@ -268,6 +264,26 @@ def _compose(expression: str, t: float, mouth: float, gaze: str, size: int,
     # The sprite already has its pedestal ring. A second ellipse at 78% of the
     # square sat on the neck instead of under the chin.
     return _scanlines(fitted, t, burst)
+
+
+def render_hologram_booth(size: int, t: float, mouth: float, expression: str,
+                         talking_as: str = "male") -> Image.Image:
+    """Boy and girl holograms side by side. Only the one talking faces forward."""
+    canvas = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    half = max(48, size // 2)
+    male_expr = expression if talking_as == "male" else "idle"
+    female_expr = expression if talking_as == "female" else "idle"
+    male = render_hologram(
+        male_expr, t, mouth if talking_as == "male" else 0.0, size=half,
+        character="male", resting="left", yaw=0.0 if talking_as == "male" else -0.85,
+    )
+    female = render_hologram(
+        female_expr, t + 0.3, mouth if talking_as == "female" else 0.0, size=half,
+        character="female", resting="left", yaw=0.0 if talking_as == "female" else -0.7,
+    )
+    canvas.alpha_composite(male, (0, size - half))
+    canvas.alpha_composite(female, (size - half, size - half))
+    return canvas
 
 
 def render_hologram(expression: str = "idle", t: float = 0.4, mouth: float = 0.0,

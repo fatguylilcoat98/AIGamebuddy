@@ -304,26 +304,42 @@ def game_window_for_hole(hole: tuple[int, int, int, int]) -> tuple[int, int, int
     return window
 
 
-def hole_append_config(rect: tuple[int, int, int, int]) -> str:
-    """Windowed borderless RetroArch whose client area is the opening.
+def picture_on_blue(opening: tuple[int, int, int, int]) -> tuple[int, int, int, int]:
+    """4:3 game, as tall as the opening, centered. It does not crop the HUD."""
+    x, y, width, height = (int(v) for v in opening)
+    if width < 2 or height < 2:
+        return x, y, max(1, width), max(1, height)
+    game_h = height
+    game_w = max(1, int(round(game_h * SNES_DISPLAY_ASPECT)))
+    if game_w > width:
+        game_w = width
+        game_h = max(1, int(round(game_w / SNES_DISPLAY_ASPECT)))
+    return (
+        x + (width - game_w) // 2,
+        y + (height - game_h) // 2,
+        game_w,
+        game_h,
+    )
 
-    The window is the hole, the same rect pre12 snapped to. A taller window
-    sits partly behind the frame and the opening stays black on the GDI driver.
-    The 4:3 viewport stays inside the window, so nothing is drawn off the client.
+
+def blue_backing_rect(opening: tuple[int, int, int, int], tuck: float = 0.02) -> tuple[int, int, int, int]:
+    """Blue surface. A little larger than the opening so it tucks under the art."""
+    x, y, width, height = (int(v) for v in opening)
+    pad_x = max(4, int(round(width * tuck)))
+    pad_y = max(4, int(round(height * tuck)))
+    return (x - pad_x, y - pad_y, width + 2 * pad_x, height + 2 * pad_y)
+
+
+def hole_append_config(rect: tuple[int, int, int, int]) -> str:
+    """Windowed borderless RetroArch. `rect` is the 4:3 picture, not the blue.
+
+    The window is exactly that picture, so a driver that ignores the custom
+    viewport still cannot stretch the game across the wide opening. The blue
+    backing is a separate window behind it.
     """
     x, y, width, height = (int(v) for v in rect)
-    # The window stays the opening. The 4:3 picture is about 2% taller than
-    # that opening so the top and bottom sit under the frame. It is not the
-    # whole window, which is wider than 4:3.
-    if width / max(1, height) > SNES_DISPLAY_ASPECT:
-        vh = max(height + 2, int(round(height / 0.96)))
-        vw = max(1, int(round(vh * SNES_DISPLAY_ASPECT)))
-    else:
-        vw = max(width + 2, int(round(width / 0.96)))
-        vh = max(1, int(round(vw / SNES_DISPLAY_ASPECT)))
-    vx = (width - vw) // 2
-    vy = (height - vh) // 2
-    scale = max(vw / 256.0, vh / 224.0, 6.0)
+    vx, vy, vw, vh = 0, 0, width, height
+    scale = max(width / 256.0, height / 224.0, 6.0)
     lines = [
         'video_fullscreen = "false"',
         'video_windowed_fullscreen = "false"',

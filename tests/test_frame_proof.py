@@ -82,7 +82,7 @@ def test_a_four_by_three_picture_fills_the_opening_height():
     picture_w = int(round(h * 4 / 3))
     left = x + (w - picture_w) // 2
     draw = ImageDraw.Draw(image)
-    draw.rectangle((left, y, left + picture_w // 2, y + h), fill=(40, 40, 220))
+    draw.rectangle((left, y, left + picture_w // 2, y + h), fill=(220, 40, 40))
     draw.rectangle((left + picture_w // 2, y, left + picture_w, y + h), fill=(220, 200, 40))
     problems = prove_snes_screen(image, menu_open=False, expect_chrome=False, expect_game=True)
     assert problems == [], problems

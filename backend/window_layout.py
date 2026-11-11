@@ -354,6 +354,67 @@ def list_toplevel_windows() -> list[tuple[int, str]]:
         return []
 
 
+_BLUE_HWND = 0
+_BLUE_WNDPROC = None
+
+
+def place_blue_backing(rect: tuple[int, int, int, int]) -> int:
+    """A blue popup behind the game and under the topmost frame.
+
+    The overlay art is drawn on top of the extra pixels, so the blue tucks
+    under the painting. RetroArch is placed after this and stays above it.
+    """
+    global _BLUE_HWND
+    if os.name != "nt":
+        return 0
+    x, y, w, h = (int(v) for v in rect)
+    try:
+        import ctypes
+        from ctypes import wintypes
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        gdi32 = ctypes.WinDLL("gdi32", use_last_error=True)
+        user32.SetWindowPos.argtypes = [
+            wintypes.HWND, ctypes.c_void_p, ctypes.c_int, ctypes.c_int,
+            ctypes.c_int, ctypes.c_int, wintypes.UINT,
+        ]
+        user32.SetWindowPos.restype = wintypes.BOOL
+        user32.IsWindow.argtypes = [wintypes.HWND]
+        user32.IsWindow.restype = wintypes.BOOL
+        if not _BLUE_HWND or not user32.IsWindow(_BLUE_HWND):
+            global _BLUE_WNDPROC
+            class_name = "BuddyBlueBacking"
+
+            def _proc(hwnd, msg, wp, lp):
+                return user32.DefWindowProcW(hwnd, msg, wp, lp)
+
+            _BLUE_WNDPROC = ctypes.WINFUNCTYPE(
+                ctypes.c_long, wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM,
+            )(_proc)
+            wind = wintypes.WNDCLASSW()
+            wind.lpfnWndProc = _BLUE_WNDPROC
+            wind.lpszClassName = class_name
+            wind.hbrBackground = gdi32.CreateSolidBrush(0x00DC2800)  # RGB(0, 40, 220)
+            wind.hInstance = ctypes.WinDLL("kernel32").GetModuleHandleW(None)
+            user32.RegisterClassW(ctypes.byref(wind))
+            user32.CreateWindowExW.argtypes = [
+                wintypes.DWORD, wintypes.LPCWSTR, wintypes.LPCWSTR, wintypes.DWORD,
+                ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int,
+                wintypes.HWND, wintypes.HMENU, wintypes.HINSTANCE, ctypes.c_void_p,
+            ]
+            user32.CreateWindowExW.restype = wintypes.HWND
+            _BLUE_HWND = int(user32.CreateWindowExW(
+                0, class_name, "Buddy blue",
+                0x80000000 | 0x10000000,  # WS_POPUP | WS_VISIBLE
+                x, y, w, h, 0, 0, wind.hInstance, 0,
+            ) or 0)
+        # HWND_BOTTOM so the game window, placed next, sits above the blue.
+        user32.SetWindowPos(int(_BLUE_HWND), ctypes.c_void_p(1), x, y, w, h, 0x0040)
+        return int(_BLUE_HWND)
+    except Exception as exc:
+        log.warning("Could not place the blue backing: %s", exc)
+        return 0
+
+
 def raise_overlay_front(hwnd: int, width: int, height: int, origin: tuple[int, int] = (0, 0)) -> str:
     """Fullscreen, borderless, and above every other window, including consoles."""
     if os.name != "nt" or not hwnd:

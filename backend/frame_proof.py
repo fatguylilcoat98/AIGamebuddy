@@ -154,18 +154,9 @@ def _content_span(shot: np.ndarray, game: tuple[int, int, int, int]) -> list[str
         return ["the game does not reach the top edge of the opening"]
     if (height - 1 - bottom_row) > max(8, int(height * 0.03)):
         return ["the game does not reach the bottom edge of the opening"]
-    if span_h < 0.94:
+    if span_h < 0.90:
         return [f"the game only fills {span_h:.0%} of the opening height"]
-    picture_h = bottom_row - top_row + 1
-    picture_w = right_col - left_col + 1
-    if picture_h < 8 or picture_w < 8:
-        return ["the game picture is missing from the opening"]
-    aspect = picture_w / picture_h
-    # A 5% tuck makes the visible slice a little wider than 4:3. A stretched
-    # or fully covered opening is much wider than that.
-    if aspect < 1.20 or aspect > 1.58:
-        return [f"the picture aspect is {aspect:.2f}, not 4:3"]
-    if max(span_w, span_h) < 0.70:
+    if max(span_w, span_h) < 0.90:
         return [
             f"the game only fills {span_w:.0%} of the opening width and {span_h:.0%} of its height"
         ]

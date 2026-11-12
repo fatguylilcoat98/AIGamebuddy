@@ -213,6 +213,25 @@ def _take_frame(buf: bytes):
     return buf[0] & 0x0F, data, buf[offset + length:]
 
 
+LIMIT_KNEE = 0.6
+LIMIT_CEILING = 0.89  # about -1 dBFS
+
+
+def soft_limit(samples: list[float], knee: float = LIMIT_KNEE, ceiling: float = LIMIT_CEILING) -> list[float]:
+    """Gentle limiter. Quiet samples pass untouched; loud peaks bend toward the ceiling."""
+    import math
+    span = max(1e-6, ceiling - knee)
+    out = []
+    for sample in samples:
+        level = abs(sample)
+        if level <= knee:
+            out.append(sample)
+            continue
+        bent = knee + span * math.tanh((level - knee) / span)
+        out.append(bent if sample >= 0 else -bent)
+    return out
+
+
 class SampleQueue:
     """One stream of float samples. Later sentences append. The tail is kept."""
 
@@ -224,7 +243,7 @@ class SampleQueue:
         self._tail_until = 0.0
 
     def enqueue(self, seq: int, samples: list[float], gain: float) -> int:
-        scaled = [max(-1.0, min(1.0, float(sample) * gain)) for sample in samples]
+        scaled = soft_limit([float(sample) * gain for sample in samples])
         if not scaled:
             return 0
         with self._lock:
@@ -269,7 +288,7 @@ class SampleQueue:
 
 
 class Speaker:
-    """One output stream. Sentences are already in the queue, so nothing gaps them."""
+    """One output stream at the device's own rate. Sentences are already in the queue."""
 
     RATE = 24000
 
@@ -278,6 +297,21 @@ class Speaker:
         self._stream = None
         self._stop = threading.Event()
         self._clock: threading.Thread | None = None
+        self.rate = self.RATE
+        self.underruns = 0
+        self._logged_underruns = 0
+        self._last_underrun_log = 0.0
+
+    def native_rate(self) -> int:
+        try:
+            import sounddevice as sd
+            info = sd.query_devices(kind="output")
+            rate = int(round(float(info.get("default_samplerate") or 0)))
+            if 8000 <= rate <= 192000:
+                return rate
+        except Exception:
+            pass
+        return self.RATE
 
     def start(self) -> None:
         if self._stream is not None or (self._clock is not None and self._clock.is_alive()):
@@ -286,28 +320,44 @@ class Speaker:
             import numpy as np
             import sounddevice as sd
 
-            def callback(outdata, frames, _time_info, _status):
+            def callback(outdata, frames, _time_info, status):
+                if status and getattr(status, "output_underflow", False):
+                    self.underruns += 1
                 samples = self.queue.take(int(frames))
                 data = np.zeros(frames, dtype=np.float32)
                 if samples:
                     data[:len(samples)] = samples
                 outdata[:, 0] = data
 
+            self.rate = self.native_rate()
             self._stream = sd.OutputStream(
-                samplerate=self.RATE, channels=1, dtype="float32", callback=callback, blocksize=1024,
+                samplerate=self.rate, channels=1, dtype="float32", callback=callback,
+                blocksize=int(self.rate * 0.04), latency="high",
             )
             self._stream.start()
             detach_console()
-            log.info("Speaker stream is open.")
+            latency = getattr(self._stream, "latency", None)
+            log.info("Speaker stream is open at %s Hz (device rate), latency=%s.", self.rate, latency)
             return
         except Exception as exc:
             detach_console()
+            self.rate = self.RATE
             log.warning("Speaker stream did not open. The queue still runs. %s", exc)
         self._clock = threading.Thread(target=self._tick, name="buddy-speaker-clock", daemon=True)
         self._clock.start()
 
+    def report_underruns(self, now: float | None = None, force: bool = False) -> None:
+        moment = time.monotonic() if now is None else now
+        if self.underruns == self._logged_underruns:
+            return
+        if not force and moment - self._last_underrun_log < 10:
+            return
+        log.warning("Speaker underruns: %s new, %s total.", self.underruns - self._logged_underruns, self.underruns)
+        self._logged_underruns = self.underruns
+        self._last_underrun_log = moment
+
     def _tick(self) -> None:
-        step = int(self.RATE * 0.04)
+        step = int(self.rate * 0.04)
         while not self._stop.is_set():
             self.queue.take(step)
             self._stop.wait(0.04)
@@ -322,6 +372,8 @@ class Speaker:
                 stream.close()
             except Exception:
                 pass
+        self.report_underruns(force=True)
+        log.info("Speaker closed. Underruns this run: %s.", self.underruns)
 
 
 def decode_mp3(mp3: bytes) -> tuple[list[float], int]:
@@ -378,6 +430,9 @@ class BrainLink:
         self._out_seq = 0
         self._output = SampleQueue()
         self._speaker = Speaker(self._output)
+        from .game_duck import GameDucker
+        self.ducker = GameDucker()
+        self.ducker.recover()
         self._player = threading.Thread(target=self._play_loop, name="buddy-brain-audio", daemon=True)
         self._player.start()
         self._mouth = threading.Thread(target=self._watch_audio, name="buddy-mouth", daemon=True)
@@ -426,6 +481,7 @@ class BrainLink:
         self._audio_stop.set()
         self._hangup()
         self._speaker.stop()
+        self.ducker.close()
 
     def _queue(self, message: dict) -> None:
         with self._lock:
@@ -634,16 +690,27 @@ class BrainLink:
                 continue
             if self._audio_stop.is_set() and self._cut_seq and seq < self._cut_seq:
                 continue
-            samples = resample(samples, rate, Speaker.RATE)
+            self._speaker.start()
+            samples = resample(samples, rate, self._speaker.rate)
             gain = max(0.0, min(1.0, float(self.session.volume) / 100.0))
             count = self._output.enqueue(seq, samples, gain)
             self._out_seq = seq
-            self._speaker.start()
             log.info("Queued reply audio seq=%s samples=%s", seq, count)
 
     def _watch_audio(self) -> None:
         announced = None
+        quiet_since = None
         while not self._stop.is_set():
+            # The game drops about 11 dB while a line plays and comes back
+            # after the 400 ms tail plus 350 ms more.
+            if self._output.busy():
+                quiet_since = None
+                self.ducker.duck()
+            elif quiet_since is None:
+                quiet_since = time.monotonic()
+            elif time.monotonic() - quiet_since > 0.35:
+                self.ducker.restore()
+            self._speaker.report_underruns()
             pending = self._output.pending()
             seq = self._out_seq
             if pending and announced != seq:

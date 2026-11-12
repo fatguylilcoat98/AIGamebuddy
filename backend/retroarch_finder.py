@@ -304,22 +304,56 @@ def game_window_for_hole(hole: tuple[int, int, int, int]) -> tuple[int, int, int
     return window
 
 
-def picture_on_blue(opening: tuple[int, int, int, int]) -> tuple[int, int, int, int]:
-    """4:3 game, as tall as the opening, centered. It does not crop the HUD."""
+GAME_FIT = "fit"
+
+
+def set_game_fit(mode: str) -> str:
+    """"fit" keeps the whole 4:3 picture centered. "fill" zooms to the opening's edges."""
+    global GAME_FIT
+    GAME_FIT = "fill" if str(mode or "").strip().lower() == "fill" else "fit"
+    return GAME_FIT
+
+
+def picture_on_blue(opening: tuple[int, int, int, int], fit: str | None = None) -> tuple[int, int, int, int]:
+    """4:3 game centered on the opening. Same aspect.
+
+    fit, the default, keeps the whole picture inside. fill zooms until the
+    picture meets the opening's edges, so a wide opening crops the top and
+    the bottom by the same amount. This is where RetroArch's window goes.
+    """
     x, y, width, height = (int(v) for v in opening)
     if width < 2 or height < 2:
         return x, y, max(1, width), max(1, height)
-    game_h = height
-    game_w = max(1, int(round(game_h * SNES_DISPLAY_ASPECT)))
-    if game_w > width:
-        game_w = width
-        game_h = max(1, int(round(game_w / SNES_DISPLAY_ASPECT)))
+    mode = fit or GAME_FIT
+    game_w = width
+    game_h = max(1, int(round(game_w / SNES_DISPLAY_ASPECT)))
+    if (game_h < height) if mode == "fill" else (game_h > height):
+        game_h = height
+        game_w = max(1, int(round(game_h * SNES_DISPLAY_ASPECT)))
     return (
         x + (width - game_w) // 2,
         y + (height - game_h) // 2,
         game_w,
         game_h,
     )
+
+
+def visible_picture(opening: tuple[int, int, int, int]) -> tuple[int, int, int, int]:
+    """The part of the zoomed game that shows through the opening."""
+    x, y, width, height = (int(v) for v in opening)
+    px, py, pw, ph = picture_on_blue(opening)
+    left = max(x, px)
+    top = max(y, py)
+    right = min(x + width, px + pw)
+    bottom = min(y + height, py + ph)
+    return left, top, max(1, right - left), max(1, bottom - top)
+
+
+def picture_crop(opening: tuple[int, int, int, int]) -> tuple[int, int]:
+    """Game pixels hidden above and below the opening (top, bottom)."""
+    _x, y, _w, height = (int(v) for v in opening)
+    _px, py, _pw, ph = picture_on_blue(opening)
+    return max(0, y - py), max(0, (py + ph) - (y + height))
 
 
 def blue_backing_rect(opening: tuple[int, int, int, int], tuck: float = 0.02) -> tuple[int, int, int, int]:

@@ -84,8 +84,8 @@ jobs:
         if: success()
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: buddy-v0.1.0-pre18
-          name: Buddy 0.1.0 pre18
+          tag_name: buddy-v0.1.0-pre19
+          name: Buddy 0.1.0 pre19
           prerelease: true
           make_latest: false
           generate_release_notes: false
@@ -95,6 +95,7 @@ jobs:
             He stays quiet when the brain is not configured.
             The shortcut starts pythonw, so no terminal window opens.
             Game music is not treated as someone talking.
+            pre19: the game is turned down about 11 dB while Buddy talks, RetroArch uses a 144 ms audio buffer, Buddy's voice plays at the speaker's own rate through a soft limiter, and the game stays centered in the opening.
             pre8 is broken. Do not install pre8.
             Snes9x is included for personal use. It is not the latest stable release.
           files: |

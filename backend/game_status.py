@@ -206,6 +206,9 @@ def ensure_network_commands(retroarch_exe: str) -> None:
         log.info("Could not write network commands into %s (%s).", cfg, exc)
 
 
+RETROARCH_AUDIO_LATENCY_MS = 144
+
+
 def runtime_cfg_lines(retroarch_exe: str) -> list[str]:
     """Network command interface on localhost, plus a shader when the files exist."""
     lines = [
@@ -213,6 +216,9 @@ def runtime_cfg_lines(retroarch_exe: str) -> list[str]:
         'network_cmd_port = "55355"',
         'video_smooth = "true"',
         'video_shader_enable = "false"',
+        # A bigger audio buffer. 64 ms crackles once the sound goes to a
+        # Bluetooth speaker; 144 ms does not add noticeable lag for retro games.
+        f'audio_latency = "{RETROARCH_AUDIO_LATENCY_MS}"',
     ]
     from .retroarch_menu import QUICK_MENU_LINES
     lines.extend(QUICK_MENU_LINES)

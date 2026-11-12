@@ -215,11 +215,11 @@ def paint_blue_opening(canvas: Image.Image, frame_id: str, monitor: tuple[int, i
     """
     import numpy as np
     from .display_info import hole_screen_rect
-    from .retroarch_finder import picture_on_blue
+    from .retroarch_finder import visible_picture
     record = frame_record(frame_id)
     monitor_box = (0, 0, monitor[0], monitor[1])
     opening = hole_screen_rect(record["screen"], monitor_box)
-    game = picture_on_blue(opening)
+    game = visible_picture(opening)
     keep = [
         hole_screen_rect(record["menu"], monitor_box),
         hole_screen_rect(record.get("well") or record["buddy"], monitor_box),
@@ -241,6 +241,45 @@ def paint_blue_opening(canvas: Image.Image, frame_id: str, monitor: tuple[int, i
     punch = game_mask & ~colorful
     array[punch, 3] = 0
     return Image.fromarray(array, "RGBA")
+
+
+def art_free_hole(canvas: Image.Image, rect: tuple[int, int, int, int]) -> tuple[int, int, int, int]:
+    """Shrink the click-through cut so frame art at the opening's edges stays drawn.
+
+    Rows and columns at the edge of `rect` that still hold opaque art are
+    trimmed. The rest of the game shows through the transparent color.
+    """
+    import numpy as np
+    x, y, width, height = (int(v) for v in rect)
+    alpha = np.array(canvas.convert("RGBA"))[:, :, 3]
+    x0, y0 = max(0, x), max(0, y)
+    x1, y1 = min(alpha.shape[1], x + width), min(alpha.shape[0], y + height)
+    if x1 <= x0 or y1 <= y0:
+        return x, y, max(1, width), max(1, height)
+    solid = alpha[y0:y1, x0:x1] > 0
+    for _ in range(4):
+        rows = solid.any(axis=1)
+        cols = solid.any(axis=0)
+        top = 0
+        while top < len(rows) and rows[top]:
+            top += 1
+        bottom = len(rows)
+        while bottom > top and rows[bottom - 1]:
+            bottom -= 1
+        left = 0
+        while left < len(cols) and cols[left] and solid[top:bottom, left].any():
+            left += 1
+        right = len(cols)
+        while right > left and solid[top:bottom, right - 1].any():
+            right -= 1
+        if bottom <= top or right <= left:
+            return x, y, max(1, width), max(1, height)
+        if (top, bottom, left, right) == (0, len(rows), 0, len(cols)):
+            break
+        solid = solid[top:bottom, left:right]
+        x0, y0 = x0 + left, y0 + top
+        x1, y1 = x0 + (right - left), y0 + (bottom - top)
+    return x0, y0, x1 - x0, y1 - y0
 
 
 def static_frame(frame_id: str, monitor: tuple[int, int], *, game_running: bool,

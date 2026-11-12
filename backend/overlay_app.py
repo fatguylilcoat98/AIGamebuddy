@@ -243,8 +243,14 @@ def run_overlay(session) -> None:
         return picture_on_blue(_screen_hole())
 
     def _client_picture() -> tuple[int, int, int, int]:
-        from .retroarch_finder import picture_on_blue
-        return picture_on_blue(_client_hole())
+        # Only the part of the zoomed game inside the opening, minus any edge art.
+        from .retroarch_finder import visible_picture
+        rect = visible_picture(_client_hole())
+        static = holder.get("static")
+        if static is not None:
+            from .overlay_view import art_free_hole
+            rect = art_free_hole(static, rect)
+        return rect
 
     def _apply_geometry():
         info = _read_monitor()

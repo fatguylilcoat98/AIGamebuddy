@@ -261,6 +261,7 @@ def buddy_consoles() -> int:
     ]
     kernel.CloseHandle.argtypes = [wintypes.HANDLE]
     found = []
+    self_pid = os.getpid()
 
     @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
     def visit(hwnd, _lparam):
@@ -270,6 +271,8 @@ def buddy_consoles() -> int:
             return True
         pid = wintypes.DWORD()
         user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        if int(pid.value) == self_pid:
+            return True
         handle = kernel.OpenProcess(0x1000, False, int(pid.value))
         path = ""
         if handle:

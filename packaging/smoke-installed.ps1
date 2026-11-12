@@ -241,7 +241,7 @@ $brainPortFile = Join-Path $shotDir "brain-port.txt"
 $brainReport = Join-Path $shotDir "brain-report.txt"
 if (Test-Path $brainPortFile) { Remove-Item $brainPortFile -Force }
 if (Test-Path $brainReport) { Remove-Item $brainReport -Force }
-$brainProc = Start-Process -FilePath $python -ArgumentList @("-m", "backend.fake_brain", "--port-file", $brainPortFile, "--report", $brainReport) -WorkingDirectory $repo -WindowStyle Hidden -PassThru
+$brainProc = Start-Process -FilePath $pythonw -ArgumentList @("-m", "backend.fake_brain", "--port-file", $brainPortFile, "--report", $brainReport) -WorkingDirectory $repo -WindowStyle Hidden -PassThru
 $brainWait = (Get-Date).AddSeconds(20)
 while ((Get-Date) -lt $brainWait -and -not (Test-Path $brainPortFile)) { Start-Sleep -Milliseconds 200 }
 if (-not (Test-Path $brainPortFile)) { throw "The fake brain did not start" }

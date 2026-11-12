@@ -66,6 +66,8 @@ def _install_console_stop() -> None:
 
 
 def main() -> int:
+    from .hidden_process import detach_console
+    detach_console()
     from .diagnostics import install
     install()
     config = load_config()

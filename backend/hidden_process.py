@@ -40,3 +40,14 @@ def popen(args, **kwargs):
 
 def call(args, **kwargs):
     return subprocess.call(args, **_force_hidden(kwargs))
+
+
+def detach_console() -> None:
+    """Drop a console if a library allocated one after startup."""
+    if os.name != "nt":
+        return
+    try:
+        import ctypes
+        ctypes.windll.kernel32.FreeConsole()
+    except Exception:
+        return

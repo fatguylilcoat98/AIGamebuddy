@@ -20,6 +20,7 @@ import time
 from pathlib import Path
 from urllib.parse import urlparse
 
+from .hidden_process import detach_console
 from .hidden_process import popen as hidden_popen
 from .mouth_follow import MouthFollower, audio_level
 from .native_guard import crashed, python_exe
@@ -296,9 +297,11 @@ class Speaker:
                 samplerate=self.RATE, channels=1, dtype="float32", callback=callback, blocksize=1024,
             )
             self._stream.start()
+            detach_console()
             log.info("Speaker stream is open.")
             return
         except Exception as exc:
+            detach_console()
             log.warning("Speaker stream did not open. The queue still runs. %s", exc)
         self._clock = threading.Thread(target=self._tick, name="buddy-speaker-clock", daemon=True)
         self._clock.start()
@@ -638,6 +641,7 @@ class BrainLink:
     def _watch_audio(self) -> None:
         announced = None
         while not self._stop.is_set():
+            detach_console()
             pending = self._output.pending()
             seq = self._out_seq
             if pending and announced != seq:

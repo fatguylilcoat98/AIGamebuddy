@@ -38,9 +38,12 @@ from .config_loader import ROOT
 
 
 def bundled_runtime() -> Path | None:
-    candidate = ROOT / "runtime" / "python.exe"
-    if candidate.is_file():
-        return candidate
+    """The installed interpreter. pythonw so Buddy does not open a console."""
+    runtime = ROOT / "runtime"
+    for name in ("pythonw.exe", "python.exe"):
+        candidate = runtime / name
+        if candidate.is_file():
+            return candidate
     return None
 
 

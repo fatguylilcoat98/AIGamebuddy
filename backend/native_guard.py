@@ -18,8 +18,14 @@ _STATUS: dict[str, str] = {}
 
 
 def python_exe() -> str:
-    """Stay on pythonw. A console python.exe is what flashes the black windows."""
-    return str(sys.executable)
+    """Prefer pythonw. python.exe is the console program and is what flashes the black windows."""
+    from pathlib import Path
+    exe = Path(sys.executable)
+    if exe.name.lower() == "python.exe":
+        windowless = exe.with_name("pythonw.exe")
+        if windowless.is_file():
+            return str(windowless)
+    return str(exe)
 
 
 def crashed(code: int | None) -> bool:

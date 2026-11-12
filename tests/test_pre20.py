@@ -9,6 +9,29 @@ OPENING_NATIVE = (408, 258, 1592, 900)
 WELL_NATIVE = (2010, 989, 502, 288)
 
 
+def test_live_proof_accepts_a_wide_game_instead_of_blue_bars():
+    from backend import retroarch_finder as rf
+    from backend.frame_proof import prove_snes_screen
+    from backend.overlay_view import compose_overlay
+    previous = rf.GAME_FIT
+    try:
+        rf.set_game_fit("wide")
+        image = compose_overlay(
+            "snes", (1920, 1080), expression="idle", character="male", resting="left", game_running=True,
+        )
+    finally:
+        rf.set_game_fit(previous)
+    import numpy as np
+    from PIL import Image
+    array = np.array(image.convert("RGBA"))
+    clear = array[:, :, 3] < 16
+    # A stand-in for the stretched game, the way the live screenshot includes RetroArch.
+    array[clear] = (180, 40, 40, 255)
+    shot = Image.fromarray(array, "RGBA").convert("RGB")
+    problems = prove_snes_screen(shot, menu_open=False, expect_chrome=False, expect_game=True)
+    assert problems == [], problems
+
+
 def test_wide_is_the_default_and_stretch_still_means_fill():
     from backend import retroarch_finder as rf
     from backend.config_loader import DEFAULTS

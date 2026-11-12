@@ -168,6 +168,42 @@ def _black_gap(shot: np.ndarray, opening: tuple[int, int, int, int]) -> list[str
     return problems
 
 
+def _opening_edges_are_blue(shot: np.ndarray, game: tuple[int, int, int, int]) -> bool:
+    """True when the official opening still has the blue backing on both sides."""
+    x, y, w, h = game
+    region = _crop(shot, (x + 4, y + 4, max(1, w - 8), max(1, h - 8)))
+    if region.size == 0:
+        return False
+    height, width = region.shape[:2]
+
+    def blue_mask(sample: np.ndarray) -> np.ndarray:
+        red = sample[:, :, 0].astype(np.int16)
+        green = sample[:, :, 1].astype(np.int16)
+        blue = sample[:, :, 2].astype(np.int16)
+        return (blue > 140) & (blue > red + 40) & (green < 160)
+
+    side = region[height // 3: 2 * height // 3, 2:18]
+    other = region[height // 3: 2 * height // 3, width - 18:width - 2]
+    if side.size == 0 or other.size == 0:
+        return False
+    return float(blue_mask(side).mean()) >= 0.45 and float(blue_mask(other).mean()) >= 0.45
+
+
+def _wide_picture(shot: np.ndarray, wide: tuple[int, int, int, int]) -> list[str]:
+    """The stretched game replaces the blue opening. Black gutters must be gone."""
+    region = _crop(shot, wide)
+    if region.size == 0:
+        return ["the wide game picture is off the screen"]
+    if float((region.max(axis=2) < 28).mean()) > 0.45:
+        return ["the wide game picture is still a black gutter"]
+    core = region[region.shape[0] // 5: 4 * region.shape[0] // 5, region.shape[1] // 3: 2 * region.shape[1] // 3]
+    if core.size and float(core.std()) < 12:
+        return ["the wide game picture is a flat color, not a visible pattern"]
+    if core.size and float(_wallpaper_mask(core).mean()) > 0.2:
+        return ["the desktop is showing in the wide game picture"]
+    return []
+
+
 def _content_span(shot: np.ndarray, game: tuple[int, int, int, int]) -> list[str]:
     """The colored picture must fill the opening on its long side. A 3x core does not.
 
@@ -263,7 +299,14 @@ def prove_snes_screen(screenshot: Image.Image, *, menu_open: bool, frame_path: P
     problems.extend(_menubar(shot, game))
     problems.extend(_black_gap(shot, game))
     if expect_game:
-        problems.extend(_content_span(shot, game))
+        if _opening_edges_are_blue(shot, game):
+            problems.extend(_content_span(shot, game))
+        else:
+            wide = _scale_box(
+                {"x": 386, "y": 196, "width": 1755, "height": 1031},
+                (origin_x, origin_y), (frame_w, frame_h),
+            )
+            problems.extend(_wide_picture(shot, wide))
     buddy = _scale_box(record["buddy"], (origin_x, origin_y), (frame_w, frame_h))
     inset_x = buddy[0] + buddy[2] // 6
     inset_y = buddy[1] + buddy[3] // 6

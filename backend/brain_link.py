@@ -641,7 +641,6 @@ class BrainLink:
     def _watch_audio(self) -> None:
         announced = None
         while not self._stop.is_set():
-            detach_console()
             pending = self._output.pending()
             seq = self._out_seq
             if pending and announced != seq:

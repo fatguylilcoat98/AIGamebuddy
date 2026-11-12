@@ -431,7 +431,8 @@ def place_blue_backing(rect: tuple[int, int, int, int]) -> int:
                 x, y, w, h, 0, 0, wind.hInstance, 0,
             ) or 0)
         # HWND_BOTTOM so the game window, placed next, sits above the blue.
-        user32.SetWindowPos(int(_BLUE_HWND), ctypes.c_void_p(1), x, y, w, h, 0x0040)
+        # SWP_NOACTIVATE so showing the backing does not pull it over the game.
+        user32.SetWindowPos(int(_BLUE_HWND), ctypes.c_void_p(1), x, y, w, h, 0x0040 | 0x0010)
         if _BLUE_HWND and not getattr(place_blue_backing, "_logged", False):
             place_blue_backing._logged = True
             log.info("Blue backing is up.")

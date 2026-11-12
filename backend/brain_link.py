@@ -327,11 +327,14 @@ def decode_mp3(mp3: bytes) -> tuple[list[float], int]:
     import miniaudio
     decoded = miniaudio.decode(mp3, output_format=miniaudio.SampleFormat.SIGNED16)
     raw = decoded.samples
-    samples = array.array("h")
-    samples.frombytes(raw[:len(raw) - (len(raw) % 2)])
+    if isinstance(raw, (bytes, bytearray)):
+        samples = array.array("h")
+        samples.frombytes(raw[:len(raw) - (len(raw) % 2)])
+    else:
+        samples = raw
     channels = int(decoded.nchannels or 1)
     if channels > 1:
-        samples = array.array("h", samples[::channels])
+        samples = samples[::channels]
     rate = int(decoded.sample_rate or Speaker.RATE)
     return [sample / 32768.0 for sample in samples], rate
 

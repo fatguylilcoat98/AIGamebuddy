@@ -28,6 +28,14 @@ def test_backend_subprocess_goes_through_the_helper():
     assert banned == []
 
 
+def test_mp3_decodes_to_samples():
+    from backend.brain_link import decode_mp3
+    samples, rate = decode_mp3((ROOT / "backend" / "ci_tone.mp3").read_bytes())
+    assert rate > 0
+    assert len(samples) > 1000
+    assert max(abs(sample) for sample in samples) > 0
+
+
 def test_queue_keeps_the_tail_and_applies_the_volume():
     from backend.brain_link import SampleQueue
     queue = SampleQueue()
@@ -126,6 +134,9 @@ def test_fake_brain_queues_then_resumes(tmp_path):
         assert "barge" in kinds
         assert "thinking" in kinds
         assert audio == 3
+        deadline = time.time() + 3
+        while time.time() < deadline and not report.is_file():
+            time.sleep(0.05)
         body = json.loads(report.read_text(encoding="utf-8"))
         assert body["images"] == 1 and body["clips"] == 3 and body["resumed"] is True
     finally:

@@ -68,8 +68,10 @@ def _audio(seq: int, index: int) -> bytes:
 
 
 def _write_report(path: str, report: dict) -> None:
-    if path:
-        Path(path).write_text(json.dumps(report), encoding="utf-8")
+    if not path:
+        return
+    public = {key: value for key, value in report.items() if not str(key).startswith("_")}
+    Path(path).write_text(json.dumps(public), encoding="utf-8")
 
 
 def _handshake(conn) -> bool:
@@ -106,8 +108,8 @@ def _serve(conn, report: dict) -> None:
     if not _handshake(conn):
         return
     buf = bytearray()
-    conn.settimeout(30)
-    while not report.get("resumed"):
+    conn.settimeout(240)
+    while True:
         frame = _read_frame(conn, buf)
         if frame is None:
             return
@@ -144,6 +146,8 @@ def _serve(conn, report: dict) -> None:
                 report["clips"] = 3
                 report["resumed"] = True
                 _send_frame(conn, 1, json.dumps({"type": "reply_done", "seq": 2, "n": 1}).encode("utf-8"))
+                if report.get("_path"):
+                    _write_report(report["_path"], report)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -152,7 +156,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--report", required=True)
     args = parser.parse_args(argv)
     import socket
-    report = {"images": 0, "reacts": 0, "clips": 0, "barge": False, "resumed": False}
+    report = {"images": 0, "reacts": 0, "clips": 0, "barge": False, "resumed": False, "_path": args.report}
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     sock.bind(("127.0.0.1", 0))

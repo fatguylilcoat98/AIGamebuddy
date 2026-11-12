@@ -378,7 +378,9 @@ if ((Get-Item $linesFile).Length -lt 1) {
 if (Select-String -Path $buddyLog -Pattern "WNDCLASSW" -Quiet) {
     throw "The blue backing failed: WNDCLASSW is in buddy.log"
 }
-if (-not (Select-String -Path $buddyLog -Pattern "Blue backing is up" -Quiet)) {
+if (Select-String -Path $buddyLog -Pattern "Game fit: wide" -Quiet) {
+    Write-Host "Wide layout skips the blue backing"
+} elseif (-not (Select-String -Path $buddyLog -Pattern "Blue backing is up" -Quiet)) {
     throw "The blue backing was not created"
 }
 $launches = @(Select-String -Path $buddyLog -Pattern "Launching RetroArch:").Count

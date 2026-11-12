@@ -32,11 +32,11 @@ SetupLogging=yes
 Source: "..\dist\payload\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{autoprograms}\Buddy"; Filename: "{app}\{#MyAppExe}"; WorkingDir: "{app}"
-Name: "{autodesktop}\Buddy"; Filename: "{app}\{#MyAppExe}"; WorkingDir: "{app}"
+Name: "{autoprograms}\Buddy"; Filename: "{app}\runtime\pythonw.exe"; Parameters: "-m backend.wizard_app"; WorkingDir: "{app}"
+Name: "{autodesktop}\Buddy"; Filename: "{app}\runtime\pythonw.exe"; Parameters: "-m backend.wizard_app"; WorkingDir: "{app}"
 
 [Run]
-Filename: "{app}\{#MyAppExe}"; Description: "Launch Buddy"; Flags: postinstall nowait skipifsilent
+Filename: "{app}\runtime\pythonw.exe"; Parameters: "-m backend.wizard_app"; WorkingDir: "{app}"; Description: "Launch Buddy"; Flags: postinstall nowait skipifsilent
 
 [UninstallDelete]
 Type: files; Name: "{localappdata}\Buddy\logs\install.log"

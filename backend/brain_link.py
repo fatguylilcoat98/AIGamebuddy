@@ -261,7 +261,7 @@ class SampleQueue:
         if out:
             total = sum(sample * sample for sample in out)
             self.last_rms = (total / len(out)) ** 0.5
-            self._tail_until = time.monotonic() + 2.0
+            self._tail_until = time.monotonic() + 0.4
         return out
 
     def busy(self) -> bool:
@@ -559,8 +559,11 @@ class BrainLink:
         with self._lock:
             chunks = self._mic_chunks
             self._mic_chunks = []
-        # Drop the room while Buddy's line, and for a short tail, is still in the air.
+        # Silence while Buddy's line is in the speaker, plus a 400 ms tail.
+        # Game music and his own voice must not go up as if Chris were talking.
         if self._output.busy():
+            for chunk in chunks:
+                sock.send_binary(b"\x00" * len(chunk))
             return
         for chunk in chunks:
             sock.send_binary(chunk)

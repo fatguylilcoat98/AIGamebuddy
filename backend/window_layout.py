@@ -379,6 +379,10 @@ def place_blue_backing(rect: tuple[int, int, int, int]) -> int:
         from ctypes import wintypes
         user32 = ctypes.WinDLL("user32", use_last_error=True)
         gdi32 = ctypes.WinDLL("gdi32", use_last_error=True)
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        # LRESULT and HMODULE are pointer-sized. A 32-bit restype truncates them and
+        # the next call access-violates on a 64-bit Windows.
+        lresult = ctypes.c_ssize_t
         user32.SetWindowPos.argtypes = [
             wintypes.HWND, ctypes.c_void_p, ctypes.c_int, ctypes.c_int,
             ctypes.c_int, ctypes.c_int, wintypes.UINT,
@@ -386,6 +390,12 @@ def place_blue_backing(rect: tuple[int, int, int, int]) -> int:
         user32.SetWindowPos.restype = wintypes.BOOL
         user32.IsWindow.argtypes = [wintypes.HWND]
         user32.IsWindow.restype = wintypes.BOOL
+        user32.DefWindowProcW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
+        user32.DefWindowProcW.restype = lresult
+        kernel32.GetModuleHandleW.argtypes = [wintypes.LPCWSTR]
+        kernel32.GetModuleHandleW.restype = wintypes.HMODULE
+        gdi32.CreateSolidBrush.argtypes = [wintypes.DWORD]
+        gdi32.CreateSolidBrush.restype = wintypes.HBRUSH
         if not _BLUE_HWND or not user32.IsWindow(_BLUE_HWND):
             global _BLUE_WNDPROC
             class_name = "BuddyBlueBacking"
@@ -394,7 +404,7 @@ def place_blue_backing(rect: tuple[int, int, int, int]) -> int:
                 return user32.DefWindowProcW(hwnd, msg, wp, lp)
 
             wndproc_type = ctypes.WINFUNCTYPE(
-                ctypes.c_long, wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM,
+                lresult, wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM,
             )
             _BLUE_WNDPROC = wndproc_type(_proc)
 
@@ -417,7 +427,9 @@ def place_blue_backing(rect: tuple[int, int, int, int]) -> int:
             wind.lpfnWndProc = _BLUE_WNDPROC
             wind.lpszClassName = class_name
             wind.hbrBackground = gdi32.CreateSolidBrush(0x00DC2800)  # RGB(0, 40, 220)
-            wind.hInstance = ctypes.WinDLL("kernel32").GetModuleHandleW(None)
+            wind.hInstance = kernel32.GetModuleHandleW(None)
+            user32.RegisterClassW.argtypes = [ctypes.POINTER(WNDCLASSW)]
+            user32.RegisterClassW.restype = wintypes.ATOM
             user32.RegisterClassW(ctypes.byref(wind))
             user32.CreateWindowExW.argtypes = [
                 wintypes.DWORD, wintypes.LPCWSTR, wintypes.LPCWSTR, wintypes.DWORD,

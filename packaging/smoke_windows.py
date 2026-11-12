@@ -267,7 +267,7 @@ def buddy_consoles() -> int:
     def visit(hwnd, _lparam):
         name = ctypes.create_unicode_buffer(256)
         user32.GetClassNameW(hwnd, name, 256)
-        if name.value != "ConsoleWindowClass":
+        if name.value not in {"ConsoleWindowClass", "CASCADIA_HOSTING_WINDOW_CLASS"}:
             return True
         pid = wintypes.DWORD()
         user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
@@ -281,11 +281,14 @@ def buddy_consoles() -> int:
             if kernel.QueryFullProcessImageNameW(handle, 0, buf, ctypes.byref(size)):
                 path = buf.value
             kernel.CloseHandle(handle)
+        title = ctypes.create_unicode_buffer(256)
+        user32.GetWindowTextW(hwnd, title, 256)
         lowered = path.lower()
-        if "\\buddy\\" in lowered and lowered.endswith("python.exe"):
-            title = ctypes.create_unicode_buffer(256)
-            user32.GetWindowTextW(hwnd, title, 256)
-            found.append(f"console pid={pid.value} path={path} title={title.value}")
+        titled = title.value.lower()
+        buddy_proc = "\\buddy\\" in lowered and not lowered.endswith("pythonw.exe")
+        buddy_title = "start-buddy" in titled or "\\buddy\\" in titled
+        if buddy_proc or buddy_title:
+            found.append(f"console class={name.value} pid={pid.value} path={path} title={title.value}")
         return True
 
     user32.EnumWindows(visit, 0)

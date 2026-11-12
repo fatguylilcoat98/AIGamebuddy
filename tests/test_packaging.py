@@ -74,8 +74,12 @@ def test_shipped_package_can_import_backend_and_does_not_reinstall():
     pins = (ROOT / "packaging/checksums.pinned.json").read_text(encoding="utf-8")
     assert "python-full" in pins
     iss = (ROOT / "packaging/Buddy.iss").read_text(encoding="utf-8")
-    assert 'Start-Buddy.bat' in iss
+    assert "pythonw.exe" in iss
+    assert "backend.wizard_app" in iss
     assert "Buddy.exe" not in iss
+    bat = (ROOT / "Start-Buddy.bat").read_text(encoding="utf-8")
+    assert "pythonw.exe" in bat
+    assert "powershell" not in bat.lower()
     assert "{srcexe}" not in iss
     launcher = (ROOT / "Start-Buddy.ps1").read_text(encoding="utf-8")
     assert "startup.log" in launcher

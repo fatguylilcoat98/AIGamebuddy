@@ -24,6 +24,10 @@ jobs:
         run: python -m pip install pillow numpy
         shell: powershell
 
+      - name: Game music is not speech
+        run: python tests/test_noise_gate.py
+        shell: powershell
+
       - name: Render overlay screenshots
         run: python -m backend.windows_preview dist/screenshots
         shell: powershell
@@ -80,8 +84,8 @@ jobs:
         if: success()
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: buddy-v0.1.0-pre17
-          name: Buddy 0.1.0 pre17
+          tag_name: buddy-v0.1.0-pre18
+          name: Buddy 0.1.0 pre18
           prerelease: true
           make_latest: false
           generate_release_notes: false
@@ -89,7 +93,8 @@ jobs:
             Prerelease installer for Super NES. Double-click BuddySetup.exe.
             Buddy talks through the brain once a game is on screen.
             He stays quiet when the brain is not configured.
-            Console windows stay hidden, replies play in one stream, and the game picture goes to the brain.
+            The shortcut starts pythonw, so no terminal window opens.
+            Game music is not treated as someone talking.
             pre8 is broken. Do not install pre8.
             Snes9x is included for personal use. It is not the latest stable release.
           files: |

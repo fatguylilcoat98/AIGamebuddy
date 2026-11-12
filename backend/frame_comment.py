@@ -32,9 +32,26 @@ def prepare_game_jpeg(jpeg: bytes, previous: bytes | None, width: int = 640) -> 
         diff = sum(abs(a - b) for a, b in zip(previous, thumb)) / len(thumb)
         if diff < 8:
             return "", thumb, "same"
-    out = io.BytesIO()
-    image.save(out, format="JPEG", quality=70, optimize=True)
-    return base64.b64encode(out.getvalue()).decode("ascii"), thumb, "send"
+    encoded = _jpeg_under(image, 120 * 1024)
+    return base64.b64encode(encoded).decode("ascii"), thumb, "send"
+
+
+def _jpeg_under(image: Image.Image, limit: int) -> bytes:
+    """Shrink until the JPEG is under the cap. Muse does not need a larger shot."""
+    quality = 70
+    current = image
+    while True:
+        out = io.BytesIO()
+        current.save(out, format="JPEG", quality=quality, optimize=True)
+        data = out.getvalue()
+        if len(data) <= limit or (current.width <= 320 and quality <= 40):
+            return data
+        if current.width > 320:
+            width = max(320, int(current.width * 0.8))
+            height = max(1, round(current.height * width / current.width))
+            current = current.resize((width, height), Image.Resampling.BILINEAR)
+        else:
+            quality = max(40, quality - 10)
 
 
 def describe_frame(jpeg: bytes) -> str:

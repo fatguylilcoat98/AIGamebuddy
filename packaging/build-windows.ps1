@@ -163,7 +163,7 @@ Copy-Item $vc (Join-Path $payload "vc_redist.x64.exe") -Force
 
 $include = @(
     "backend", "assets", "config", "data", "LICENSES.md", "README.md",
-    "WINDOWS_FIRST_RUN.md", "Start-Buddy.bat", "Start-Buddy.ps1", "install.ps1", "install.bat"
+    "WINDOWS_FIRST_RUN.md", "Start-Buddy.bat", "Start-Buddy.ps1", "Start-Buddy.vbs", "install.ps1", "install.bat"
 )
 foreach ($name in $include) {
     $source = Join-Path (Join-Path $PSScriptRoot "..") $name

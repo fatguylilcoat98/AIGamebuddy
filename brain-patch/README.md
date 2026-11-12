@@ -1,6 +1,8 @@
 # Buddy brain patch
 
-Copy `server.js`, `call.js`, `persona.js`, and `vision_message.js` over the copies on the home server, then restart the brain. Nothing else in the app changes.
+Copy `server.js`, `call.js`, `persona.js`, `vision_message.js`, `asr.py`, and `noise_gate.py` over the copies on the home server, then restart the brain. `asr.py` and `noise_gate.py` stay side by side.
+
+While Buddy's audio is playing, and for 400 ms after it stops, the mic is ignored. A turn starts only after about 350 ms above the game's noise floor, so the music is not someone talking. A short or unsure transcript is dropped. Each reply and each heard line is logged as the first 80 characters. A quiet-timer nudge does not resend the last screenshot, and a picture bigger than 120 KB is not attached.
 
 Muse sees the latest game JPEG on the current turn only. The user message is an array: a text part, then `{type:'image_url', image_url:{url:'data:image/jpeg;base64,...'}}`. The call is the same one as before: `POST https://api.meta.ai/v1/chat/completions`, model `muse-spark-1.3`, `reasoning_effort` `minimal`, `store` false, `stream` true, and `stream_options.include_usage`. Older pictures are not kept in the history. Buddy talks about the broad action, the game, the characters, and the stage. He does not call a health bar or a PAUSE label unless it is unmistakable, and he says nothing about a black or loading frame.
 

@@ -17,6 +17,45 @@ function jaccard(a, b) {
   return i / (wa.size + wb.size - i);
 }
 // Is this transcript just Buddy's own voice coming back through the speaker?
+const PLAY_TAIL_MS = 400;
+const IMAGE_MAX_BYTES = 120 * 1024;
+
+function preview(text) {
+  return String(text || '').replace(/\s+/g, ' ').trim().slice(0, 80);
+}
+function micAllowed(state, now) {
+  const t = now == null ? Date.now() : now;
+  if (!state) return true;
+  if (state.playing || state.bot) return false;
+  if (state.playOffAt && t - state.playOffAt < PLAY_TAIL_MS) return false;
+  if (state.botEndAt && t - state.botEndAt < PLAY_TAIL_MS) return false;
+  return true;
+}
+function imageBytes(url) {
+  const text = String(url || '');
+  const at = text.indexOf('base64,');
+  if (at < 0) return 0;
+  return Math.floor((text.length - at - 7) * 3 / 4);
+}
+function cappedImage(url) {
+  const text = String(url || '');
+  if (text.indexOf('data:image/') !== 0) return '';
+  if (imageBytes(text) > IMAGE_MAX_BYTES) return '';
+  return text;
+}
+const HALLU = new Set(['im sorry', 'i am sorry', 'sorry', 'about to be gone', 'you', 'thank you', 'thanks for watching', 'uh', 'um', 'hmm', 'mm', 'oh']);
+function keepHeard(text, info) {
+  const o = info || {};
+  const norm = normText(text);
+  if (!norm || HALLU.has(norm)) return false;
+  const words = norm.split(' ').filter(Boolean);
+  if (typeof o.voiced_ms === 'number' && o.voiced_ms < 350) return false;
+  if (words.length <= 2 && (o.voiced_ms || 0) < 500) return false;
+  if (typeof o.no_speech_prob === 'number' && o.no_speech_prob > 0.5) return false;
+  if (typeof o.avg_logprob === 'number' && o.avg_logprob < -0.9) return false;
+  return true;
+}
+
 function isEcho(text, botText) {
   const n = normText(text), r = normText(botText); if (!n || !r) return false;
   if (r.includes(n)) return true;
@@ -75,7 +114,7 @@ function attachCall(server, d) {
   });
 
   function session(ws, sid) {
-    const S = { attitude: persona.DEFAULT_ATTITUDE, history: [], game: '', image: '', bot: false, botText: '', botEndAt: 0, seq: 0, ac: null, replying: false,
+    const S = { attitude: persona.DEFAULT_ATTITUDE, history: [], game: '', image: '', bot: false, botText: '', botEndAt: 0, playing: false, playOffAt: 0, seq: 0, ac: null, replying: false,
       pendingUser: '', lastUser: '', nudges: 0, silence: null, speechEndAt: 0, hangover: 0, hearing: false, sent: 0, frames: 0, started: Date.now() };
     const tx = (o) => { if (ws.readyState === 1) ws.send(JSON.stringify(o)); };
     const log = (...a) => d.log('[call ' + sid + ']', ...a);
@@ -114,11 +153,12 @@ function attachCall(server, d) {
         if (!firstAudioAt) { firstAudioAt = Date.now(); setBot(true); }
         // Safety net if the page never reports "done playing": ~48 kbit/s MP3 → bytes/6 ms.
         S.audioEnd = Math.max(S.audioEnd || 0, Date.now()) + buf.length / 6; if (S.botWatch) clearTimeout(S.botWatch);
-        S.botWatch = setTimeout(() => { if (seq === S.seq) setBot(false); }, S.audioEnd - Date.now() + 2500);
+        S.botWatch = setTimeout(() => { if (seq === S.seq && !S.playing) setBot(false); }, S.audioEnd - Date.now() + 2500);
       };
       let out = null;
       try {
-        out = await d.museStream({ attitude: S.attitude, kind, text, history: S.history.slice(0, kind === 'turn' ? -1 : undefined), game: S.game, image: S.image || '', signal: ac.signal,
+        const shot = (kind === 'nudge' || kind === 'opening') ? '' : cappedImage(S.image || '');
+        out = await d.museStream({ attitude: S.attitude, kind, text, history: S.history.slice(0, kind === 'turn' ? -1 : undefined), game: S.game, image: shot, signal: ac.signal,
           onSentence: (sent) => {
             if (!firstSentAt) firstSentAt = Date.now();
             const i = idx++; const p = d.ttsBuffer(sent, ac.signal);      // start every sentence's voice right away
@@ -134,12 +174,15 @@ function attachCall(server, d) {
       const m = { kind, attitude: S.attitude, sentences: spoken.length, muse_first_sentence_ms: firstSentAt ? firstSentAt - t0 : null,
         muse_ttft_ms: out && out.muse_ttft_ms, first_audio_sent_ms: firstAudioAt ? firstAudioAt - t0 : null,
         speech_end_to_first_audio_sent_ms: fromEnd && firstAudioAt ? firstAudioAt - fromEnd : null, tokens: out && out.usage && out.usage.total_tokens };
-      log('reply', JSON.stringify(m)); tx(Object.assign({ type: 'metrics' }, m));
+      log('reply', JSON.stringify(m));
+      if (spoken.length) log('reply text', preview(spoken.join(' ')));
+      tx(Object.assign({ type: 'metrics' }, m));
       if (!spoken.length) { setBot(false); armSilence(); }
     }
 
     function onEars(o) {
       if (o.ev === 'speech_start') {
+        if (!micAllowed(S) || (typeof o.voiced_ms === 'number' && o.voiced_ms < 350)) return;
         S.hearing = true; clearSilence(); S.nudges = 0; tx({ type: 'hearing', barge: o.barge });
         if (S.bot) { log('barge-in', JSON.stringify({ rms: o.rms, gate: o.gate })); cancelReply('barge'); }
         else if (S.replying) {           // they kept talking after a short pause: fold it into one turn
@@ -150,10 +193,17 @@ function attachCall(server, d) {
         S.hearing = false; S.speechEndAt = Date.now() - (o.hangover_ms || 0); S.hangover = o.hangover_ms || 0;
         tx({ type: 'user_end', hangover_ms: o.hangover_ms, dur_ms: o.dur_ms });
       } else if (o.ev === 'final') {
+        if (!micAllowed(S) || !keepHeard(o.text, o)) {
+          log('heard dropped', preview(o.text));
+          tx({ type: 'drop', reason: 'low_confidence' });
+          if (S.pendingUser) flushPending(); else if (!S.replying && !S.bot) armSilence();
+          return;
+        }
         const recent = S.bot || Date.now() - S.botEndAt < 2500;
-        if (recent && isEcho(o.text, S.botText)) { log('echo dropped', JSON.stringify(o.text)); tx({ type: 'echo', text: o.text }); if (S.pendingUser) flushPending(); else if (!S.bot) armSilence(); return; }
+        if (recent && isEcho(o.text, S.botText)) { log('echo dropped', preview(o.text)); tx({ type: 'echo', text: o.text }); if (S.pendingUser) flushPending(); else if (!S.bot) armSilence(); return; }
         const text = (S.pendingUser ? S.pendingUser + ' ' : '') + o.text; S.pendingUser = '';
-        log('heard', JSON.stringify({ text: o.text, asr_ms: o.asr_ms, audio_ms: o.audio_ms, queued_ms: o.queued_ms }));
+        log('heard text', preview(text));
+        log('heard', JSON.stringify({ text: preview(text), asr_ms: o.asr_ms, audio_ms: o.audio_ms, queued_ms: o.queued_ms }));
         tx({ type: 'user', text, asr_ms: o.asr_ms });
         S.lastUser = text; S.history.push({ role: 'user', content: text });
         reply('turn', text);
@@ -169,7 +219,12 @@ function attachCall(server, d) {
     d.ears.open(sid, onEars);
     log('open');
     ws.on('message', (data, isBin) => {
-      if (isBin) { S.frames++; if (data.length <= 32000) d.ears.audio(sid, data); return; }
+      if (isBin) {
+        S.frames++;
+        if (!micAllowed(S) || data.length > 32000) return;
+        d.ears.audio(sid, data);
+        return;
+      }
       let m; try { m = JSON.parse(String(data)); } catch (_) { return; }
       if (m.type === 'hello') {
         S.attitude = persona.normalize(m.attitude);
@@ -177,11 +232,16 @@ function attachCall(server, d) {
         tx({ type: 'ready', ears: d.ears.ready, model: d.ears.info && d.ears.info.model, end_ms: d.ears.info && d.ears.info.end_ms });
         if (!S.history.length) reply('opening'); else armSilence();
       } else if (m.type === 'play') {
-        if (m.seq === S.seq || !m.on) setBot(!!m.on);
+        log('play', JSON.stringify({ on: !!m.on, seq: m.seq }));
+        if (m.on) { S.playing = true; setBot(true); }
+        else { S.playing = false; S.playOffAt = Date.now(); setBot(false); }
       } else if (m.type === 'attitude') S.attitude = persona.normalize(m.attitude);
       else if (m.type === 'game') {
         const note = String(m.text || '').slice(0, 400);
-        if (typeof m.image === 'string' && m.image.indexOf('data:image/') === 0) S.image = m.image;
+        if (typeof m.image === 'string' && m.image.indexOf('data:image/') === 0) {
+          const capped = cappedImage(m.image);
+          if (capped) S.image = capped;
+        }
         if (note) S.game = note;
         const marker = '[Screen update] ' + (note || 'the game');
         const last = S.history.length ? S.history[S.history.length - 1] : null;
@@ -199,4 +259,4 @@ function attachCall(server, d) {
   }
   return { wss, live };
 }
-module.exports = { attachCall, Ears, isEcho };
+module.exports = { attachCall, Ears, isEcho, micAllowed, keepHeard, cappedImage, preview, PLAY_TAIL_MS };

@@ -122,9 +122,12 @@ $lnkPath = Join-Path $desktop "Buddy.lnk"
 if (-not (Test-Path $lnkPath)) { throw "Desktop shortcut was not created at $lnkPath" }
 $shell = New-Object -ComObject WScript.Shell
 $lnk = $shell.CreateShortcut($lnkPath)
-Write-Host "Shortcut target $($lnk.TargetPath)"
-if ($lnk.TargetPath -notlike "*Start-Buddy.bat") {
-    throw "Desktop shortcut does not launch Start-Buddy.bat. It launches $($lnk.TargetPath)"
+Write-Host "Shortcut target $($lnk.TargetPath) $($lnk.Arguments)"
+if ($lnk.TargetPath -notlike "*pythonw.exe") {
+    throw "Desktop shortcut does not launch pythonw.exe. It launches $($lnk.TargetPath)"
+}
+if ($lnk.Arguments -notmatch "backend\.wizard_app") {
+    throw "Desktop shortcut does not start the wizard. Arguments: $($lnk.Arguments)"
 }
 
 # The smoke test must not call a system Python. Drop those directories from PATH.
@@ -145,8 +148,10 @@ try {
     Pop-Location
 }
 
-Write-Host "Launching shortcut target $($lnk.TargetPath) from $elsewhere"
-$proc = Start-Process -FilePath $lnk.TargetPath -WorkingDirectory $elsewhere -PassThru
+Write-Host "Launching shortcut target $($lnk.TargetPath) $($lnk.Arguments) from $elsewhere"
+$shortcutArgs = @()
+if ($lnk.Arguments) { $shortcutArgs = $lnk.Arguments -split '\s+' }
+$proc = Start-Process -FilePath $lnk.TargetPath -ArgumentList $shortcutArgs -WorkingDirectory $elsewhere -PassThru
 $deadline = (Get-Date).AddSeconds(45)
 $pythonPid = $null
 while ((Get-Date) -lt $deadline) {
@@ -165,7 +170,7 @@ if (-not $pythonPid) {
     $startup = Join-Path $env:LOCALAPPDATA "Buddy\logs\startup.log"
     Write-Host "---- startup.log ----"
     if (Test-Path $startup) { Get-Content $startup }
-    throw "Start-Buddy.bat did not leave backend.wizard_app running"
+    throw "pythonw did not leave backend.wizard_app running"
 }
 Write-Host "wizard python pid $pythonPid"
 
@@ -352,6 +357,10 @@ $buddyLog = Join-Path $env:LOCALAPPDATA "Buddy\logs\buddy.log"
 $crashLog = Join-Path $env:LOCALAPPDATA "Buddy\logs\crash.log"
 if (-not (Test-Path $buddyLog)) { throw "buddy.log was not written" }
 if (-not (Test-Path $crashLog)) { throw "crash.log was not written" }
+if (Select-String -Path $crashLog -Pattern "access violation" -Quiet) {
+    Get-Content $crashLog -Tail 40
+    throw "crash.log has an access violation"
+}
 if (-not (Select-String -Path $buddyLog -Pattern "startup:" -Quiet)) {
     throw "buddy.log has no startup record"
 }

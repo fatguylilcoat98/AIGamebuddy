@@ -236,6 +236,25 @@ New-Item -ItemType Directory -Force -Path (Split-Path $oldCfg) | Out-Null
 }
 '@ | Set-Content -Path $oldCfg -Encoding ascii
 Write-Host "Planted an old config at $oldCfg"
+$repo = Split-Path $PSScriptRoot -Parent
+$brainPortFile = Join-Path $shotDir "brain-port.txt"
+$brainReport = Join-Path $shotDir "brain-report.txt"
+if (Test-Path $brainPortFile) { Remove-Item $brainPortFile -Force }
+if (Test-Path $brainReport) { Remove-Item $brainReport -Force }
+$brainProc = Start-Process -FilePath $python -ArgumentList @("-m", "backend.fake_brain", "--port-file", $brainPortFile, "--report", $brainReport) -WorkingDirectory $repo -WindowStyle Hidden -PassThru
+$brainWait = (Get-Date).AddSeconds(20)
+while ((Get-Date) -lt $brainWait -and -not (Test-Path $brainPortFile)) { Start-Sleep -Milliseconds 200 }
+if (-not (Test-Path $brainPortFile)) { throw "The fake brain did not start" }
+$brainPort = (Get-Content -Raw $brainPortFile).Trim()
+$roamingBrain = Join-Path $env:APPDATA "Buddy"
+New-Item -ItemType Directory -Force -Path $roamingBrain | Out-Null
+@"
+{
+  "url": "ws://127.0.0.1:$brainPort",
+  "token": "ci-buddy-token"
+}
+"@ | Set-Content -Path (Join-Path $roamingBrain "brain.json") -Encoding ascii
+Write-Host "Fake brain is on port $brainPort"
 $spokenEarly = Join-Path $env:LOCALAPPDATA "VideoGameWingman\spoken.log"
 if (Test-Path $spokenEarly) { Remove-Item $spokenEarly -Force }
 
@@ -313,7 +332,16 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Write-Host "Listening for three minutes of frame comments"
-Start-Sleep -Seconds 185
+$consoleHits = New-Object System.Collections.Generic.List[string]
+$listenUntil = (Get-Date).AddSeconds(185)
+while ((Get-Date) -lt $listenUntil) {
+    & $python $smokePy consoles
+    if ($LASTEXITCODE -ne 0) { $consoleHits.Add("console") }
+    Start-Sleep -Seconds 5
+}
+if ($consoleHits.Count -gt 0) {
+    throw "A Buddy console window appeared during play"
+}
 $launcherAlive = Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match "backend\.launcher" }
 if (-not $launcherAlive) { throw "Buddy's launcher is not running after three minutes" }
 $startupLog = Join-Path $env:LOCALAPPDATA "Buddy\logs\startup.log"
@@ -336,14 +364,41 @@ if (Select-String -Path $spoken -Pattern "missed that screen" -Quiet) {
 $linesFile = Join-Path $shotDir "buddy-lines.txt"
 Copy-Item $spoken $linesFile -Force
 if ((Get-Item $linesFile).Length -lt 1) {
-    Set-Content -Path $linesFile -Value "silent: no brain configured" -Encoding ascii
+    Set-Content -Path $linesFile -Value "silent: local speech stayed quiet" -Encoding ascii
+}
+if (Select-String -Path $buddyLog -Pattern "WNDCLASSW" -Quiet) {
+    throw "The blue backing failed: WNDCLASSW is in buddy.log"
+}
+if (-not (Select-String -Path $buddyLog -Pattern "Blue backing is up" -Quiet)) {
+    throw "The blue backing was not created"
+}
+$launches = @(Select-String -Path $buddyLog -Pattern "Launching RetroArch:").Count
+if ($launches -gt 1) { throw "RetroArch was launched $launches times" }
+$misses = @(Select-String -Path $buddyLog -Pattern "GET_STATUS got no reply").Count
+if ($misses -gt 6) { throw "GET_STATUS is still logging every poll ($misses)" }
+if (-not (Select-String -Path $buddyLog -Pattern "Brain connected" -Quiet)) {
+    throw "The fake brain never connected"
+}
+if (-not (Select-String -Path $buddyLog -Pattern "Queued reply audio" -Quiet)) {
+    throw "Reply audio was not queued"
+}
+if (-not (Select-String -Path $buddyLog -Pattern "Brain barge-in" -Quiet)) {
+    throw "Barge-in was not exercised"
+}
+if (-not (Select-String -Path $buddyLog -Pattern "Play on seq=" -Quiet)) {
+    throw "Buddy did not report playback starting"
+}
+if (-not (Test-Path $brainReport)) { throw "The fake brain wrote no report" }
+$report = Get-Content -Raw $brainReport | ConvertFrom-Json
+if ($report.images -lt 1 -or $report.clips -lt 3 -or -not $report.barge -or -not $report.resumed) {
+    throw "The fake brain did not finish the audio path: $report"
 }
 $env:BUDDY_EXPECT_SILENT = "1"
 $env:BUDDY_LINES = Join-Path $shotDir "buddy-lines.txt"
 & $python $smokePy lines
 if ($LASTEXITCODE -ne 0) {
     Get-Content (Join-Path $shotDir "buddy-lines.txt")
-    throw "Buddy spoke without a brain, or the silence check failed"
+    throw "Buddy spoke on his own during the fake-brain run"
 }
 $env:BUDDY_REPEAT_OUT = Join-Path $shotDir "repetition.txt"
 & $python $smokePy repeats

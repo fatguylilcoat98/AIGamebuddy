@@ -8,6 +8,9 @@ from __future__ import annotations
 
 import os
 import subprocess
+
+from .hidden_process import popen as hidden_popen
+from .hidden_process import run as hidden_run
 from pathlib import Path
 
 
@@ -42,7 +45,7 @@ def _windows_processes():
     try:
         import csv
         import io
-        completed = subprocess.run(
+        completed = hidden_run(
             ["powershell", "-NoProfile", "-Command",
              "Get-CimInstance Win32_Process | Select-Object ProcessId,CommandLine,ExecutablePath | ConvertTo-Csv -NoTypeInformation"],
             capture_output=True, text=True, timeout=20, check=False,
@@ -62,7 +65,7 @@ def _windows_processes():
 def kill_pids(pids: list[int], runner=None) -> None:
     if os.name != "nt":
         return
-    launch = runner or subprocess.Popen
+    launch = runner or hidden_popen
     for pid in pids:
         if not pid or int(pid) == os.getpid():
             continue

@@ -8,6 +8,8 @@ from __future__ import annotations
 import logging
 import os
 import subprocess
+
+from .hidden_process import run as hidden_run
 import sys
 import tempfile
 import threading
@@ -131,7 +133,7 @@ def synthesize_windows_wav(text: str, rate: int) -> bytes | None:
     env["AIGAMEBUDDY_VOICE_RATE"] = str(max(-10, min(10, int(rate))))
     env["AIGAMEBUDDY_WAVE_PATH"] = path
     try:
-        proc = subprocess.run(
+        proc = hidden_run(
             ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", _SYNTH_SCRIPT],
             input=text[:1500],
             text=True,
@@ -139,7 +141,6 @@ def synthesize_windows_wav(text: str, rate: int) -> bytes | None:
             capture_output=True,
             timeout=60,
             env=env,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
         if proc.returncode != 0 or not Path(path).exists() or Path(path).stat().st_size < 44:
             return None

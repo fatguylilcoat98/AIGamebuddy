@@ -12,6 +12,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const persona = require('./persona');
+const { userContent } = require('./vision_message');
 
 const E = process.env;
 const PORT = Number(E.BUDDY_PORT || E.PORT || 8820);
@@ -191,7 +192,7 @@ function takeSentence(buf, first) {
   if (first && buf.length > 70) { const i = buf.indexOf(', ', 30); if (i > 0 && i < 110) return [buf.slice(0, i + 1), buf.slice(i + 2)]; }
   return null;
 }
-function museMessages(attitude, kind, text, history, game) {
+function museMessages(attitude, kind, text, history, game, image) {
   const msgs = [{ role: 'system', content: persona.buildMuse(attitude, { game: game || '' /* screen-watch hook */ }) }];
   const h = Array.isArray(history) ? history.slice(-16) : [];
   for (const m of h) {
@@ -200,16 +201,18 @@ function museMessages(attitude, kind, text, history, game) {
     if (c) msgs.push({ role, content: c });
   }
   const cue = kind === 'opening' ? '(' + persona.OPENING + ')' : kind === 'nudge' ? '(' + persona.NUDGE + ')' : String(text || '').slice(0, 1200);
-  msgs.push({ role: 'user', content: cue });
+  // The picture is only on this turn. History stays text, so shots do not pile up.
+  msgs.push({ role: 'user', content: userContent(cue, image) });
   return msgs;
 }
-async function museStream({ attitude, kind, text, history, game, signal, onSentence }) {
+async function museStream({ attitude, kind, text, history, game, image, signal, onSentence }) {
   const t0 = Date.now();
   const r = await fetch(MUSE_BASE + '/chat/completions', {
     method: 'POST', signal,
     headers: { Authorization: 'Bearer ' + E.META_MUSE_API_KEY, 'Content-Type': 'application/json' },
     body: JSON.stringify({ model: MUSE_MODEL, stream: true, reasoning_effort: MUSE_EFFORT,
-      max_completion_tokens: MUSE_MAX_TOKENS, store: false, messages: museMessages(attitude, kind, text, history, game) }),
+      max_completion_tokens: MUSE_MAX_TOKENS, store: false, stream_options: { include_usage: true },
+      messages: museMessages(attitude, kind, text, history, game, image) }),
   });
   if (!r.ok) {
     const body = (await r.text().catch(() => '')).split(E.META_MUSE_API_KEY).join('[k]').slice(0, 240);

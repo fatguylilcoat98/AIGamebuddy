@@ -422,13 +422,13 @@ class HamburgerMenu:
             save_retroarch_path(self.session.config, chosen)
 
     def _rerun_setup(self):
-        import subprocess
         import sys
         from .config_loader import ROOT
+        from .hidden_process import popen as hidden_popen
         from .wizard_app import bundled_runtime
         runtime = bundled_runtime()
         python = str(runtime) if runtime else sys.executable
-        subprocess.Popen([python, "-m", "backend.wizard_app", "--wizard"], cwd=str(ROOT))
+        hidden_popen([python, "-m", "backend.wizard_app", "--wizard"], cwd=str(ROOT))
         self.close()
 
 

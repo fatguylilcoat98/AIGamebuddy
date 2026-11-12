@@ -154,7 +154,11 @@ class BuddySession:
         self._next_glance = 0.0
         self._glance_until = 0.0
         self.current_rom = ""
+        self.current_core = ""
         self.continue_on_launch = False
+        self._last_image_at = 0.0
+        self._last_react_at = 0.0
+        self._last_thumb = b""
         self.toast = ""
         from .look_schedule import normalize_look_interval
         self.look_interval = normalize_look_interval(config.get("commentary", "look_interval_seconds"))
@@ -685,34 +689,38 @@ class BuddySession:
             if not self._game_visible():
                 log.info("Look tick skipped. No game window yet.")
                 return
-            from .frame_comment import describe_frame
             scripted = self._next_scripted_frame()
-            captured = None if scripted else self._capture_game_window()
-            observation = scripted
-            source = "template" if scripted else "frame"
             if scripted:
                 log.info("Look tick scripted frame: %s", scripted)
-            elif captured is None:
+            captured = self._capture_game_window()
+            if captured is None:
                 log.info("Looked at the game. interval=%ss captured=no", self.look_interval)
+                return
+            _width, _height, jpeg = captured
+            log.info(
+                "Looked at the game. interval=%ss captured=%sx%s bytes=%s",
+                self.look_interval, _width, _height, len(jpeg),
+            )
+            from .frame_comment import prepare_game_jpeg
+            picture, thumb, reason = prepare_game_jpeg(jpeg, self._last_thumb or None)
+            if reason == "black":
+                log.info("Frame is black or still loading. Not sending it.")
+                return
+            if reason == "same":
+                log.info("Frame has not changed. Not sending it.")
+                return
+            now = self.clock.mono()
+            if now - self._last_image_at < 9:
+                log.info("Holding the next picture. The last one was %.0fs ago.", now - self._last_image_at)
+                return
+            react = self.frequency != "off" and (now - self._last_react_at) >= 20
+            if self._brain.push_game("Here's the TV.", react, picture):
+                self._last_thumb = thumb
+                self._last_image_at = now
+                if react:
+                    self._last_react_at = now
             else:
-                _width, _height, jpeg = captured
-                log.info(
-                    "Looked at the game. interval=%ss captured=%sx%s bytes=%s",
-                    self.look_interval, _width, _height, len(jpeg),
-                )
-                try:
-                    observation = describe_frame(jpeg)
-                except Exception:
-                    observation = ""
-                if self._helper_ready():
-                    note = self._screen_note()
-                    if note:
-                        observation = note
-                        source = "vision"
-            if observation:
-                self.comment_on_frame(observation)
-            else:
-                log.info("Look tick had no frame. Staying quiet.")
+                log.info("Brain is not connected. Staying quiet.")
         except Exception:
             log.exception("Look at the game failed. Capture or vision did not stop Buddy.")
         finally:
@@ -982,7 +990,8 @@ class BuddySession:
             return
         try:
             import subprocess
-            subprocess.Popen(
+            from .hidden_process import popen as hidden_popen
+            hidden_popen(
                 ["taskkill", "/PID", str(pid), "/T", "/F"],
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             )
@@ -1099,6 +1108,33 @@ class BuddySession:
             size = (1920, 1080) if mode == "1080p" else (1280, 720)
         return hole_screen_rect(frame_record(frame)["screen"], (0, 0, size[0], size[1]))
 
+    def _process_alive(self, pid: int | None) -> bool:
+        if not pid or os.name != "nt":
+            return False
+        try:
+            import ctypes
+            kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+            handle = kernel.OpenProcess(0x1000, False, int(pid))
+            if not handle:
+                return False
+            kernel.CloseHandle(handle)
+            return True
+        except Exception:
+            return False
+
+    def _hide_kill(self, pid: int | None) -> None:
+        if not pid or os.name != "nt":
+            return
+        try:
+            import subprocess
+            from .hidden_process import popen as hidden_popen
+            hidden_popen(
+                ["taskkill", "/PID", str(int(pid)), "/T", "/F"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+        except OSError:
+            return
+
     def _emulator_hwnd(self) -> int | None:
         from .retroarch_finder import select_game_hwnd
         from .window_layout import visible_hwnd_for_pid
@@ -1154,7 +1190,20 @@ class BuddySession:
             )
         self.retroarch_notice = ""
         from .display_info import mark_exe_dpi_aware
+        from .game_status import ensure_network_commands
         mark_exe_dpi_aware(path)
+        ensure_network_commands(path)
+        if self._process_alive(self.retroarch_pid):
+            existing = self._emulator_hwnd()
+            same = (not rom) or rom == (self.current_rom or "")
+            if existing and (same or not force):
+                retro_log.info("RetroArch pid %s is already up. Not launching another.", self.retroarch_pid)
+                return self._place_hole(existing, rect)
+            if not existing and (not force or same or not rom):
+                retro_log.info(
+                    "RetroArch pid %s is still running. Not launching another.", self.retroarch_pid,
+                )
+                return ActionResult(True, "RetroArch is already starting.", reason="already_started")
         if self._retro_launch_started and not force:
             existing = self._emulator_hwnd()
             if existing:
@@ -1165,6 +1214,10 @@ class BuddySession:
             core or str(self.config.get("retroarch", "core") or ""),
             os.path.isfile,
         )
+        if rom:
+            self.current_rom = rom
+        if core:
+            self.current_core = core
         from .game_status import runtime_cfg_lines
         from .save_slots import config_lines, state_directory
         extras = list(runtime_cfg_lines(path))
@@ -1175,6 +1228,9 @@ class BuddySession:
         self.commands.host = "127.0.0.1"
         self.commands.port = 55355
         args = append_arguments(cfg, rom, core)
+        if self._process_alive(self.retroarch_pid):
+            retro_log.info("Stopping RetroArch pid %s before the new game.", self.retroarch_pid)
+            self._hide_kill(self.retroarch_pid)
         retro_log.info("Launching RetroArch: %s %s", path, args)
         self._retro_launch_started = True
         launched = launch_process(path, args, runner=self.process_runner)
@@ -1188,11 +1244,13 @@ class BuddySession:
         retro_log.info("RetroArch pid=%s", self.retroarch_pid)
         hwnd = wait_for_hwnd(self._emulator_hwnd, timeout=15)
         if not hwnd:
-            retro_log.info("RetroArch hwnd was not found within 15s. Placement will keep checking.")
+            retro_log.info(
+                "RetroArch hwnd was not found within 15s. The process is still running, so Buddy will not start another.",
+            )
             return ActionResult(
-                False,
-                "RetroArch started, but its window did not appear yet.",
-                reason="hwnd_timeout",
+                True,
+                "RetroArch is starting. Placement will keep checking.",
+                reason="already_started",
                 data=launched.data,
             )
         retro_log.info("RetroArch hwnd=%s", hwnd)
@@ -1210,13 +1268,16 @@ class BuddySession:
         # transparent opening looking at empty client area.
         window = rect
         # Every pass. RetroArch's GDI driver puts the File menu back after the first snap.
-        retro_log.info("Removing window decorations hwnd=%s result=%s", hwnd, strip_window_decorations(hwnd))
+        stripped = strip_window_decorations(hwnd)
+        if stripped not in {"already_borderless", "not_windows"}:
+            retro_log.info("Removing window decorations hwnd=%s result=%s", hwnd, stripped)
         current = client_screen_rect(hwnd) or self._window_rect(hwnd)
-        retro_log.info("RetroArch hwnd=%s client=%s target=%s", hwnd, current, window)
         if not needs_replace(current, window):
+            retro_log.debug("RetroArch hwnd=%s client=%s target=%s", hwnd, current, window)
             self._placed = (hwnd, window)
             return ActionResult(True, "RetroArch is already under the frame.", reason="stable",
                                 data={"hwnd": hwnd, "rect": list(window)})
+        retro_log.info("RetroArch hwnd=%s client=%s target=%s", hwnd, current, window)
         mover = self.window_positioner or position_hwnd
         result = mover(hwnd, window, self.overlay_hwnds)
         strip_window_decorations(hwnd)
@@ -1246,7 +1307,8 @@ class BuddySession:
             return
         try:
             import subprocess
-            subprocess.Popen(
+            from .hidden_process import popen as hidden_popen
+            hidden_popen(
                 ["taskkill", "/PID", str(self.retroarch_pid), "/T"],
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             )
@@ -1282,7 +1344,7 @@ class BuddySession:
         """Ask RetroArch what is running. Speech only. Nothing is drawn on the game."""
         if not self.commands.enabled or not self.commands.port:
             return
-        from .game_status import announce_line, parse_get_status, query_status, stuck_line
+        from .game_status import GameStatus, announce_line, parse_get_status, prefer_system, query_status, stuck_line
         from .setup_flow import frame_for_assignment
         try:
             reply = self.status_query() if self.status_query else query_status(self.commands.host, self.commands.port)
@@ -1292,6 +1354,9 @@ class BuddySession:
         if not reply:
             return
         status = parse_get_status(reply)
+        system = prefer_system(status.system, self.current_rom, self.current_core)
+        if system != status.system:
+            status = GameStatus(status.state, system, status.game, status.crc, status.core)
         moment = self.clock.mono() if now is None else now
         if status.game and status.game != self._status_game:
             self._status_game = status.game

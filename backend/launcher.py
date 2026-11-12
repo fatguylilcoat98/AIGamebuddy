@@ -20,9 +20,18 @@ def _dpi() -> None:
 
 
 def _serve(port: int) -> None:
+    import sys
+    # pythonw has no stdout. uvicorn's default log formatter calls isatty on it and dies,
+    # which is why the local API never listened on 8766.
+    if sys.stdout is None:
+        sys.stdout = open(os.devnull, "w", encoding="utf-8")
+    if sys.stderr is None:
+        sys.stderr = open(os.devnull, "w", encoding="utf-8")
     import uvicorn
     from .main import app
-    config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="info")
+    config = uvicorn.Config(
+        app, host="127.0.0.1", port=port, log_level="info", log_config=None, access_log=False,
+    )
     server = uvicorn.Server(config)
     app_state.api_server = server
     server.run()

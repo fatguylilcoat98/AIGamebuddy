@@ -1,6 +1,8 @@
 # Buddy brain patch
 
-Copy `server.js` and `call.js` over the copies on the home server, then restart the brain. Nothing else in the app changes.
+Copy `server.js`, `call.js`, `persona.js`, and `vision_message.js` over the copies on the home server, then restart the brain. Nothing else in the app changes.
+
+Muse sees the latest game JPEG on the current turn only. The user message is an array: a text part, then `{type:'image_url', image_url:{url:'data:image/jpeg;base64,...'}}`. The call is the same one as before: `POST https://api.meta.ai/v1/chat/completions`, model `muse-spark-1.3`, `reasoning_effort` `minimal`, `store` false, `stream` true, and `stream_options.include_usage`. Older pictures are not kept in the history. Buddy talks about the broad action, the game, the characters, and the stage. He does not call a health bar or a PAUSE label unless it is unmistakable, and he says nothing about a black or loading frame.
 
 The overlay does not use the web login cookie. `/ws` now also accepts a device token. Every other route still requires the login cookie.
 

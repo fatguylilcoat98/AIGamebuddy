@@ -61,7 +61,7 @@ class Ears {
 
 function attachCall(server, d) {
   // d: { cookieOk, museStream, ttsBuffer, log, allowReply, sessionMaxMin, ears, allowedOrigin(req, origin) }
-  const wss = new WebSocketServer({ noServer: true, maxPayload: 256 * 1024 });
+  const wss = new WebSocketServer({ noServer: true, maxPayload: 2 * 1024 * 1024 });
   let nextSid = 1; const live = new Set();
   server.on('upgrade', (req, sock, head) => {
     const u = new URL(req.url, 'http://x');
@@ -75,7 +75,7 @@ function attachCall(server, d) {
   });
 
   function session(ws, sid) {
-    const S = { attitude: persona.DEFAULT_ATTITUDE, history: [], game: '', bot: false, botText: '', botEndAt: 0, seq: 0, ac: null, replying: false,
+    const S = { attitude: persona.DEFAULT_ATTITUDE, history: [], game: '', image: '', bot: false, botText: '', botEndAt: 0, seq: 0, ac: null, replying: false,
       pendingUser: '', lastUser: '', nudges: 0, silence: null, speechEndAt: 0, hangover: 0, hearing: false, sent: 0, frames: 0, started: Date.now() };
     const tx = (o) => { if (ws.readyState === 1) ws.send(JSON.stringify(o)); };
     const log = (...a) => d.log('[call ' + sid + ']', ...a);
@@ -118,7 +118,7 @@ function attachCall(server, d) {
       };
       let out = null;
       try {
-        out = await d.museStream({ attitude: S.attitude, kind, text, history: S.history.slice(0, kind === 'turn' ? -1 : undefined), game: S.game, signal: ac.signal,
+        out = await d.museStream({ attitude: S.attitude, kind, text, history: S.history.slice(0, kind === 'turn' ? -1 : undefined), game: S.game, image: S.image || '', signal: ac.signal,
           onSentence: (sent) => {
             if (!firstSentAt) firstSentAt = Date.now();
             const i = idx++; const p = d.ttsBuffer(sent, ac.signal);      // start every sentence's voice right away
@@ -180,9 +180,14 @@ function attachCall(server, d) {
         if (m.seq === S.seq || !m.on) setBot(!!m.on);
       } else if (m.type === 'attitude') S.attitude = persona.normalize(m.attitude);
       else if (m.type === 'game') {
-        S.game = String(m.text || '').slice(0, 800);
-        S.history.push({ role: 'user', content: '[Screen update] ' + S.game });
-        if (m.react && !S.replying && !S.bot && !S.hearing) reply('turn', '[Screen update] ' + S.game);
+        const note = String(m.text || '').slice(0, 400);
+        if (typeof m.image === 'string' && m.image.indexOf('data:image/') === 0) S.image = m.image;
+        if (note) S.game = note;
+        const marker = '[Screen update] ' + (note || 'the game');
+        const last = S.history.length ? S.history[S.history.length - 1] : null;
+        if (last && String(last.content || '').indexOf('[Screen update]') === 0) S.history.pop();
+        if (note) S.history.push({ role: 'user', content: marker });
+        if (m.react && !S.replying && !S.bot && !S.hearing) reply('turn', note || "Here's the TV.");
       } else if (m.type === 'ping') tx({ type: 'pong', t: m.t });
       else if (m.type === 'lat') log('client latency', JSON.stringify(m));
     });

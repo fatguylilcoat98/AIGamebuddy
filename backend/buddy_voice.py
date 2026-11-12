@@ -9,6 +9,8 @@ from __future__ import annotations
 import os
 import queue
 import subprocess
+
+from .hidden_process import popen as hidden_popen
 import sys
 import threading
 from dataclasses import dataclass
@@ -60,7 +62,7 @@ class BuddyVoice:
         self.voice_name = voice_name
         self._queue: queue.Queue[Optional[str]] = queue.Queue(maxsize=3)
         self._lock = threading.Lock()
-        self._process: Optional[subprocess.Popen[str]] = None
+        self._process = None
         self._speaking = False
         self._closed = False
         self._thread = threading.Thread(target=self._worker, name="buddy-voice", daemon=True)
@@ -136,7 +138,7 @@ class BuddyVoice:
                     "AIGAMEBUDDY_VOICE_NAME": self.voice_name,
                 })
                 # PowerShell is installed with supported Windows versions.
-                proc = subprocess.Popen(
+                proc = hidden_popen(
                     ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", _SPEAK_SCRIPT],
                     stdin=subprocess.PIPE,
                     stdout=subprocess.DEVNULL,
@@ -144,7 +146,6 @@ class BuddyVoice:
                     text=True,
                     encoding="utf-8",
                     env=env,
-                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
                 )
                 with self._lock:
                     self._process = proc

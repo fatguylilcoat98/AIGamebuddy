@@ -48,6 +48,7 @@ def start_wake_listener(session, stopped) -> str:
     def loop() -> None:
         import subprocess
         import time
+        from .hidden_process import run as hidden_run
         from .native_guard import crashed, probe, python_exe
         if probe("microphone", "import sounddevice") != "ok" or probe("whisper", "import faster_whisper") != "ok":
             log.warning("Microphone is off. The speech library did not load, so Buddy will not listen.")
@@ -58,7 +59,7 @@ def start_wake_listener(session, stopped) -> str:
                 time.sleep(0.3)
                 continue
             try:
-                done = subprocess.run(
+                done = hidden_run(
                     [python_exe(), "-m", "backend.mic_worker", "2.2"],
                     capture_output=True, text=True, timeout=40, check=False,
                 )

@@ -52,6 +52,7 @@ def _jpeg_rect_isolated(left: int, top: int, width: int, height: int) -> bytes:
     import subprocess
     import tempfile
     from pathlib import Path
+    from .hidden_process import run as hidden_run
     from .native_guard import crashed, mark, probe, python_exe
     import os
     log = logging.getLogger("buddy.capture")
@@ -60,7 +61,7 @@ def _jpeg_rect_isolated(left: int, top: int, width: int, height: int) -> bytes:
     fd, dest = tempfile.mkstemp(suffix=".jpg", prefix="buddy-cap-")
     os.close(fd)
     try:
-        done = subprocess.run(
+        done = hidden_run(
             [python_exe(), "-m", "backend.capture_worker",
              str(left), str(top), str(width), str(height), dest],
             capture_output=True, text=True, timeout=12, check=False,

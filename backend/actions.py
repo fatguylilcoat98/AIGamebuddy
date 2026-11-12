@@ -5,6 +5,7 @@ import os
 import subprocess
 from pathlib import Path
 
+from .hidden_process import popen as hidden_popen
 from .results import ActionResult
 
 ROM_SUFFIXES = {
@@ -58,7 +59,7 @@ def launch_process(path: str, args: list[str] | None = None, runner=None) -> Act
     command = [str(program), *(args or [])]
     try:
         if runner is None:
-            proc = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            proc = hidden_popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             pid = proc.pid
         else:
             pid = runner(command)

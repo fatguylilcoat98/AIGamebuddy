@@ -129,8 +129,8 @@ def prove_lines(path: Path) -> None:
             if "\tsource=" in line and line.split("\t")[-1].strip()
         ]
         if rows:
-            raise SystemExit(f"Buddy spoke {len(rows)} lines with no brain configured")
-        print("silent without a brain: ok")
+            raise SystemExit(f"Buddy spoke {len(rows)} local lines")
+        print("local speech stayed quiet: ok")
         return
     rows = [
         line for line in path.read_text(encoding="utf-8").splitlines()
@@ -246,6 +246,54 @@ def prove(path: Path, menu_open: bool) -> None:
     print(f"pixel check ok menu_open={menu_open}")
 
 
+def buddy_consoles() -> int:
+    """Fail when Buddy itself opened a console. The runner's own windows are ignored."""
+    import ctypes
+    from ctypes import wintypes
+    user32 = ctypes.windll.user32
+    kernel = ctypes.windll.kernel32
+    user32.GetClassNameW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+    user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+    kernel.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    kernel.OpenProcess.restype = wintypes.HANDLE
+    kernel.QueryFullProcessImageNameW.argtypes = [
+        wintypes.HANDLE, wintypes.DWORD, wintypes.LPWSTR, ctypes.POINTER(wintypes.DWORD),
+    ]
+    kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+    found = []
+
+    @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    def visit(hwnd, _lparam):
+        name = ctypes.create_unicode_buffer(256)
+        user32.GetClassNameW(hwnd, name, 256)
+        if name.value != "ConsoleWindowClass":
+            return True
+        pid = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        handle = kernel.OpenProcess(0x1000, False, int(pid.value))
+        path = ""
+        if handle:
+            buf = ctypes.create_unicode_buffer(520)
+            size = wintypes.DWORD(520)
+            if kernel.QueryFullProcessImageNameW(handle, 0, buf, ctypes.byref(size)):
+                path = buf.value
+            kernel.CloseHandle(handle)
+        lowered = path.lower()
+        if "\\buddy\\" in lowered and lowered.endswith("python.exe"):
+            title = ctypes.create_unicode_buffer(256)
+            user32.GetWindowTextW(hwnd, title, 256)
+            found.append(f"console pid={pid.value} path={path} title={title.value}")
+        return True
+
+    user32.EnumWindows(visit, 0)
+    for line in found:
+        print(line)
+    if found:
+        return 1
+    print("buddy consoles 0")
+    return 0
+
+
 def main(argv: list[str]) -> int:
     command = argv[1] if len(argv) > 1 else ""
     if command == "lines":
@@ -272,6 +320,8 @@ def main(argv: list[str]) -> int:
     if command == "grab":
         grab(Path(os.environ["BUDDY_SHOT"]))
         return 0
+    if command == "consoles":
+        return buddy_consoles()
     if command == "compare":
         compare(Path(os.environ["BUDDY_GAME_SHOT"]), Path(os.environ["BUDDY_MENU_SHOT"]))
         return 0

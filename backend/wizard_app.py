@@ -8,6 +8,8 @@ from __future__ import annotations
 import logging
 import os
 import subprocess
+
+from .hidden_process import popen as hidden_popen
 import sys
 from pathlib import Path
 
@@ -425,13 +427,13 @@ def _open_folder(path: Path) -> None:
         os.startfile(path)  # type: ignore[attr-defined]
         return
     opener = "xdg-open"
-    subprocess.Popen([opener, str(path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    hidden_popen([opener, str(path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 def _launch_buddy() -> None:
     runtime = bundled_runtime()
     python = str(runtime) if runtime else sys.executable
-    subprocess.Popen([python, "-m", "backend.launcher"], cwd=str(ROOT))
+    hidden_popen([python, "-m", "backend.launcher"], cwd=str(ROOT))
 
 
 def main(argv: list[str] | None = None) -> int:

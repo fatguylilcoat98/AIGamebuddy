@@ -393,10 +393,27 @@ def place_blue_backing(rect: tuple[int, int, int, int]) -> int:
             def _proc(hwnd, msg, wp, lp):
                 return user32.DefWindowProcW(hwnd, msg, wp, lp)
 
-            _BLUE_WNDPROC = ctypes.WINFUNCTYPE(
+            wndproc_type = ctypes.WINFUNCTYPE(
                 ctypes.c_long, wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM,
-            )(_proc)
-            wind = wintypes.WNDCLASSW()
+            )
+            _BLUE_WNDPROC = wndproc_type(_proc)
+
+            class WNDCLASSW(ctypes.Structure):
+                # The embedded Python 3.12 build Chris has does not ship wintypes.WNDCLASSW.
+                _fields_ = [
+                    ("style", wintypes.UINT),
+                    ("lpfnWndProc", wndproc_type),
+                    ("cbClsExtra", ctypes.c_int),
+                    ("cbWndExtra", ctypes.c_int),
+                    ("hInstance", wintypes.HINSTANCE),
+                    ("hIcon", wintypes.HANDLE),
+                    ("hCursor", wintypes.HANDLE),
+                    ("hbrBackground", wintypes.HBRUSH),
+                    ("lpszMenuName", wintypes.LPCWSTR),
+                    ("lpszClassName", wintypes.LPCWSTR),
+                ]
+
+            wind = WNDCLASSW()
             wind.lpfnWndProc = _BLUE_WNDPROC
             wind.lpszClassName = class_name
             wind.hbrBackground = gdi32.CreateSolidBrush(0x00DC2800)  # RGB(0, 40, 220)
@@ -415,6 +432,9 @@ def place_blue_backing(rect: tuple[int, int, int, int]) -> int:
             ) or 0)
         # HWND_BOTTOM so the game window, placed next, sits above the blue.
         user32.SetWindowPos(int(_BLUE_HWND), ctypes.c_void_p(1), x, y, w, h, 0x0040)
+        if _BLUE_HWND and not getattr(place_blue_backing, "_logged", False):
+            place_blue_backing._logged = True
+            log.info("Blue backing is up.")
         return int(_BLUE_HWND)
     except Exception as exc:
         log.warning("Could not place the blue backing: %s", exc)

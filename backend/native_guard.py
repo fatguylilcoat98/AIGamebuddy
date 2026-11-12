@@ -9,7 +9,8 @@ from __future__ import annotations
 import logging
 import subprocess
 import sys
-from pathlib import Path
+
+from .hidden_process import run as hidden_run
 
 log = logging.getLogger("buddy.native")
 
@@ -17,12 +18,8 @@ _STATUS: dict[str, str] = {}
 
 
 def python_exe() -> str:
-    exe = Path(sys.executable)
-    if exe.name.lower() == "pythonw.exe":
-        sibling = exe.with_name("python.exe")
-        if sibling.is_file():
-            return str(sibling)
-    return str(exe)
+    """Stay on pythonw. A console python.exe is what flashes the black windows."""
+    return str(sys.executable)
 
 
 def crashed(code: int | None) -> bool:
@@ -45,7 +42,7 @@ def probe(name: str, statement: str, timeout: float = 25) -> str:
         "print('ok')\n"
     )
     try:
-        done = subprocess.run(
+        done = hidden_run(
             [python_exe(), "-c", code],
             capture_output=True, text=True, timeout=timeout, check=False,
         )

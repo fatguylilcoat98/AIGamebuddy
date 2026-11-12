@@ -91,6 +91,31 @@ def stuck_line(personality: str, game: str) -> str:
     return f"Paused on {name}. Check the room you are in and the item you already picked up."
 
 
+def system_from_path(path: str) -> str:
+    """Trust the ROM path and the core filename over a loose status token."""
+    text = (path or "").replace("\\", "/").lower()
+    if not text:
+        return ""
+    name = text.rsplit("/", 1)[-1]
+    if name.endswith((".sfc", ".smc", ".swc", ".fig")) or "/snes/" in f"/{text}" or "snes9x" in text or "bsnes" in text:
+        return "snes"
+    if name.endswith((".nes", ".unf", ".unif")) or "/nes/" in f"/{text}":
+        return "nes"
+    if name.endswith((".md", ".gen", ".smd")) or "/genesis/" in f"/{text}" or "megadrive" in text or "blastem" in text:
+        return "genesis"
+    return ""
+
+
+def prefer_system(status_system: str, rom: str, core: str) -> str:
+    hinted = system_from_path(rom) or system_from_path(core)
+    if hinted:
+        return hinted
+    return status_system or ""
+
+
+_status_misses = 0
+
+
 def query_status(host: str, port: int, timeout: float = 0.25) -> str:
     """Send GET_STATUS to localhost. Empty when RetroArch does not answer."""
     if host not in {"127.0.0.1", "localhost"}:
@@ -105,8 +130,17 @@ def query_status(host: str, port: int, timeout: float = 0.25) -> str:
         finally:
             sock.close()
     except OSError as exc:
-        log.info("GET_STATUS got no reply from %s:%s (%s)", host, port, exc)
+        global _status_misses
+        _status_misses += 1
+        if _status_misses == 1 or _status_misses % 30 == 0:
+            log.info(
+                "GET_STATUS got no reply from %s:%s (%s). Further misses stay quiet.",
+                host, port, exc,
+            )
+        else:
+            log.debug("GET_STATUS got no reply from %s:%s (%s)", host, port, exc)
         return ""
+    _status_misses = 0
     return data.decode("utf-8", errors="replace")
 
 
@@ -140,6 +174,36 @@ def write_core_shader_presets(retroarch_dir: Path) -> str:
         )
     log.info("Shader preset for FCEUmm, bsnes, and BlastEm: %s", relative)
     return relative
+
+
+def ensure_network_commands(retroarch_exe: str) -> None:
+    """Turn on UDP 55355 in RetroArch's own cfg. Append-config alone did not open the port."""
+    if not retroarch_exe:
+        return
+    cfg = Path(retroarch_exe).resolve().parent / "retroarch.cfg"
+    try:
+        text = cfg.read_text(encoding="utf-8", errors="replace") if cfg.is_file() else ""
+    except OSError as exc:
+        log.info("Could not read %s (%s). Network commands stay on the append config.", cfg, exc)
+        return
+    import re
+
+    def set_key(body: str, key: str, value: str) -> str:
+        line = f'{key} = "{value}"'
+        pattern = re.compile(rf"(?m)^{re.escape(key)}\s*=.*$")
+        if pattern.search(body):
+            return pattern.sub(line, body, count=1)
+        prefix = body.rstrip() + "\n" if body.strip() else ""
+        return prefix + line + "\n"
+
+    updated = set_key(set_key(text, "network_cmd_enable", "true"), "network_cmd_port", "55355")
+    if updated == text and cfg.is_file():
+        return
+    try:
+        cfg.write_text(updated, encoding="utf-8")
+        log.info("Network commands are on in %s port 55355.", cfg)
+    except OSError as exc:
+        log.info("Could not write network commands into %s (%s).", cfg, exc)
 
 
 def runtime_cfg_lines(retroarch_exe: str) -> list[str]:

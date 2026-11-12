@@ -12,6 +12,31 @@ from collections import deque
 from PIL import Image
 
 
+def prepare_game_jpeg(jpeg: bytes, previous: bytes | None, width: int = 640) -> tuple[str, bytes, str]:
+    """Downscale one game shot. Returns base64, a small thumb, and send/same/black."""
+    import base64
+    image = Image.open(io.BytesIO(jpeg)).convert("RGB")
+    if image.width > width:
+        height = max(1, round(image.height * width / image.width))
+        image = image.resize((width, height), Image.Resampling.BILINEAR)
+    pixels = list(image.get_flattened_data())
+    if not pixels:
+        return "", b"", "black"
+    mean = sum(channel for pixel in pixels for channel in pixel) / (len(pixels) * 3)
+    if mean < 12:
+        return "", b"", "black"
+    thumb_image = image.copy()
+    thumb_image.thumbnail((32, 18))
+    thumb = bytes(thumb_image.convert("L").tobytes())
+    if previous and len(previous) == len(thumb):
+        diff = sum(abs(a - b) for a, b in zip(previous, thumb)) / len(thumb)
+        if diff < 8:
+            return "", thumb, "same"
+    out = io.BytesIO()
+    image.save(out, format="JPEG", quality=70, optimize=True)
+    return base64.b64encode(out.getvalue()).decode("ascii"), thumb, "send"
+
+
 def describe_frame(jpeg: bytes) -> str:
     """A short factual description of one game screenshot."""
     image = Image.open(io.BytesIO(jpeg)).convert("RGB")

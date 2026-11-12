@@ -6,17 +6,12 @@ import math
 
 
 def test_game_fills_the_1592x900_opening_and_crops_top_and_bottom_evenly():
-    from backend import retroarch_finder as rf
     from backend.retroarch_finder import picture_crop, picture_on_blue, visible_picture
     opening = (408, 258, 1592, 900)
     assert picture_on_blue(opening, fit="fill") == (408, 111, 1592, 1194)
-    try:
-        rf.set_game_fit("fill")
-        assert visible_picture(opening) == opening
-        top, bottom = picture_crop(opening)
-        assert top == bottom == 147
-    finally:
-        rf.set_game_fit("fit")
+    assert visible_picture(opening, fit="fill") == opening
+    top, bottom = picture_crop(opening, fit="fill")
+    assert top == bottom == 147
 
 
 def test_fit_mode_keeps_the_old_centered_picture():
@@ -24,19 +19,20 @@ def test_fit_mode_keeps_the_old_centered_picture():
     assert picture_on_blue((408, 258, 1592, 900), fit="fit") == (604, 258, 1200, 900)
 
 
-def test_default_game_fit_is_centered():
+def test_default_game_fit_is_wide():
     from backend.config_loader import DEFAULTS
     from backend import retroarch_finder as rf
-    assert DEFAULTS["overlay"]["game_fit"] == "fit"
+    assert DEFAULTS["overlay"]["game_fit"] == "wide"
     try:
         assert rf.set_game_fit("fit") == "fit"
-        assert rf.set_game_fit("stretch") == "fit"
-        assert rf.set_game_fit("") == "fit"
-        assert rf.GAME_FIT == "fit"
-        assert rf.picture_on_blue((408, 258, 1592, 900)) == (604, 258, 1200, 900)
         assert rf.set_game_fit("fill") == "fill"
+        assert rf.set_game_fit("stretch") == "fill"
+        assert rf.set_game_fit("wide") == "wide"
+        assert rf.set_game_fit("") == "wide"
+        assert rf.GAME_FIT == "wide"
+        assert rf.picture_on_blue((408, 258, 1592, 900)) == (386, 196, 1755, 1031)
     finally:
-        rf.set_game_fit("fit")
+        rf.set_game_fit("wide")
 
 
 def test_tall_opening_fills_by_height():
@@ -67,7 +63,7 @@ def test_frame_art_is_unchanged_by_fill():
         rf.set_game_fit("fill")
         after = np.array(static_frame("snes", (2560, 1440), game_running=True))
     finally:
-        rf.set_game_fit("fit")
+        rf.set_game_fit("wide")
     colorful_before = (before[:, :, 3] > 180) & (before[:, :, :3].max(axis=2) >= 32) & \
         ~((before[:, :, 0] == 0) & (before[:, :, 1] == 40) & (before[:, :, 2] == 220))
     assert np.array_equal(before[colorful_before], after[colorful_before])

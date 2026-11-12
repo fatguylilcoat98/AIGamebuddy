@@ -37,6 +37,41 @@ def seal_opening(image: Image.Image, screen: dict[str, int]) -> Image.Image:
     return Image.fromarray(array, "RGBA")
 
 
+def punch_wide_gutters(image: Image.Image) -> Image.Image:
+    """Open the near-black gutters inside WIDE_RECT so the game shows through.
+
+    Colorful art stays opaque. The Buddy well stays opaque. Nothing outside
+    the wide picture, plus a 2-pixel tuck, is touched, so the flood cannot
+    leak to the canvas edges.
+    """
+    import numpy as np
+    from .frame_library import DESIGN, frame_record
+    from .retroarch_finder import WIDE_RECT
+
+    array = np.array(image.convert("RGBA"))
+    height, width = array.shape[:2]
+    design_w, design_h = int(DESIGN["width"]), int(DESIGN["height"])
+    scale_x = width / design_w
+    scale_y = height / design_h
+    rx, ry, rw, rh = (int(v) for v in WIDE_RECT)
+    pad = 2
+    x0 = max(0, int(round(rx * scale_x)) - pad)
+    y0 = max(0, int(round(ry * scale_y)) - pad)
+    x1 = min(width, int(round((rx + rw) * scale_x)) + pad)
+    y1 = min(height, int(round((ry + rh) * scale_y)) + pad)
+    lum = array[:, :, :3].max(axis=2)
+    hole = np.zeros((height, width), dtype=bool)
+    hole[y0:y1, x0:x1] = lum[y0:y1, x0:x1] <= 36
+    well = frame_record("snes").get("well") or frame_record("snes")["buddy"]
+    wx = max(0, int(round(int(well["x"]) * scale_x)))
+    wy = max(0, int(round(int(well["y"]) * scale_y)))
+    ww = max(1, int(round(int(well["width"]) * scale_x)))
+    wh = max(1, int(round(int(well["height"]) * scale_y)))
+    hole[wy:wy + wh, wx:wx + ww] = False
+    array[hole, 3] = 0
+    return Image.fromarray(array, "RGBA")
+
+
 def _frame_art(frame_id: str) -> Image.Image:
     record = frame_record(frame_id)
     source = Image.open(ROOT / "assets" / "frames" / record["file"])
@@ -291,6 +326,10 @@ def static_frame(frame_id: str, monitor: tuple[int, int], *, game_running: bool,
     art = _frame_art(frame_id)
     if not game_running:
         art = _fill_hole(art)
+    elif frame_id == "snes":
+        from .retroarch_finder import GAME_FIT
+        if GAME_FIT == "wide":
+            art = punch_wide_gutters(art)
     art = art.resize((frame_w, frame_h), Image.Resampling.LANCZOS)
     canvas = Image.new("RGBA", (int(monitor[0]), int(monitor[1])), (0, 0, 0, 255))
     import numpy as np
@@ -298,7 +337,9 @@ def static_frame(frame_id: str, monitor: tuple[int, int], *, game_running: bool,
     array[origin_y:origin_y + frame_h, origin_x:origin_x + frame_w] = np.array(art)
     canvas = Image.fromarray(array, "RGBA")
     if game_running and frame_id == "snes":
-        canvas = paint_blue_opening(canvas, frame_id, monitor)
+        from .retroarch_finder import GAME_FIT
+        if GAME_FIT != "wide":
+            canvas = paint_blue_opening(canvas, frame_id, monitor)
     boxes = layout_boxes(frame_id, monitor, game_running=game_running, reserve_button=show_button)
     if not game_running:
         if show_button:

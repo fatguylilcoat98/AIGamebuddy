@@ -113,7 +113,7 @@ class BuddySession:
         self.corner = str(config.get("overlay", "corner") or "bottom-right")
         self.manage_window = bool(config.get("overlay", "manage_emulator_window", default=True))
         from .retroarch_finder import set_game_fit
-        log.info("Game fit: %s", set_game_fit(str(config.get("overlay", "game_fit", default="fit") or "fit")))
+        log.info("Game fit: %s", set_game_fit(str(config.get("overlay", "game_fit", default="wide") or "wide")))
         self.offline_confirmed = False
         self.mode = "spectator"
         self.gate_open = False

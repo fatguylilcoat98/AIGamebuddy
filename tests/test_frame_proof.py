@@ -1,8 +1,20 @@
 """The pixel check must reject a bare window and accept the real frame."""
+import pytest
 from PIL import Image, ImageDraw
 
 from backend.frame_proof import prove_snes_screen
 from backend.overlay_view import compose_overlay
+
+
+@pytest.fixture(autouse=True)
+def _pin_fill_for_the_official_opening_proof():
+    """These checks look at the official opening and its blue backing."""
+    from backend import retroarch_finder as rf
+    rf.set_game_fit("fill")
+    try:
+        yield
+    finally:
+        rf.set_game_fit("wide")
 
 
 def test_seal_keeps_only_the_game_rectangle_clear():

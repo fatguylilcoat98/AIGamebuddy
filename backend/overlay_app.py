@@ -243,9 +243,13 @@ def run_overlay(session) -> None:
         return picture_on_blue(_screen_hole())
 
     def _client_picture() -> tuple[int, int, int, int]:
-        # Only the part of the zoomed game inside the opening, minus any edge art.
-        from .retroarch_finder import visible_picture
-        rect = visible_picture(_client_hole())
+        # Visible game, minus any edge art, so the title and Buddy stay clickable.
+        # "wide" starts from the stretched picture so the gutters click through too.
+        from .retroarch_finder import GAME_FIT, picture_on_blue, visible_picture
+        if GAME_FIT == "wide":
+            rect = picture_on_blue(_client_hole())
+        else:
+            rect = visible_picture(_client_hole())
         static = holder.get("static")
         if static is not None:
             from .overlay_view import art_free_hole
@@ -492,9 +496,10 @@ def run_overlay(session) -> None:
         hole = _screen_picture()
         session.game_hole = hole
         if os.name == "nt" and holder["game"]:
-            from .retroarch_finder import blue_backing_rect
-            from .window_layout import place_blue_backing
-            place_blue_backing(blue_backing_rect(_screen_hole()))
+            from .retroarch_finder import GAME_FIT, blue_backing_rect
+            if GAME_FIT != "wide":
+                from .window_layout import place_blue_backing
+                place_blue_backing(blue_backing_rect(_screen_hole()))
         present = session._emulator_hwnd() is not None
         if present != holder["game"]:
             holder["game"] = present

@@ -59,7 +59,7 @@ DEFAULTS: dict[str, Any] = {
         "corner": "bottom-right",
         "monitor": 1,
         "manage_emulator_window": True,
-        "game_fit": "fit",
+        "game_fit": "wide",
         "frames": {"nes": "nes", "snes": "snes", "genesis": "genesis"},
     },
     "retroarch": {

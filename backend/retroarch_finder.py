@@ -304,27 +304,72 @@ def game_window_for_hole(hole: tuple[int, int, int, int]) -> tuple[int, int, int
     return window
 
 
-GAME_FIT = "fit"
+# Official SNES opening in 2560x1440 design pixels, and the stretched
+# picture Chris picked: under the title and the controller, and under the
+# left side of the Buddy box, with no black gutters.
+DESIGN_OPENING = (408, 258, 1592, 900)
+WIDE_RECT = (386, 196, 1755, 1031)
+
+GAME_FIT = "wide"
 
 
 def set_game_fit(mode: str) -> str:
-    """"fit" keeps the whole 4:3 picture centered. "fill" zooms to the opening's edges."""
+    """"wide" stretches the game to WIDE_RECT. "fill" zooms 4:3 to the opening.
+    "fit" keeps the whole 4:3 picture inside the opening.
+
+    "stretch" still means "fill", so an old config does not silently switch
+    to the new wide picture.
+    """
     global GAME_FIT
-    GAME_FIT = "fill" if str(mode or "").strip().lower() == "fill" else "fit"
+    raw = str(mode or "").strip().lower()
+    if raw == "fit":
+        GAME_FIT = "fit"
+    elif raw in {"fill", "stretch"}:
+        GAME_FIT = "fill"
+    else:
+        GAME_FIT = "wide"
     return GAME_FIT
 
 
-def picture_on_blue(opening: tuple[int, int, int, int], fit: str | None = None) -> tuple[int, int, int, int]:
-    """4:3 game centered on the opening. Same aspect.
+def _map_design_rect(opening: tuple[int, int, int, int],
+                     design_rect: tuple[int, int, int, int],
+                     design_opening: tuple[int, int, int, int] = DESIGN_OPENING,
+                     ) -> tuple[int, int, int, int]:
+    """Put a design-space rect through the same letterbox as `opening`."""
+    sox, soy, sow, soh = (int(v) for v in design_opening)
+    dox, doy, dow, doh = (int(v) for v in opening)
+    ox, oy, ow, oh = (int(v) for v in design_rect)
+    if sow < 1 or soh < 1:
+        return ox, oy, max(1, ow), max(1, oh)
+    # Same letterbox as hole_screen_rect: recover the frame origin, then
+    # scale the design rect with the same rounding.
+    scale_x = dow / sow
+    scale_y = doh / soh
+    origin_x = dox - int(round(sox * scale_x))
+    origin_y = doy - int(round(soy * scale_y))
+    return (
+        origin_x + int(round(ox * scale_x)),
+        origin_y + int(round(oy * scale_y)),
+        max(1, int(round(ow * scale_x))),
+        max(1, int(round(oh * scale_y))),
+    )
 
-    fit, the default, keeps the whole picture inside. fill zooms until the
-    picture meets the opening's edges, so a wide opening crops the top and
-    the bottom by the same amount. This is where RetroArch's window goes.
+
+def picture_on_blue(opening: tuple[int, int, int, int], fit: str | None = None) -> tuple[int, int, int, int]:
+    """Where RetroArch's window goes.
+
+    "wide" stretches the picture to WIDE_RECT, scaled the same way as the
+    opening (letterboxed design pixels). "fill" zooms a 4:3 picture to the
+    opening's edges, so the top and the bottom stick out by the same amount
+    and the frame covers that part. "fit" keeps the whole 4:3 picture inside
+    the opening.
     """
     x, y, width, height = (int(v) for v in opening)
     if width < 2 or height < 2:
         return x, y, max(1, width), max(1, height)
     mode = fit or GAME_FIT
+    if mode == "wide":
+        return _map_design_rect((x, y, width, height), WIDE_RECT)
     game_w = width
     game_h = max(1, int(round(game_w / SNES_DISPLAY_ASPECT)))
     if (game_h < height) if mode == "fill" else (game_h > height):
@@ -338,10 +383,10 @@ def picture_on_blue(opening: tuple[int, int, int, int], fit: str | None = None) 
     )
 
 
-def visible_picture(opening: tuple[int, int, int, int]) -> tuple[int, int, int, int]:
+def visible_picture(opening: tuple[int, int, int, int], fit: str | None = None) -> tuple[int, int, int, int]:
     """The part of the zoomed game that shows through the opening."""
     x, y, width, height = (int(v) for v in opening)
-    px, py, pw, ph = picture_on_blue(opening)
+    px, py, pw, ph = picture_on_blue(opening, fit=fit)
     left = max(x, px)
     top = max(y, py)
     right = min(x + width, px + pw)
@@ -349,10 +394,10 @@ def visible_picture(opening: tuple[int, int, int, int]) -> tuple[int, int, int, 
     return left, top, max(1, right - left), max(1, bottom - top)
 
 
-def picture_crop(opening: tuple[int, int, int, int]) -> tuple[int, int]:
+def picture_crop(opening: tuple[int, int, int, int], fit: str | None = None) -> tuple[int, int]:
     """Game pixels hidden above and below the opening (top, bottom)."""
     _x, y, _w, height = (int(v) for v in opening)
-    _px, py, _pw, ph = picture_on_blue(opening)
+    _px, py, _pw, ph = picture_on_blue(opening, fit=fit)
     return max(0, y - py), max(0, (py + ph) - (y + height))
 
 

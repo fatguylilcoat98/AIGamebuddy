@@ -53,6 +53,7 @@
     "corner": "bottom-right",
     "monitor": 1,
     "manage_emulator_window": true,
+    "game_fit": "wide",
     "frames": { "nes": "nes", "snes": "snes", "genesis": "genesis" }
   },
   "retroarch": {

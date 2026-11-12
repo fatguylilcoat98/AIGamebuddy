@@ -105,14 +105,13 @@ def test_picture_spans_the_opening_at_1080p_and_at_4k_150_percent():
     for size, dpi in (((1920, 1080), 1.0), ((3840, 2160), 1.5)):
         hole = hole_screen_rect(screen, (0, 0, size[0], size[1]))
         _x, _y, width, height = hole
-        from backend.retroarch_finder import picture_on_blue, set_game_fit
-        set_game_fit("fit")
-        px, py, pw, ph = picture_on_blue((0, 0, width, height))
+        from backend.retroarch_finder import picture_on_blue
+        px, py, pw, ph = picture_on_blue((0, 0, width, height), fit="fill")
         assert ph == height or pw == width
         assert abs((pw / ph) - SNES_DISPLAY_ASPECT) < 0.03
-        # Default is fit: the whole 4:3 picture stays inside the opening, centered.
-        assert px >= 0 and py >= 0
-        assert px + pw <= width and py + ph <= height
+        # Zoomed to fill: the picture covers the whole opening.
+        assert px <= 0 and py <= 0
+        assert px + pw >= width and py + ph >= height
     assert dpi_aware_compat("") == "~ HIGHDPIAWARE"
     assert dpi_aware_compat("~ GDIDPISCALING") == "~ GDIDPISCALING HIGHDPIAWARE"
     assert "HIGHDPIAWARE" in dpi_aware_compat("~ HIGHDPIAWARE")

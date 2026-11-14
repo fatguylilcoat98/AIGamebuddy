@@ -116,6 +116,7 @@ class HamburgerMenu:
         self._exit_anchor = None
         self._tips: list[HoverTip] = []
         self._shown_tip: HoverTip | None = None
+        self._layout_job = None
         self.toast = tk.Label(
             root, text="", bg="#140c1c", fg="#f6f1ff", font=("Segoe UI", 16, "bold"),
             padx=14, pady=8,
@@ -196,10 +197,118 @@ class HamburgerMenu:
             self.scroll.pack_forget()
             self.canvas.yview_moveto(0)
 
+    def _cancel_layout_job(self):
+        if self._layout_job is not None:
+            try:
+                self.panel.after_cancel(self._layout_job)
+            except Exception:
+                pass
+            self._layout_job = None
+
+    def sync_layout(self) -> None:
+        """Measure at the final width, then map (or resize) the panel once
+        at its real height. Growing the window to the full overlay first
+        left stale pixels under the panel, and a delayed fit left the
+        first paint with clipped rows. Withdraw only while measuring an
+        unmapped panel so an already-open menu does not flicker.
+        """
+        if not self.open:
+            return
+        self._cancel_layout_job()
+        width = min(560, max(420, int(self._box["width"]) * 4))
+        root_x = int(self.root.winfo_rootx())
+        root_y = int(self.root.winfo_rooty())
+        top = int(self._box["y"]) + int(self._box["height"]) + 12
+        screen_h = int(self.root.winfo_height() or 800)
+        available = max(240, screen_h - top - 24)
+        x = root_x + int(self._box["x"])
+        y = root_y + int(top)
+        pad = 16 + 2 * int(self.panel.cget("highlightthickness") or 0)
+        inner_w = max(100, width - pad)
+        try:
+            already = bool(self.panel.winfo_viewable())
+        except Exception:
+            already = False
+
+        if not already:
+            # Measure off-screen at the final width so OptionMenu/Scale
+            # report their real sizes without a too-short or too-tall map.
+            self.panel.withdraw()
+            self.panel.geometry(f"{width}x{available}+{x}+{y}")
+            self.panel.update_idletasks()
+            self.canvas.itemconfigure(self._window, width=inner_w)
+            self.inner.update_idletasks()
+            self.canvas.update_idletasks()
+            content_h = int(self.inner.winfo_reqheight()) + pad
+            height = max(240, min(available, content_h))
+            self.panel.geometry(f"{width}x{height}+{x}+{y}")
+            self.panel.deiconify()
+            self.panel.lift()
+            for _ in range(30):
+                self.panel.update()
+                try:
+                    if self.panel.winfo_viewable() and int(self.panel.winfo_height()) >= min(height, 240):
+                        break
+                except Exception:
+                    pass
+        else:
+            self.canvas.itemconfigure(self._window, width=inner_w)
+            self.inner.update_idletasks()
+            self.canvas.update_idletasks()
+            content_h = int(self.inner.winfo_reqheight()) + pad
+            height = max(240, min(available, content_h))
+            self.panel.geometry(f"{width}x{height}+{x}+{y}")
+            self.panel.update_idletasks()
+
+        # One correction if mapping changed the canvas width (scrollbar).
+        mapped_w = int(self.canvas.winfo_width() or inner_w)
+        if abs(mapped_w - inner_w) > 2:
+            self.canvas.itemconfigure(self._window, width=max(100, mapped_w))
+            self.inner.update_idletasks()
+            content_h = int(self.inner.winfo_reqheight()) + pad
+            height = max(240, min(available, content_h))
+            self.panel.geometry(f"{width}x{height}+{x}+{y}")
+            self.panel.update_idletasks()
+        self.panel.update()
+        self._fit_scroll()
+        try:
+            self.root.update_idletasks()
+        except Exception:
+            pass
+        self.panel.lift()
+
+    def row_geometry(self) -> dict[str, tuple[int, int, int, int, int, int]]:
+        """Map visible label text to (root_x, root_y, w, h, rel_y, rel_x)."""
+        found: dict[str, tuple[int, int, int, int, int, int]] = {}
+
+        def walk(widget):
+            try:
+                text = str(widget.cget("text") or "").strip()
+            except Exception:
+                text = ""
+            if text:
+                try:
+                    found[text] = (
+                        int(widget.winfo_rootx()),
+                        int(widget.winfo_rooty()),
+                        int(widget.winfo_width()),
+                        int(widget.winfo_height()),
+                        int(widget.winfo_y()),
+                        int(widget.winfo_x()),
+                    )
+                except Exception:
+                    pass
+            for child in widget.winfo_children():
+                walk(child)
+
+        walk(self.inner)
+        return found
+
     def close(self):
         if not self.open:
             return
         self.open = False
+        self._cancel_layout_job()
         self._hide_tips()
         self.panel.withdraw()
         self.on_change()
@@ -210,21 +319,7 @@ class HamburgerMenu:
         if not self.open:
             self.panel.withdraw()
             return
-        width = min(560, max(420, box["width"] * 4))
-        root_x = int(self.root.winfo_rootx())
-        root_y = int(self.root.winfo_rooty())
-        top = box["y"] + box["height"] + 12
-        screen_h = int(self.root.winfo_height() or 800)
-        self.panel.deiconify()
-        self.panel.update_idletasks()
-        self.inner.update_idletasks()
-        content_h = int(self.inner.winfo_reqheight()) + 20
-        height = max(240, min(screen_h - top - 24, content_h))
-        x = root_x + int(box["x"])
-        y = root_y + int(top)
-        self.panel.geometry(f"{width}x{height}+{x}+{y}")
-        self.panel.lift()
-        self._fit_scroll()
+        self.sync_layout()
 
     def panel_rect(self) -> tuple[int, int, int, int] | None:
         if not self.open:
@@ -357,7 +452,7 @@ class HamburgerMenu:
             self._main_page()
         self.canvas.yview_moveto(0)
         if self.open:
-            self.panel.after(1, self._fit_scroll)
+            self.sync_layout()
 
     def _main_page(self):
         import tkinter as tk

@@ -94,14 +94,15 @@ def test_s16le_chunks_enqueue_immediately_without_an_mp3_clip():
 
 
 
-def test_animate_pauses_while_the_menu_is_open():
+def test_animate_keeps_the_head_visible_while_the_menu_is_open():
     from backend.overlay_app import MENU_OPEN_ANIMATE_MS, LIVE_ANIMATE_MS, animate_delay_ms, should_paint_head
     assert LIVE_ANIMATE_MS <= 33
-    assert MENU_OPEN_ANIMATE_MS >= 200
+    # ~5 fps so the well stays filled without fighting the menu thread.
+    assert 180 <= MENU_OPEN_ANIMATE_MS <= 250
     assert animate_delay_ms(False) == LIVE_ANIMATE_MS
     assert animate_delay_ms(True) == MENU_OPEN_ANIMATE_MS
     assert should_paint_head(False) is True
-    assert should_paint_head(True) is False
+    assert should_paint_head(True) is True
 
 
 def test_game_fit_and_talk_settings_save_to_ui_state(tmp_path):
@@ -157,5 +158,74 @@ def test_compact_menu_builds_and_dropdowns_call_the_session(tmp_path):
         assert menu._tips, "every setting should have a hover tip"
         menu.close()
         assert not menu.open
+    finally:
+        root.destroy()
+
+
+
+def _boxes_ok(boxes):
+    attitude = boxes.get("Buddy attitude")
+    volume = boxes.get("Volume")
+    assert attitude, f"Buddy attitude label missing, have {list(boxes)}"
+    assert volume, f"Volume label missing, have {list(boxes)}"
+    ax, ay, aw, ah = attitude[:4]
+    vx, vy, vw, vh = volume[:4]
+    assert ah >= 12, f"Buddy attitude is clipped, height={ah}"
+    assert vh >= 12, f"Volume is clipped, height={vh}"
+    assert aw >= 40 and vw >= 20
+    # No overlap: attitude row must end above (or at) the volume row.
+    assert ay + ah <= vy + 2, f"rows overlap: attitude y={ay}+{ah} volume y={vy}"
+
+
+def test_menu_first_paint_is_complete_and_stable(tmp_path):
+    """Opening the menu must finish layout before the first paint, and
+    hovering rows must not jump or clip the attitude/volume rows."""
+    import tkinter as tk
+    from backend.hamburger_ui import HamburgerMenu
+    from tests.test_buddy import session_for
+
+    session, _clock, _audio, _model = session_for(tmp_path)
+    session.frequency = "chatty"
+    session.look_interval = 5
+    session.game_fit = "wide"
+    session.volume = 70
+    root = tk.Tk()
+    root.geometry("1280x720+40+40")
+    root.update()
+    try:
+        menu = HamburgerMenu(root, session, lambda: None)
+        menu.toggle()
+        # First paint: no extra waits. sync_layout finished inside toggle().
+        assert menu.panel.winfo_viewable()
+        content_h = int(menu.inner.winfo_reqheight())
+        panel_h = int(menu.panel.winfo_height())
+        assert panel_h >= 240
+        assert panel_h <= content_h + 48, f"panel too tall: {panel_h} vs content {content_h}"
+        assert panel_h < int(root.winfo_height()) - 80, f"panel fills the window: {panel_h}"
+        first = menu.row_geometry()
+        _boxes_ok(first)
+        snapshots = [first]
+        for _ in range(4):
+            root.update()
+            snapshots.append(menu.row_geometry())
+            _boxes_ok(snapshots[-1])
+        # Hover every row (show each tooltip, then hide it).
+        for tip in list(menu._tips):
+            tip.show()
+            root.update()
+            snapshots.append(menu.row_geometry())
+            _boxes_ok(snapshots[-1])
+            tip.hide()
+            root.update()
+            snapshots.append(menu.row_geometry())
+            _boxes_ok(snapshots[-1])
+        key = ("Buddy attitude", "Volume")
+        first_pos = {name: snapshots[0][name][:4] for name in key}
+        for i, shot in enumerate(snapshots[1:], start=1):
+            for name in key:
+                assert shot[name][:4] == first_pos[name], (
+                    f"{name} moved after paint {i}: {first_pos[name]} -> {shot[name][:4]}"
+                )
+        menu.close()
     finally:
         root.destroy()

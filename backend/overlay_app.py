@@ -26,9 +26,10 @@ from .hamburger_ui import HamburgerMenu, design_box
 from .window_layout import exclude_window_from_capture
 
 # 30 fps head redraw on the same thread as the menu made scrolling jitter.
-# While the menu is open, skip the head paint and wake much less often.
+# While the menu is open, keep painting the last head at ~5 fps so the well
+# stays filled (frozen-looking) instead of going blank.
 LIVE_ANIMATE_MS = 33
-MENU_OPEN_ANIMATE_MS = 250
+MENU_OPEN_ANIMATE_MS = 200
 
 
 def animate_delay_ms(menu_open: bool) -> int:
@@ -36,7 +37,8 @@ def animate_delay_ms(menu_open: bool) -> int:
 
 
 def should_paint_head(menu_open: bool) -> bool:
-    return not bool(menu_open)
+    # Always paint. The delay is what we slow down, not the head itself.
+    return True
 
 
 def run_menu_action(mutate, refresh, announce=None) -> None:
@@ -665,6 +667,7 @@ def run_overlay(session) -> None:
         holder["menu_open"] = menu_ui.open
         place_chrome()
         _cut_hole()
+        _paint_head()
 
     menu_ui = HamburgerMenu(root, session, _menu_changed)
     _rebuild_static()

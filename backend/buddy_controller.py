@@ -12,8 +12,8 @@ from dataclasses import dataclass
 from threading import Lock
 from typing import Any
 
-from buddy_brain import BuddyBrain
-from buddy_dialogue import BuddyDialogue
+from .buddy_brain import BuddyBrain
+from .buddy_dialogue import BuddyDialogue
 
 
 @dataclass(frozen=True)
@@ -52,7 +52,7 @@ class BuddyController:
         if not text or not self.speech_enabled:
             return False
         if self._voice is None:
-            from buddy_voice import BuddyVoice
+            from .buddy_voice import BuddyVoice
             self._voice = BuddyVoice()
         return bool(self._voice.speak(text))
 
@@ -77,7 +77,7 @@ class BuddyController:
                 return BuddyResponse(reason="player_speaking")
             try:
                 if self._vision is None:
-                    from vision_service import VisionService
+                    from .vision_service import VisionService
                     self._vision = VisionService()
                 result = self._vision.analyze(question=question)
                 observation = result.description.strip()
@@ -102,7 +102,7 @@ class BuddyController:
             if self._closed:
                 raise RuntimeError("BuddyController is closed")
             if self._ears is None:
-                from buddy_ears import BuddyEars
+                from .buddy_ears import BuddyEars
                 self._ears = BuddyEars()
             if self._voice is not None:
                 self._voice.stop()

@@ -1,0 +1,20 @@
+<!-- Drop the <system> blocks you need into ES-DE's es_systems.xml. -->
+<!-- %ROM% and the core path are yours. The appendconfig locks the viewport. -->
+<!-- genesis -> genesis -->
+<!-- retroarch -L CORE --fullscreen --appendconfig "assets/frames/retroarch/genesis-1080p.cfg" "%ROM%" -->
+<!-- megadrive -> genesis -->
+<!-- retroarch -L CORE --fullscreen --appendconfig "assets/frames/retroarch/genesis-1080p.cfg" "%ROM%" -->
+<!-- mega drive -> genesis -->
+<!-- retroarch -L CORE --fullscreen --appendconfig "assets/frames/retroarch/genesis-1080p.cfg" "%ROM%" -->
+<!-- mega-drive -> genesis -->
+<!-- retroarch -L CORE --fullscreen --appendconfig "assets/frames/retroarch/genesis-1080p.cfg" "%ROM%" -->
+<!-- nes -> nes -->
+<!-- retroarch -L CORE --fullscreen --appendconfig "assets/frames/retroarch/nes-1080p.cfg" "%ROM%" -->
+<!-- famicom -> nes -->
+<!-- retroarch -L CORE --fullscreen --appendconfig "assets/frames/retroarch/nes-1080p.cfg" "%ROM%" -->
+<!-- snes -> snes -->
+<!-- retroarch -L CORE --fullscreen --appendconfig "assets/frames/retroarch/snes-1080p.cfg" "%ROM%" -->
+<!-- sfc -> snes -->
+<!-- retroarch -L CORE --fullscreen --appendconfig "assets/frames/retroarch/snes-1080p.cfg" "%ROM%" -->
+<!-- super famicom -> snes -->
+<!-- retroarch -L CORE --fullscreen --appendconfig "assets/frames/retroarch/snes-1080p.cfg" "%ROM%" -->

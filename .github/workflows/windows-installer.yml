@@ -1,0 +1,125 @@
+name: Windows installer
+
+on:
+  push:
+    branches:
+      - cursor/buddy-windows-companion-25cc
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: windows-installer-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            requirements-dev.txt
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-dev.txt
+      - name: Run tests
+        run: python -m pytest tests -q
+
+  build:
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - name: Install app and build tools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r backend/requirements.txt
+          python -m pip install "pyinstaller==6.22.3"
+      - name: Bundle Buddy with PyInstaller
+        run: python -m PyInstaller packaging/buddy.spec --noconfirm --clean --distpath dist --workpath build
+      - name: Show bundled assets and PortAudio
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          if (-not (Test-Path "dist\Buddy")) { throw "dist\Buddy was not created" }
+          $files = Get-ChildItem dist\Buddy -Recurse -File
+          $assets = $files | Where-Object { $_.FullName -match '\\assets\\' }
+          $portaudio = $files | Where-Object { $_.Name -like '*portaudio*' }
+          $ct2 = $files | Where-Object { $_.Name -like 'ctranslate2.dll' -or $_.Name -like 'libctranslate2*' }
+          Write-Host "BUNDLE FILE COUNT $($files.Count)"
+          Write-Host "ASSETS"
+          $assets | ForEach-Object { $_.FullName.Substring((Resolve-Path dist\Buddy).Path.Length + 1) }
+          Write-Host "PORTAUDIO"
+          $portaudio | ForEach-Object { $_.FullName }
+          Write-Host "CTRANSLATE2"
+          $ct2 | ForEach-Object { $_.FullName }
+          if (-not $assets) { throw "assets were not bundled" }
+          if (-not ($assets | Where-Object { $_.Name -eq "nes-8bit-dungeon.png" })) { throw "frame art was not bundled" }
+          if (-not $portaudio) { throw "PortAudio DLL was not bundled" }
+          if (-not $ct2) { throw "ctranslate2 binary was not bundled" }
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $ProgressPreference = "SilentlyContinue"
+          $installer = Join-Path $env:TEMP "innosetup-7.1.1-x64.exe"
+          Invoke-WebRequest -Uri "https://github.com/jrsoftware/issrc/releases/download/is-7_1_1/innosetup-7.1.1-x64.exe" -OutFile $installer
+          $proc = Start-Process -FilePath $installer -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/SP-" -Wait -PassThru
+          if ($proc.ExitCode -ne 0) { throw "Inno Setup installer exited $($proc.ExitCode)" }
+      - name: Compile BuddySetup.exe and smoke-test Buddy.exe
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $candidates = @(
+            "$env:ProgramFiles\Inno Setup 7\ISCC.exe",
+            "${env:ProgramFiles(x86)}\Inno Setup 7\ISCC.exe",
+            "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+            "$env:ProgramFiles\Inno Setup 6\ISCC.exe"
+          )
+          $iscc = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $iscc) { throw "ISCC.exe was not installed" }
+          Write-Host "Using $iscc"
+          & $iscc packaging\BuddySetup.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (-not (Test-Path "dist\BuddySetup.exe")) { throw "BuddySetup.exe was not created" }
+          Get-ChildItem dist\BuddySetup.exe | Format-List Name, Length, LastWriteTime
+          Write-Host "SMOKE --version"
+          & dist\Buddy\Buddy.exe --version
+          if ($LASTEXITCODE -ne 0) { throw "Buddy.exe --version failed: $LASTEXITCODE" }
+          Write-Host "SMOKE --self-test"
+          & dist\Buddy\Buddy.exe --self-test
+          if ($LASTEXITCODE -ne 0) { throw "Buddy.exe --self-test failed: $LASTEXITCODE" }
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BuddySetup
+          path: dist/BuddySetup.exe
+          if-no-files-found: error
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: buddy
+          name: Buddy Overlay
+          files: dist/BuddySetup.exe
+          fail_on_unmatched_files: true
+          overwrite_files: true
+          prerelease: false
+          make_latest: true
+          body: |
+            Double-click BuddySetup.exe to install Buddy Overlay. No Python install and no command line.
+
+            The installer is per-user (no administrator password), adds Desktop and Start menu shortcuts, and offers Launch Buddy at the end.
+
+            If Windows SmartScreen says Windows protected your PC, click More info, then Run anyway. This build is not code-signed yet.

@@ -1,0 +1,122 @@
+name: Build Windows installer
+
+on:
+  push:
+    branches:
+      - cursor/buddy-windows-companion-25cc
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  buddy-setup:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Inno Setup and 7-Zip
+        run: choco install innosetup 7zip -y
+        shell: powershell
+
+      - name: Install screenshot dependencies
+        run: python -m pip install pillow numpy
+        shell: powershell
+
+      - name: Game music is not speech
+        run: python tests/test_noise_gate.py
+        shell: powershell
+
+      - name: Render overlay screenshots
+        run: python -m backend.windows_preview dist/screenshots
+        shell: powershell
+
+      - name: Build BuddySetup.exe
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File packaging/build-windows.ps1
+        shell: powershell
+
+      - name: Install the shipped BuddySetup.exe and open the wizard
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File packaging/smoke-installed.ps1
+        shell: powershell
+
+      - name: Save runner logs
+        if: always()
+        shell: powershell
+        run: |
+          $dest = "dist/logs"
+          New-Item -ItemType Directory -Force -Path $dest | Out-Null
+          Copy-Item "$env:LOCALAPPDATA\Buddy\logs\*" $dest -Force -ErrorAction SilentlyContinue
+          Copy-Item "$env:LOCALAPPDATA\VideoGameWingman\buddy.log" $dest -Force -ErrorAction SilentlyContinue
+          Get-ChildItem $dest -ErrorAction SilentlyContinue | Format-Table Name, Length
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: buddy-logs
+          path: dist/logs/**
+          if-no-files-found: warn
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: buddy-screenshots
+          path: dist/screenshots/**
+          if-no-files-found: warn
+
+      - name: Upload BuddySetup.exe
+        uses: actions/upload-artifact@v4
+        with:
+          name: BuddySetup
+          path: dist/BuddySetup.exe
+          if-no-files-found: error
+
+      - name: Mark pre8 broken
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: powershell
+        run: |
+          gh release edit buddy-v0.1.0-pre8 --repo ${{ github.repository }} --notes "BROKEN. Do not install this build. The Windows screenshots show a bare RetroArch window and console logs, not the SNES frame or Buddy. python.exe was force-killed during the test (exit code -1), which left the console open, and the overlay was not in front. Use pre9."
+
+      - name: Publish prerelease
+        if: success()
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: buddy-v0.1.0-pre21
+          name: Buddy 0.1.0 pre21
+          prerelease: true
+          make_latest: false
+          generate_release_notes: false
+          body: |
+            Prerelease installer for Super NES. Double-click BuddySetup.exe.
+            Buddy talks through the brain once a game is on screen.
+            He stays quiet when the brain is not configured.
+            The shortcut starts pythonw, so no terminal window opens.
+            Game music is not treated as someone talking.
+            pre19: the game is turned down about 11 dB while Buddy talks, RetroArch uses a 144 ms audio buffer, and Buddy's voice plays at the speaker's own rate through a soft limiter.
+            pre20: the game stretches wide under the frame gutters. The centered and zoomed pictures stay available.
+            pre21: Buddy is always listening, looks every five seconds, and the menu is a compact dropdown.
+            pre8 is broken. Do not install pre8.
+            Snes9x is included for personal use. It is not the latest stable release.
+          files: |
+            dist/BuddySetup.exe
+            dist/screenshots/wizard-first.jpg
+            dist/screenshots/wizard-play.jpg
+            dist/screenshots/snes-frame-retroarch.jpg
+            dist/screenshots/upgrade-first-launch.jpg
+            dist/screenshots/dpi-4k.txt
+            dist/screenshots/buddy-talk.jpg
+            dist/screenshots/menu-open.jpg
+            dist/screenshots/menu-scan.jpg
+            dist/screenshots/menu-saves.jpg
+            dist/screenshots/save-toast.jpg
+            dist/screenshots/save-roundtrip.txt
+            dist/screenshots/buddy-lines.txt
+            dist/screenshots/attitudes.txt
+            dist/screenshots/repetition.txt
+            dist/screenshots/menu-bottom.jpg
+            dist/screenshots/retroarch-menu.jpg
+            dist/screenshots/exit-no-processes.txt
+          fail_on_unmatched_files: true

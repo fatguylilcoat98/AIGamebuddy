@@ -1,0 +1,148 @@
+{
+  "product_name": "Buddy Overlay",
+  "tagline": "Retro games, real attitude",
+  "design": {
+    "width": 2560,
+    "height": 1440
+  },
+  "frames": {
+    "genesis": {
+      "file": "genesis-16bit.png",
+      "systems": [
+        "genesis",
+        "megadrive",
+        "mega drive",
+        "mega-drive"
+      ],
+      "screen": {
+        "x": 178,
+        "y": 44,
+        "width": 1884,
+        "height": 1270
+      },
+      "well": {
+        "x": 2070,
+        "y": 1024,
+        "width": 412,
+        "height": 224
+      },
+      "buddy": {
+        "x": 2070,
+        "y": 1024,
+        "width": 412,
+        "height": 224
+      },
+      "menu": {
+        "x": 2070,
+        "y": 816,
+        "width": 412,
+        "height": 200
+      },
+      "viewports": {
+        "720p": {
+          "x": 89,
+          "y": 22,
+          "width": 942,
+          "height": 635
+        },
+        "1080p": {
+          "x": 134,
+          "y": 33,
+          "width": 1413,
+          "height": 952
+        }
+      }
+    },
+    "nes": {
+      "file": "nes-8bit-dungeon.png",
+      "systems": [
+        "nes",
+        "famicom"
+      ],
+      "screen": {
+        "x": 356,
+        "y": 136,
+        "width": 1692,
+        "height": 1170
+      },
+      "well": {
+        "x": 2072,
+        "y": 1112,
+        "width": 336,
+        "height": 182
+      },
+      "buddy": {
+        "x": 2072,
+        "y": 1112,
+        "width": 336,
+        "height": 182
+      },
+      "menu": {
+        "x": 2072,
+        "y": 904,
+        "width": 336,
+        "height": 200
+      },
+      "viewports": {
+        "720p": {
+          "x": 178,
+          "y": 68,
+          "width": 846,
+          "height": 585
+        },
+        "1080p": {
+          "x": 267,
+          "y": 102,
+          "width": 1269,
+          "height": 878
+        }
+      }
+    },
+    "snes": {
+      "file": "snes-sky-kingdom.png",
+      "systems": [
+        "snes",
+        "sfc",
+        "super famicom"
+      ],
+      "screen": {
+        "x": 408,
+        "y": 258,
+        "width": 1592,
+        "height": 900
+      },
+      "well": {
+        "x": 2010,
+        "y": 989,
+        "width": 502,
+        "height": 288
+      },
+      "buddy": {
+        "x": 2010,
+        "y": 989,
+        "width": 502,
+        "height": 288
+      },
+      "menu": {
+        "x": 36,
+        "y": 24,
+        "width": 220,
+        "height": 132
+      },
+      "viewports": {
+        "720p": {
+          "x": 204,
+          "y": 129,
+          "width": 796,
+          "height": 450
+        },
+        "1080p": {
+          "x": 306,
+          "y": 194,
+          "width": 1194,
+          "height": 675
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,79 @@
+{
+  // Working product name. Change this when the brand is final.
+  // Do not put API keys in this file. Set them in the environment.
+  "product_name": "Buddy Overlay",
+  "tagline": "Retro games, real attitude",
+  "banner_title": "Buddy Overlay",
+  "character_name": "Buddy",
+  // Which hologram sprite set to use. The display name above does not change.
+  "buddy_character": "male",
+  // Idle head rest. Left looks toward the game window. Center faces the camera.
+  "resting_direction": "left",
+  "personality": "sassy",
+  "provider": "offline",
+  "port": 8766,
+
+  "ollama": {
+    "base_url": "http://127.0.0.1:11434",
+    "model": "llama3.2"
+  },
+  "meta": {
+    "base_url": "https://api.meta.ai/v1",
+    "model": "",
+    "api_key_env": "BUDDY_META_API_KEY"
+  },
+  "openai_compatible": {
+    "base_url": "",
+    "model": "",
+    "api_key_env": "BUDDY_CHAT_API_KEY"
+  },
+  "vision": {
+    "provider": "none",
+    "model": "",
+    "base_url": "",
+    "api_key_env": "BUDDY_VISION_API_KEY",
+    "interval_seconds": 8,
+    "enabled": false
+  },
+  "voice": {
+    "enabled": true,
+    "volume": 80,
+    "rate": 0,
+    "output_device": "",
+    "mute": false
+  },
+  "commentary": {
+    "frequency": "normal",
+    "cooldown_seconds": 16
+  },
+  "display": { "mode": "720p" },
+  "overlay": {
+    "theme": "auto",
+    "layout": "full",
+    "corner": "bottom-right",
+    "monitor": 1,
+    "manage_emulator_window": true,
+    "game_fit": "wide",
+    "frames": { "nes": "nes", "snes": "snes", "genesis": "genesis" }
+  },
+  "retroarch": {
+    "path": "",
+    "rom": "",
+    "core": "",
+    "close_on_quit": false,
+    "command_host": "127.0.0.1",
+    "command_port": 55355,
+    "command_enabled": false
+  },
+  "emulationstation": {
+    "path": ""
+  },
+  "games_dir": "",
+  "libraries": [],
+  "extra_emulators": [],
+  "takeover": {
+    "enabled": false
+  },
+  "wake_word": false,
+  "data_dir": ""
+}

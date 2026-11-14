@@ -56,7 +56,8 @@ class BuddyEars:
             import sounddevice  # noqa: F401
             import faster_whisper  # noqa: F401
             return True
-        except ImportError:
+        except (ImportError, OSError):
+            # sounddevice raises OSError when the PortAudio library is missing.
             return False
 
     @staticmethod

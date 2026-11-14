@@ -1,0 +1,93 @@
+{
+  "death": [
+    "Dang, {enemy} sent you packing. Try {tip} next life.",
+    "Alright, death {count}. Let's stop crapping the bed — {tip}.",
+    "Dramatic wipe to {cause}. Adjust {action} and hop back.",
+    "Oof. {tell} got you. Watch it, then punish."
+  ],
+  "near_miss": [
+    "So close on {action}. Finish the job.",
+    "Almost had {boss}. One cleaner {timing}.",
+    "Near-miss on {item}. Don't reinvent — tighten."
+  ],
+  "boss_fight": [
+    "{boss} time. Wait {tell}, then poke. Don't get cute.",
+    "Boss phase {phase}: patience first, glory second.",
+    "Vs {boss} — I can call patterns if you stay calm."
+  ],
+  "win": [
+    "Okay, {game} clear. Main character moment allowed.",
+    "You dropped {boss}. Keep the receipt.",
+    "Win after {count} tries. Not bad, show-off."
+  ],
+  "lose_round": [
+    "Round to them. Block that {move} next time.",
+    "L on the round. Fix {spacing} and make it awkward for them.",
+    "They won with {move}. Notes taken — your turn."
+  ],
+  "comeback": [
+    "From {deficit} to ahead. Don't donate it back.",
+    "Comeback vs {boss}. Close it clean.",
+    "Plot twist in {game}. Finish the episode."
+  ],
+  "idle": [
+    "Still floating over {game}. Poke me for chaos.",
+    "Idle in {game}. Sass half-charged."
+  ],
+  "player_asks_help": [
+    "Fine — help for {game}: {tip}.",
+    "Stuck on {boss}? Do {tip}. You're welcome.",
+    "Need {item}, then the path opens. Librarian mode done."
+  ],
+  "player_talks_back": [
+    "Alright, you win. Quieter on {topic}.",
+    "Heard. Sass budget cut for {game}."
+  ],
+  "takeover_start": [
+    "Pad. My turn on {game}. Watch and steal.",
+    "Takeover vs {boss}. I'll make patience look annoying.",
+    "Driving {section}. Commentary included."
+  ],
+  "takeover_win": [
+    "Cleared {section}. Copy that, don't clap weird.",
+    "Takeover W on {boss}. Pad's back, student."
+  ],
+  "takeover_fail": [
+    "I whiffed {section}. New plan: {tip}.",
+    "Takeover L vs {boss}. Retry or your ego back on the pad?"
+  ],
+  "coop_join": [
+    "P2 in on {game}. Keep up.",
+    "Co-op joined. I cover {side}; you try to shine."
+  ],
+  "coop_carry": [
+    "Carrying {wave}. Grab {item} and look busy.",
+    "I've got aggro. You push {objective}, main character."
+  ],
+  "fishing_miss": [
+    "Missed the {fish}. Less panic on the set.",
+    "{fish} ghosted you. Recast with soft hands."
+  ],
+  "fishing_catch_small": [
+    "Tiny {fish}. Cute. Go find its boss form.",
+    "Snack-sized {fish}. Technique okay, size negotiable."
+  ],
+  "fishing_catch_big": [
+    "Huge {fish}! Flex responsibly.",
+    "Landed the big {fish}. Patience arc complete."
+  ],
+  "greeting_return": [
+    "You're back. Last time: {last_session_event}. Ready?",
+    "Welcome back to {game}. Sass online."
+  ],
+  "callback_to_past_session": [
+    "Still remembering {last_session_event}. Redeem it?",
+    "Last session's {boss} problem — different energy tonight?",
+    "Callback: {last_session_event}. Almost doesn't stream well."
+  ],
+  "stuck_where_to_go": [
+    "Lost in {game}? Go {direction} to {landmark}.",
+    "Grab {item}, then {gate}. Yes, that obvious.",
+    "GPS Buddy: {tip}. Pride optional."
+  ]
+}

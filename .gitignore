@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+runtime/
+config/buddy.config.json
+logs/
+*.sqlite3
+*.log
+
+dist/
+build/

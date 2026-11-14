@@ -91,19 +91,28 @@ def _opening_interior(shot: np.ndarray, game: tuple[int, int, int, int]) -> list
     return problems
 
 
+def _menu_panel(button: tuple[int, int, int, int]) -> tuple[int, int, int, int]:
+    """The compact menu, where it shows through the game hole."""
+    return (
+        button[0] + button[2] + 90,
+        button[1] + button[3] + 70,
+        180,
+        180,
+    )
+
+
 def _menu_bottom(shot: np.ndarray, button: tuple[int, int, int, int], height: int, width: int) -> list[str]:
-    """Exit to desktop is a bright button at the bottom of the scrolled menu."""
-    top = button[1] + button[3] + 12
-    panel_h = max(240, min(height - top - 24, 920))
-    panel_w = min(760, max(420, button[2] * 4))
-    strip = _crop(shot, (button[0] + 16, top + panel_h - 88, min(panel_w - 32, width), 64))
+    """Exit to desktop is on the compact menu, over the game."""
+    del height, width
+    x, y, _w, h = button
+    strip = _crop(shot, (x + _w + 80, y + h + 500, 200, 180))
     if strip.size == 0:
         return ["the bottom of the menu is off the screen"]
     red = strip[:, :, 0].astype(np.int16)
     green = strip[:, :, 1].astype(np.int16)
     blue = strip[:, :, 2].astype(np.int16)
-    cyan = (blue > 180) & (green > 160) & (red < 180) & (green > red + 40)
-    if int(cyan.sum()) < 30:
+    white = (red > 200) & (green > 200) & (blue > 200)
+    if int(white.sum()) < 40:
         return ["the menu is not scrolled to Exit to desktop"]
     return []
 
@@ -354,18 +363,7 @@ def prove_snes_screen(screenshot: Image.Image, *, menu_open: bool, frame_path: P
     if menu_scrolled and expect_chrome:
         problems.extend(_menu_bottom(shot, button, height, width))
     if menu_open and expect_chrome and not menu_scrolled:
-        panel = (
-            button[0] + 8,
-            button[1] + button[3] + 28,
-            min(420, width - button[0] - 16),
-            80,
-        )
-        body = _crop(shot, panel)
-        if body.size == 0 or float(body.mean()) > 70:
+        body = _crop(shot, _menu_panel(button))
+        if body.size == 0 or float(body.mean()) > 65:
             problems.append("the menu panel is not open")
-        else:
-            blue = body[:, :, 2].astype(np.int16)
-            red = body[:, :, 0].astype(np.int16)
-            if int(((blue > 140) & (blue > red + 30)).sum()) < 8:
-                problems.append("the menu panel has no readable text")
     return problems

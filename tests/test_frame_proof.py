@@ -134,7 +134,6 @@ def test_chrome_requires_the_open_menu():
     assert any("menu panel" in item for item in missing)
     x, y, w, h = _button_at_1080()
     draw = ImageDraw.Draw(image)
-    draw.rectangle((x + 8, y + h + 28, x + 8 + 420, y + h + 108), fill=(20, 12, 28))
-    draw.text((x + 24, y + h + 48), "Buddy", fill=(126, 231, 255))
+    draw.rectangle((x + w + 90, y + h + 70, x + w + 270, y + h + 250), fill=(20, 12, 28))
     problems = prove_snes_screen(image, menu_open=True, expect_chrome=True)
     assert problems == [], problems

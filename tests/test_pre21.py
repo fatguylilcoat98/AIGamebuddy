@@ -124,7 +124,18 @@ def test_game_fit_and_talk_settings_save_to_ui_state(tmp_path):
     assert session.look_interval == 5
 
 
+def _need_display():
+    import pytest
+    try:
+        import tkinter as tk
+        root = tk.Tk()
+    except Exception:
+        pytest.skip("no display")
+    root.destroy()
+
+
 def test_compact_menu_builds_and_dropdowns_call_the_session(tmp_path):
+    _need_display()
     import tkinter as tk
     from backend.hamburger_ui import HamburgerMenu
     from tests.test_buddy import session_for
@@ -180,6 +191,7 @@ def _boxes_ok(boxes):
 def test_menu_first_paint_is_complete_and_stable(tmp_path):
     """Opening the menu must finish layout before the first paint, and
     hovering rows must not jump or clip the attitude/volume rows."""
+    _need_display()
     import tkinter as tk
     from backend.hamburger_ui import HamburgerMenu
     from tests.test_buddy import session_for

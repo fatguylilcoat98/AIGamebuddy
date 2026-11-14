@@ -91,3 +91,71 @@ def test_s16le_chunks_enqueue_immediately_without_an_mp3_clip():
         assert link._out_seq == 7
     finally:
         link.close()
+
+
+
+def test_animate_pauses_while_the_menu_is_open():
+    from backend.overlay_app import MENU_OPEN_ANIMATE_MS, LIVE_ANIMATE_MS, animate_delay_ms, should_paint_head
+    assert LIVE_ANIMATE_MS <= 33
+    assert MENU_OPEN_ANIMATE_MS >= 200
+    assert animate_delay_ms(False) == LIVE_ANIMATE_MS
+    assert animate_delay_ms(True) == MENU_OPEN_ANIMATE_MS
+    assert should_paint_head(False) is True
+    assert should_paint_head(True) is False
+
+
+def test_game_fit_and_talk_settings_save_to_ui_state(tmp_path):
+    from tests.test_buddy import session_for
+    session, _clock, _audio, _model = session_for(tmp_path)
+    session.set_game_fit("fit")
+    session.set_talk_amount("chatty")
+    session.set_look_interval(5)
+    saved = session._ui_path().read_text(encoding="utf-8")
+    assert '"game_fit": "fit"' in saved
+    assert '"frequency": "chatty"' in saved
+    assert '"look_interval": 5' in saved
+    session.game_fit = "wide"
+    session.frequency = "normal"
+    session.look_interval = 10
+    session._load_ui()
+    assert session.game_fit == "fit"
+    assert session.frequency == "chatty"
+    assert session.look_interval == 5
+
+
+def test_compact_menu_builds_and_dropdowns_call_the_session(tmp_path):
+    import tkinter as tk
+    from backend.hamburger_ui import HamburgerMenu
+    from tests.test_buddy import session_for
+
+    session, _clock, _audio, _model = session_for(tmp_path)
+    session.frequency = "normal"
+    session.look_interval = 10
+    session.game_fit = "wide"
+    root = tk.Tk()
+    root.geometry("1280x720+40+40")
+    root.update()
+    try:
+        changes = []
+        menu = HamburgerMenu(root, session, lambda: changes.append("changed"))
+        menu.toggle()
+        root.update()
+        root.update_idletasks()
+        assert menu.open
+        assert menu.panel.state() != "withdrawn"
+        # No hanging canvas scrollbar when the page is short enough, or it is packed only if needed.
+        menu._talk_amount("chatty")
+        assert session.frequency == "chatty"
+        menu._look_every(5)
+        assert session.look_interval == 5
+        menu._game_fit("fit")
+        assert session.game_fit == "fit"
+        titles = [child.cget("text") for child in menu.inner.winfo_children() if child.winfo_class() in {"Label", "Button", "Checkbutton"}]
+        blob = " ".join(str(t) for t in titles)
+        assert "How I talk to Buddy" not in blob
+        assert "Announcer booth" not in blob
+        assert menu._tips, "every setting should have a hover tip"
+        menu.close()
+        assert not menu.open
+    finally:
+        root.destroy()

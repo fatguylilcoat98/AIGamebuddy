@@ -1,7 +1,9 @@
-"""The top-left menu. Big type, plain words, a check on the current choice.
+"""The top-left menu. One compact page of dropdowns and checkboxes.
 
 The button stays clickable while a game is running because the overlay cuts
-that rectangle back out of the click-through hole.
+that rectangle back out of the click-through hole. The menu lives in its own
+Toplevel so hover and any light scrolling stay smooth while the overlay
+pauses its 30 fps head redraw.
 """
 from __future__ import annotations
 
@@ -10,8 +12,8 @@ from pathlib import Path
 
 from .look_schedule import LOOK_INTERVALS
 from .menu_copy import (
-    ATTITUDES, SAVE_SLOTS, TALK_AMOUNTS, VOICES,
-    attitude_line, look_line, talk_amount_line, voice_line,
+    ATTITUDES, GAME_FITS, SAVE_SLOTS, TALK_AMOUNTS, VOICES,
+    look_label,
 )
 
 
@@ -31,6 +33,75 @@ def design_box(holder) -> dict[str, int]:
     }
 
 
+class HoverTip:
+    """Plain-words tooltip that appears after a short hover.
+
+    The bubble is placed on the menu panel (not a second top-level window),
+    so it stays with the menu and does not fight the overlay.
+    """
+
+    def __init__(self, widget, text: str, host):
+        self.widget = widget
+        self.text = text
+        self.host = host
+        self._job = None
+        self.tip = None
+        widget.bind("<Enter>", self._enter, add="+")
+        widget.bind("<Leave>", self._leave, add="+")
+
+    def _enter(self, _event=None):
+        self._cancel()
+        self._job = self.widget.after(400, self.show)
+
+    def _leave(self, _event=None):
+        self._cancel()
+        self.hide()
+
+    def _cancel(self):
+        if self._job is not None:
+            try:
+                self.widget.after_cancel(self._job)
+            except Exception:
+                pass
+            self._job = None
+
+    def show(self, _event=None):
+        self._cancel()
+        if self.tip is not None or not (self.text or "").strip():
+            return
+        import tkinter as tk
+        tip = tk.Frame(self.host, bg="#2a2038", highlightbackground="#7ee7ff", highlightthickness=1)
+        tk.Label(
+            tip, text=self.text, bg="#2a2038", fg="#f6f1ff",
+            font=("Segoe UI", 13), justify="left", wraplength=340,
+            padx=10, pady=8, relief="flat",
+        ).pack()
+        tip.update_idletasks()
+        host_x, host_y = int(self.host.winfo_rootx()), int(self.host.winfo_rooty())
+        wx, wy = int(self.widget.winfo_rootx()), int(self.widget.winfo_rooty())
+        x = max(8, wx - host_x + 12)
+        y = wy - host_y + int(self.widget.winfo_height()) + 4
+        # Keep the bubble inside the panel.
+        tip.update_idletasks()
+        tw, th = int(tip.winfo_reqwidth()), int(tip.winfo_reqheight())
+        hw, hh = max(1, int(self.host.winfo_width())), max(1, int(self.host.winfo_height()))
+        if y + th > hh - 6:
+            y = max(6, wy - host_y - th - 4)
+        if x + tw > hw - 6:
+            x = max(6, hw - tw - 6)
+        tip.place(x=x, y=y)
+        tip.lift()
+        self.tip = tip
+
+    def hide(self, _event=None):
+        if self.tip is not None:
+            try:
+                self.tip.destroy()
+            except Exception:
+                pass
+            self.tip = None
+
+
 class HamburgerMenu:
     def __init__(self, root, session, on_change):
         import tkinter as tk
@@ -41,26 +112,49 @@ class HamburgerMenu:
         self.page = "main"
         self._box = {"x": 24, "y": 16, "width": 120, "height": 72}
         self._save_anchor = None
+        self._scan_anchor = None
+        self._exit_anchor = None
+        self._tips: list[HoverTip] = []
+        self._shown_tip: HoverTip | None = None
         self.toast = tk.Label(
             root, text="", bg="#140c1c", fg="#f6f1ff", font=("Segoe UI", 16, "bold"),
             padx=14, pady=8,
         )
-        self.panel = tk.Frame(root, bg="#140c1c", highlightthickness=3, highlightbackground="#7ee7ff")
+        self.panel = tk.Toplevel(root)
+        self.panel.withdraw()
+        self.panel.overrideredirect(True)
+        try:
+            self.panel.transient(root)
+            self.panel.attributes("-topmost", True)
+        except tk.TclError:
+            pass
+        self.panel.configure(bg="#140c1c", highlightthickness=3, highlightbackground="#7ee7ff")
         self.canvas = tk.Canvas(self.panel, bg="#140c1c", highlightthickness=0, bd=0)
         self.scroll = tk.Scrollbar(self.panel, orient="vertical", command=self.canvas.yview)
         self.canvas.configure(yscrollcommand=self.scroll.set)
         self.inner = tk.Frame(self.canvas, bg="#140c1c")
         self._window = self.canvas.create_window((0, 0), window=self.inner, anchor="nw")
         self.canvas.pack(side="left", fill="both", expand=True)
-        self.scroll.pack(side="right", fill="y")
         self.inner.bind("<Configure>", lambda _e: self.canvas.configure(scrollregion=self.canvas.bbox("all")))
         self.canvas.bind("<Configure>", lambda e: self.canvas.itemconfigure(self._window, width=e.width))
-        self.canvas.bind_all("<MouseWheel>", self._wheel)
+        self.canvas.bind("<MouseWheel>", self._wheel)
+        self.inner.bind("<MouseWheel>", self._wheel)
+        self.panel.protocol("WM_DELETE_WINDOW", self.close)
         self._rebuild()
 
     def _wheel(self, event):
-        if self.open:
-            self.canvas.yview_scroll(int(-event.delta / 120) or (-1 if event.delta > 0 else 1), "units")
+        if not self.open or not self._needs_scroll():
+            return
+        steps = int(-event.delta / 120) if event.delta else 0
+        if not steps:
+            steps = -1 if getattr(event, "delta", 0) > 0 else 1
+        self.canvas.yview_scroll(steps, "units")
+
+    def _needs_scroll(self) -> bool:
+        try:
+            return int(self.inner.winfo_reqheight()) > int(self.canvas.winfo_height()) + 8
+        except Exception:
+            return False
 
     def toggle(self):
         self.open = not self.open
@@ -71,71 +165,84 @@ class HamburgerMenu:
         self.on_change()
 
     def scroll_to_bottom(self):
-        self.root.update_idletasks()
-        self.inner.update_idletasks()
-        self.canvas.update_idletasks()
-        self.canvas.configure(scrollregion=self.canvas.bbox("all"))
-        widget = getattr(self, "_exit_anchor", None)
-        total = max(1, int(self.inner.winfo_reqheight()))
-        view = max(1, int(self.canvas.winfo_height()))
-        if widget is not None:
-            top = max(0, int(widget.winfo_y()) + int(widget.winfo_reqheight()) - view + 4)
-            self.canvas.yview_moveto(min(1.0, top / float(total)))
-        else:
+        self._fit_scroll()
+        if self._needs_scroll():
             self.canvas.yview_moveto(1.0)
 
     def scroll_to_scan(self):
-        """Bring the look-at-the-game choices into view. The menu is already open."""
+        """The look-interval row is on the first page now, so no jump is needed."""
+        self._fit_scroll()
+        self.canvas.yview_moveto(0)
+
+    def scroll_to_saves(self):
+        """Bring Save my spot into view if the window is unusually short."""
+        self._fit_scroll()
+        widget = self._save_anchor
+        if widget is None or not self._needs_scroll():
+            return
+        total = max(1, int(self.inner.winfo_reqheight()))
+        y = int(widget.winfo_y())
+        self.canvas.yview_moveto(min(0.9, max(0.0, (y - 8) / float(total))))
+
+    def _fit_scroll(self):
         self.root.update_idletasks()
         self.inner.update_idletasks()
         self.canvas.update_idletasks()
-        self.canvas.configure(scrollregion=self.canvas.bbox("all"))
-        widget = getattr(self, "_scan_anchor", None)
-        total = max(1, int(self.inner.winfo_reqheight()))
-        y = int(widget.winfo_y()) if widget is not None else int(total * 0.28)
-        self.canvas.yview_moveto(min(0.9, max(0.0, (y - 48) / float(total))))
-
-    def scroll_to_saves(self):
-        """Bring Save my spot and Load my spot into view. The menu is already open."""
-        self.inner.update_idletasks()
-        self.canvas.update_idletasks()
-        self.canvas.configure(scrollregion=self.canvas.bbox("all"))
-        widget = self._save_anchor
-        total = max(1, int(self.inner.winfo_reqheight()))
-        y = int(widget.winfo_y()) if widget is not None else int(total * 0.42)
-        self.canvas.yview_moveto(min(0.9, max(0.0, (y - 8) / float(total))))
+        self.canvas.configure(scrollregion=self.canvas.bbox("all") or (0, 0, 0, 0))
+        if self._needs_scroll():
+            if not self.scroll.winfo_ismapped():
+                self.scroll.pack(side="right", fill="y")
+        else:
+            self.scroll.pack_forget()
+            self.canvas.yview_moveto(0)
 
     def close(self):
         if not self.open:
             return
         self.open = False
-        self.panel.place_forget()
+        self._hide_tips()
+        self.panel.withdraw()
         self.on_change()
 
     def place(self, box: dict[str, int]):
         # The bars are painted into the frame. A widget here would cover them.
         self._box = box
         if not self.open:
-            self.panel.place_forget()
+            self.panel.withdraw()
             return
-        width = min(760, max(420, box["width"] * 4))
+        width = min(560, max(420, box["width"] * 4))
+        root_x = int(self.root.winfo_rootx())
+        root_y = int(self.root.winfo_rooty())
         top = box["y"] + box["height"] + 12
         screen_h = int(self.root.winfo_height() or 800)
-        height = max(240, min(screen_h - top - 24, 920))
-        self.panel.place(x=box["x"], y=top, width=width, height=height)
+        self.panel.deiconify()
+        self.panel.update_idletasks()
+        self.inner.update_idletasks()
+        content_h = int(self.inner.winfo_reqheight()) + 20
+        height = max(240, min(screen_h - top - 24, content_h))
+        x = root_x + int(box["x"])
+        y = root_y + int(top)
+        self.panel.geometry(f"{width}x{height}+{x}+{y}")
         self.panel.lift()
+        self._fit_scroll()
 
     def panel_rect(self) -> tuple[int, int, int, int] | None:
         if not self.open:
             return None
-        return (
-            int(self.panel.winfo_x()), int(self.panel.winfo_y()),
-            int(self.panel.winfo_width()), int(self.panel.winfo_height()),
-        )
+        try:
+            rx, ry = int(self.root.winfo_rootx()), int(self.root.winfo_rooty())
+            return (
+                int(self.panel.winfo_rootx()) - rx,
+                int(self.panel.winfo_rooty()) - ry,
+                int(self.panel.winfo_width()),
+                int(self.panel.winfo_height()),
+            )
+        except Exception:
+            return None
 
     def button_rect(self) -> tuple[int, int, int, int]:
         box = self._box
-        return (box["x"], box["y"], box["width"], box["height"])
+        return (int(box["x"]), int(box["y"]), int(box["width"]), int(box["height"]))
 
     def contains(self, x: int, y: int) -> bool:
         bx, by, bw, bh = self.button_rect()
@@ -147,35 +254,96 @@ class HamburgerMenu:
         px, py, pw, ph = panel
         return px <= x <= px + pw and py <= y <= py + ph
 
+    def _hide_tips(self):
+        for tip in self._tips:
+            tip.hide()
+        self._tips = []
+        self._shown_tip = None
+
     def _clear(self):
+        self._hide_tips()
         for child in self.inner.winfo_children():
             child.destroy()
 
     def _font(self, size: int, bold: bool = False):
         return ("Segoe UI", size, "bold" if bold else "normal")
 
+    def _tip(self, widget, text: str) -> HoverTip:
+        tip = HoverTip(widget, text, self.panel)
+        self._tips.append(tip)
+        return tip
+
     def _title(self, text: str):
         import tkinter as tk
-        tk.Label(self.inner, text=text, bg="#140c1c", fg="#7ee7ff", font=self._font(22, True),
-                 anchor="w").pack(fill="x", padx=18, pady=(14, 4))
+        tk.Label(self.inner, text=text, bg="#140c1c", fg="#7ee7ff", font=self._font(16, True),
+                 anchor="w").pack(fill="x", padx=14, pady=(8, 2))
 
     def _note(self, text: str):
         import tkinter as tk
-        tk.Label(self.inner, text=text, bg="#140c1c", fg="#c8bdd6", font=self._font(15),
-                 anchor="w", justify="left", wraplength=680).pack(fill="x", padx=22, pady=(0, 6))
+        widget = tk.Label(self.inner, text=text, bg="#140c1c", fg="#c8bdd6", font=self._font(12),
+                          anchor="w", justify="left", wraplength=500)
+        widget.pack(fill="x", padx=16, pady=(0, 4))
+        return widget
 
-    def _button(self, text: str, command, primary: bool = False):
+    def _row(self):
         import tkinter as tk
+        row = tk.Frame(self.inner, bg="#140c1c")
+        row.pack(fill="x", padx=14, pady=3)
+        return row
+
+    def _button(self, text: str, command, primary: bool = False, parent=None, tip: str = ""):
+        import tkinter as tk
+        holder = parent if parent is not None else self.inner
         button = tk.Button(
-            self.inner, text=text, command=command, anchor="w",
+            holder, text=text, command=command, anchor="w",
             bg="#7ee7ff" if primary else "#2a2038",
             fg="#140c1c" if primary else "#f6f1ff",
             activebackground="#b8f4ff" if primary else "#3c3050",
             activeforeground="#140c1c" if primary else "#ffffff",
-            font=self._font(20, True), relief="flat", bd=0, padx=16, pady=10, cursor="hand2",
+            font=self._font(13, True), relief="flat", bd=0, padx=10, pady=5, cursor="hand2",
         )
-        button.pack(fill="x", padx=16, pady=4)
+        if parent is None:
+            button.pack(fill="x", padx=14, pady=3)
+        else:
+            button.pack(side="left", fill="x", expand=True, padx=3)
+        if tip:
+            self._tip(button, tip)
         return button
+
+    def _labeled_dropdown(self, label: str, current: str, choices: list[tuple[str, str]], on_pick, tip: str):
+        """One compact row: label on the left, OptionMenu on the right."""
+        import tkinter as tk
+        row = self._row()
+        name = tk.Label(row, text=label, bg="#140c1c", fg="#f6f1ff", font=self._font(13, True), anchor="w")
+        name.pack(side="left")
+        labels = [item[1] for item in choices]
+        key_for = {item[1]: item[0] for item in choices}
+        label_for = {item[0]: item[1] for item in choices}
+        shown = label_for.get(current, current)
+        var = tk.StringVar(value=shown)
+
+        def picked(choice, _var=var):
+            key = key_for.get(choice, choice)
+            on_pick(key)
+
+        menu = tk.OptionMenu(row, var, *labels, command=picked)
+        menu.configure(
+            bg="#2a2038", fg="#f6f1ff", activebackground="#3c3050", activeforeground="#ffffff",
+            font=self._font(13, True), relief="flat", bd=0, highlightthickness=0,
+            width=max(12, max(len(item) for item in labels)), anchor="w", cursor="hand2",
+        )
+        try:
+            menu["menu"].configure(
+                bg="#2a2038", fg="#f6f1ff", activebackground="#3c3050",
+                activeforeground="#ffffff", font=self._font(13), bd=0, tearoff=0,
+            )
+        except tk.TclError:
+            pass
+        menu.pack(side="right")
+        self._tip(row, tip)
+        self._tip(menu, tip)
+        self._tip(name, tip)
+        return menu, var
 
     def _rebuild(self):
         self._clear()
@@ -188,76 +356,151 @@ class HamburgerMenu:
         else:
             self._main_page()
         self.canvas.yview_moveto(0)
+        if self.open:
+            self.panel.after(1, self._fit_scroll)
 
     def _main_page(self):
+        import tkinter as tk
         hud = self.session.hud()
         voice = hud.get("buddy_character") or "male"
         attitude = hud.get("personality") or "sassy"
         hidden = bool(hud.get("buddy_hidden"))
         self._title("Buddy")
-        self._button("Start Buddy", self._start, primary=hidden)
-        self._note("Buddy talks again and shows his face.")
-        self._button("Stop Buddy", self._stop)
-        self._note("Buddy goes quiet and disappears. Your game keeps playing.")
+        actions = self._row()
+        start = self._button(
+            "Start Buddy", self._start, primary=hidden, parent=actions,
+            tip="Buddy talks again and shows his face." if not hidden else "Buddy is hidden right now. This brings him back.",
+        )
+        self._button(
+            "Stop Buddy", self._stop, parent=actions,
+            tip="Buddy goes quiet and disappears. Your game keeps playing.",
+        )
+        self._note("Just talk. Buddy is always listening — no button to push.")
+        self._tip(start, "Buddy talks again and shows his face.")
+
         talk_amount = getattr(self.session, "frequency", "normal")
         if talk_amount not in {key for key, _label, _note in TALK_AMOUNTS}:
             talk_amount = "normal"
-        self._title("How much Buddy talks")
-        self._note("Just talk. Buddy is always listening — no button to push.")
-        for key, _label, note in TALK_AMOUNTS:
-            self._button(talk_amount_line(key, talk_amount), lambda name=key: self._talk_amount(name))
-            self._note(note)
-        booth = bool(getattr(self.session, "announcer", False))
-        self._button(("✓ " if booth else "    ") + "Announcer booth", self._announcer)
-        self._note("Guy and girl Buddy call the game. They take turns, and both sit in the box.")
-        self._title("How often Buddy looks at the game")
+        self._talk_menu, _talk_var = self._labeled_dropdown(
+            "How much Buddy talks",
+            talk_amount,
+            [(key, label) for key, label, _note in TALK_AMOUNTS],
+            self._talk_amount,
+            "How often Buddy speaks on his own. You can always talk to him. "
+            + "A lot keeps a short gap between lines, with no long quiet stretch.",
+        )
+
         every = int(getattr(self.session, "look_interval", 10) or 10)
-        self._scan_anchor = None
-        for seconds in LOOK_INTERVALS:
-            button = self._button(look_line(seconds, every), lambda value=seconds: self._look_every(value))
-            if self._scan_anchor is None:
-                self._scan_anchor = button
-        self._note("Buddy looks at the game picture, not the frame around it.")
+        look_choices = [(str(seconds), look_label(seconds)) for seconds in LOOK_INTERVALS]
+        self._scan_anchor, _look_var = self._labeled_dropdown(
+            "How often Buddy looks",
+            str(every),
+            look_choices,
+            lambda value: self._look_every(int(value)),
+            "Buddy looks at the game this often and can talk about what he just saw.",
+        )
+
+        fit = str(getattr(self.session, "game_fit", None) or "wide")
+        try:
+            from .retroarch_finder import GAME_FIT
+            if not getattr(self.session, "game_fit", None):
+                fit = GAME_FIT or "wide"
+        except Exception:
+            pass
+        if fit not in {key for key, _label, _note in GAME_FITS}:
+            fit = "wide"
+        self._fit_menu, _fit_var = self._labeled_dropdown(
+            "Game picture",
+            fit,
+            [(key, label) for key, label, _note in GAME_FITS],
+            self._game_fit,
+            "How the game fills the opening in the frame. Wide is the usual couch view.",
+        )
+
+        self._voice_menu, _voice_var = self._labeled_dropdown(
+            "Buddy voice",
+            voice,
+            [(key, label) for key, label, _note in VOICES],
+            self._voice,
+            "The voice Buddy uses when he talks.",
+        )
+        self._attitude_menu, _attitude_var = self._labeled_dropdown(
+            "Buddy attitude",
+            attitude,
+            [(key, label) for key, label, _note in ATTITUDES],
+            self._attitude,
+            "Friendly and calm, a little sassy, or 18+ savage. This is sent to Buddy's brain.",
+        )
+
+        volume = int(hud.get("volume") or 0)
+        vol_row = self._row()
+        tk.Label(vol_row, text="Volume", bg="#140c1c", fg="#f6f1ff", font=self._font(13, True),
+                 anchor="w").pack(side="left")
+        self._volume_label = tk.Label(vol_row, text=str(volume), bg="#140c1c", fg="#7ee7ff",
+                                      font=self._font(13, True), width=3)
+        self._volume_label.pack(side="right")
+        self._volume_var = tk.IntVar(value=volume)
+        slider = tk.Scale(
+            vol_row, from_=0, to=100, orient="horizontal", variable=self._volume_var,
+            command=self._volume_live, showvalue=False, bg="#140c1c", fg="#f6f1ff",
+            troughcolor="#3c3050", highlightthickness=0, bd=0, sliderrelief="raised",
+            sliderlength=18, activebackground="#7ee7ff",
+            length=180, cursor="hand2",
+        )
+        slider.pack(side="right", padx=8)
+        slider.bind("<ButtonRelease-1>", lambda _e: self._volume_commit())
+        self._tip(vol_row, "Quieter or louder. This is remembered next time.")
+        self._tip(slider, "Quieter or louder. This is remembered next time.")
+
+        muted = bool(getattr(self.session, "muted", False))
+        self._mute_var = tk.BooleanVar(value=muted)
+        mute = tk.Checkbutton(
+            self.inner, text="Mute", variable=self._mute_var, command=self._mute,
+            bg="#140c1c", fg="#f6f1ff", activebackground="#140c1c", activeforeground="#ffffff",
+            selectcolor="#2a2038", font=self._font(13, True), anchor="w", cursor="hand2",
+        )
+        mute.pack(fill="x", padx=14, pady=2)
+        self._tip(mute, "When this is checked, Buddy still shows lines but does not play them out loud.")
+
         self._title("Your spot")
-        self._save_anchor = self._button("Save my spot", lambda: self._show_slots("save"))
-        self._note("Saves exactly where you are.")
-        self._button("Load my spot", lambda: self._show_slots("load"))
-        self._note("Goes back to your last save.")
-        self._title("Buddy voice")
-        for key, _label, note in VOICES:
-            self._button(voice_line(key, voice), lambda name=key: self._voice(name))
-            self._note(note)
-        self._title("Buddy attitude")
-        for key, _label, note in ATTITUDES:
-            self._button(attitude_line(key, attitude), lambda name=key: self._attitude(name))
-            self._note(note)
-        self._title(f"Volume: {int(hud.get('volume') or 0)}")
-        self._note("Quieter or louder. This is remembered next time.")
-        self._button("Quieter", lambda: self._volume(-10))
-        self._button("Louder", lambda: self._volume(10))
+        spot = self._row()
+        self._save_anchor = self._button(
+            "Save my spot", lambda: self._show_slots("save"), parent=spot,
+            tip="Saves exactly where you are.",
+        )
+        self._button(
+            "Load my spot", lambda: self._show_slots("load"), parent=spot,
+            tip="Goes back to your last save.",
+        )
+
         self._title("Your game")
-        self._button("Pick a game", self._pick_game)
-        self._note("Choose a Super NES game you already own.")
-        self._button("Set up my controller", self._controller)
-        self._note("Opens the controller page so your buttons match the game.")
-        self._button("RetroArch settings", self._retroarch)
-        self._note("Opens RetroArch's menu for the picture, the sound, and the controls.")
-        self._button("Settings", self._show_settings)
-        self._note("Optional online helper key, where RetroArch is installed, or run setup again.")
-        self._button("Close the game", self._close_game)
-        self._note("Closes the game. Buddy stays on screen.")
-        self._exit_anchor = self._button("Exit to desktop", self._exit, primary=True)
-        self._note("Closes the game and Buddy, and leaves the desktop.")
+        games = self._row()
+        self._button("Pick a game", self._pick_game, parent=games,
+                     tip="Choose a Super NES game you already own.")
+        self._button("Set up my controller", self._controller, parent=games,
+                     tip="Opens the controller page so your buttons match the game.")
+        more = self._row()
+        self._button("RetroArch settings", self._retroarch, parent=more,
+                     tip="Opens RetroArch's menu for the picture, the sound, and the controls.")
+        self._button("More settings", self._show_settings, parent=more,
+                     tip="Optional online helper key, where RetroArch is installed, or run setup again.")
+        end = self._row()
+        self._button("Close the game", self._close_game, parent=end,
+                     tip="Closes the game. Buddy stays on screen.")
+        self._exit_anchor = self._button(
+            "Exit to desktop", self._exit, primary=True, parent=end,
+            tip="Closes the game and Buddy, and leaves the desktop.",
+        )
 
     def _settings_page(self):
-        self._title("Settings")
-        self._button("Back", self._show_main)
-        self._button("Online helper key", self._api_key)
-        self._note("Optional. Lets Buddy use an online brain. It stays on this PC, not in a text file you can open.")
-        self._button("Where RetroArch is installed", self._retroarch_path)
-        self._note("Point Buddy at retroarch.exe if it did not find it.")
-        self._button("Run setup again", self._rerun_setup)
-        self._note("Opens the first-time setup. Your games stay where they are.")
+        self._title("More settings")
+        self._button("Back", self._show_main, tip="Go back to the main menu.")
+        self._button("Online helper key", self._api_key,
+                     tip="Optional. Lets Buddy use an online brain. It stays on this PC, not in a text file you can open.")
+        self._button("Where RetroArch is installed", self._retroarch_path,
+                     tip="Point Buddy at retroarch.exe if it did not find it.")
+        self._button("Run setup again", self._rerun_setup,
+                     tip="Opens the first-time setup. Your games stay where they are.")
 
     def _show_settings(self):
         self.page = "settings"
@@ -274,10 +517,10 @@ class HamburgerMenu:
     def _slot_page(self, *, saving: bool):
         self._title("Save my spot" if saving else "Load my spot")
         self._note("Saves exactly where you are." if saving else "Goes back to your last save.")
-        self._button("Back", self._show_main)
+        self._button("Back", self._show_main, tip="Go back to the main menu.")
         for slot in SAVE_SLOTS:
-            label = f"Slot {slot}"
-            self._button(label, lambda number=slot, save=saving: self._slot(number, save))
+            self._button(f"Slot {slot}", lambda number=slot, save=saving: self._slot(number, save),
+                         tip=f"{'Save to' if saving else 'Load'} slot {slot}.")
 
     def _slot(self, number: int, saving: bool):
         if saving:
@@ -295,20 +538,25 @@ class HamburgerMenu:
         self.root.after(2600, self.toast.place_forget)
 
     def _talk_mode(self, name: str):
+        # Hands-free only. Left so an old caller does not crash.
         self.session.set_talk_mode(name)
-        self._rebuild()
 
     def _talk_amount(self, name: str):
         self.session.set_talk_amount(name)
         self._rebuild()
 
-    def _announcer(self):
-        self.session.set_announcer(not bool(getattr(self.session, "announcer", False)))
-        self._rebuild()
-
     def _look_every(self, seconds: int):
         self.session.set_look_interval(seconds)
         self._rebuild()
+
+    def _game_fit(self, name: str):
+        if hasattr(self.session, "set_game_fit"):
+            self.session.set_game_fit(name)
+        else:
+            from .retroarch_finder import set_game_fit
+            set_game_fit(name)
+        self._rebuild()
+        self.on_change()
 
     def _start(self):
         self.session.start_buddy()
@@ -327,6 +575,7 @@ class HamburgerMenu:
 
     def _attitude(self, name: str):
         if name == "extreme" and not self._confirm_adult():
+            self._rebuild()
             return
         self.session.set_personality(name)
         self._rebuild()
@@ -337,17 +586,31 @@ class HamburgerMenu:
         return bool(messagebox.askyesno(
             "Buddy",
             "Savage-Extreme swears.\n\nAre you 18 or older?",
-            parent=self.root,
+            parent=self.panel,
         ))
+
+    def _volume_live(self, value):
+        try:
+            self._volume_label.configure(text=str(int(float(value))))
+        except Exception:
+            pass
+
+    def _volume_commit(self, _event=None):
+        self.session.set_volume(int(self._volume_var.get()))
+        self.on_change()
 
     def _volume(self, delta: int):
         self.session.set_volume(int(self.session.volume) + delta)
         self._rebuild()
 
+    def _mute(self):
+        self.session.set_mute(bool(self._mute_var.get()))
+        self.on_change()
+
     def _pick_game(self):
         import tkinter.filedialog as filedialog
         chosen = filedialog.askopenfilename(
-            parent=self.root,
+            parent=self.panel,
             title="Pick a Super NES game you already own",
             filetypes=[("Super NES games", "*.sfc *.smc *.fig *.zip"), ("All files", "*.*")],
         )
@@ -359,7 +622,7 @@ class HamburgerMenu:
             continue_spot = bool(messagebox.askyesno(
                 "Buddy",
                 "Continue where you left off?",
-                parent=self.root,
+                parent=self.panel,
             ))
         self.close()
 
@@ -384,7 +647,7 @@ class HamburgerMenu:
     def _api_key(self):
         import tkinter as tk
         from .setup_flow import SECRET_NAME, WindowsVault, MemoryVault
-        dialog = tk.Toplevel(self.root)
+        dialog = tk.Toplevel(self.panel)
         dialog.title("Online helper key")
         dialog.configure(bg="#140c1c")
         dialog.geometry("640x280")
@@ -402,7 +665,7 @@ class HamburgerMenu:
             dialog.destroy()
             if error:
                 import tkinter.messagebox as messagebox
-                messagebox.showerror("Buddy", error, parent=self.root)
+                messagebox.showerror("Buddy", error, parent=self.panel)
 
         tk.Button(dialog, text="Save on this PC", command=save, font=self._font(16, True),
                   bg="#7ee7ff", fg="#140c1c", relief="flat", padx=12, pady=8).pack(pady=12)
@@ -411,7 +674,7 @@ class HamburgerMenu:
         import tkinter.filedialog as filedialog
         from .retroarch_finder import save_retroarch_path
         chosen = filedialog.askopenfilename(
-            parent=self.root, title="Where is RetroArch?",
+            parent=self.panel, title="Where is RetroArch?",
             filetypes=[("RetroArch", "retroarch.exe"), ("Programs", "*.exe")],
         )
         if chosen:

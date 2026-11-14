@@ -113,7 +113,8 @@ class BuddySession:
         self.corner = str(config.get("overlay", "corner") or "bottom-right")
         self.manage_window = bool(config.get("overlay", "manage_emulator_window", default=True))
         from .retroarch_finder import set_game_fit
-        log.info("Game fit: %s", set_game_fit(str(config.get("overlay", "game_fit", default="wide") or "wide")))
+        self.game_fit = set_game_fit(str(config.get("overlay", "game_fit", default="wide") or "wide"))
+        log.info("Game fit: %s", self.game_fit)
         self.offline_confirmed = False
         self.mode = "spectator"
         self.gate_open = False
@@ -252,6 +253,9 @@ class BuddySession:
             from .look_schedule import normalize_look_interval
             self.look_interval = normalize_look_interval(data.get("look_interval"))
         self.announcer = bool(data.get("announcer", False))
+        if data.get("game_fit"):
+            from .retroarch_finder import set_game_fit
+            self.game_fit = set_game_fit(data.get("game_fit"))
 
     def _save_ui(self) -> None:
         payload = {
@@ -267,6 +271,7 @@ class BuddySession:
             "quiet_until_called": self.quiet_until_called,
             "look_interval": self.look_interval,
             "announcer": self.announcer,
+            "game_fit": getattr(self, "game_fit", "wide"),
         }
         try:
             self._ui_path().write_text(json.dumps(payload, indent=2), encoding="utf-8")
@@ -814,7 +819,20 @@ class BuddySession:
             height = 1
         return width, height, jpeg
 
+    def set_game_fit(self, mode: str) -> ActionResult:
+        from .retroarch_finder import set_game_fit
+        chosen = set_game_fit(mode)
+        self.game_fit = chosen
+        self._save_ui()
+        labels = {
+            "wide": "wide, filling the opening",
+            "fit": "fit, so the whole picture stays in view",
+            "fill": "fill, zoomed to the opening",
+        }
+        return ActionResult(True, f"The game picture is {labels.get(chosen, chosen)}.", reason="game_fit")
+
     def set_talk_mode(self, mode: str) -> ActionResult:
+
         if mode not in {"hold", "wake"}:
             return ActionResult(False, "I did not change how you talk to me.", reason="bad_talk_mode")
         self.talk_mode = mode
@@ -835,7 +853,7 @@ class BuddySession:
         self._save_ui()
         if getattr(self, "_brain", None) is not None:
             self._brain.set_talk_settings(look_interval=self.look_interval, frequency=mapped)
-        labels = {"off": "only when I ask", "rare": "sometimes", "normal": "sometimes", "chatty": "a lot"}
+        labels = {"off": "only when I ask", "rare": "a little", "normal": "sometimes", "chatty": "a lot"}
         return self._show(f"I'll talk {labels.get(mapped, mapped)}.", category="status", emotion="talk")
 
     def talk_less(self) -> ActionResult:

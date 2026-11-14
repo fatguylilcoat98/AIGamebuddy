@@ -25,6 +25,19 @@ from .retroarch_finder import FIND_LABEL, NOTICE_FAILED, NOTICE_LOOKING, NOTICE_
 from .hamburger_ui import HamburgerMenu, design_box
 from .window_layout import exclude_window_from_capture
 
+# 30 fps head redraw on the same thread as the menu made scrolling jitter.
+# While the menu is open, skip the head paint and wake much less often.
+LIVE_ANIMATE_MS = 33
+MENU_OPEN_ANIMATE_MS = 250
+
+
+def animate_delay_ms(menu_open: bool) -> int:
+    return MENU_OPEN_ANIMATE_MS if menu_open else LIVE_ANIMATE_MS
+
+
+def should_paint_head(menu_open: bool) -> bool:
+    return not bool(menu_open)
+
 
 def run_menu_action(mutate, refresh, announce=None) -> None:
     """Apply the menu change, refresh the labels, then do the part that can throw.
@@ -425,8 +438,10 @@ def run_overlay(session) -> None:
         if session.theme != holder.get("shown"):
             holder["shown"] = session.theme
             _rebuild_static()
-        _paint_head()
-        root.after(33, animate)
+        menu_open = bool(holder.get("menu_open"))
+        if should_paint_head(menu_open):
+            _paint_head()
+        root.after(animate_delay_ms(menu_open), animate)
 
     def _keep_menu_clickable():
         """The game hole is the only click-through part. Buddy and the menu stay solid."""

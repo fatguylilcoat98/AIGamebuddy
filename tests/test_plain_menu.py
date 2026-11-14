@@ -12,22 +12,28 @@ def test_menu_uses_plain_words_and_a_check():
     for word in JARGON:
         assert word not in blob
     titles = [title for title, _note in rows]
-    assert any(title.startswith("✓ ") and "Woman" in title for title in titles)
-    assert any(title.startswith("✓ ") and "Sassy" in title for title in titles)
-    assert any("Man" in title and not title.startswith("✓") for title in titles)
-    assert any("Friendly" in title for title in titles)
-    assert any("Savage-Extreme" in title for title in titles)
+    assert any("Buddy voice: Woman" in title for title in titles)
+    assert any("Buddy attitude: Sassy" in title for title in titles)
+    from backend.menu_copy import ATTITUDES, GAME_FITS, TALK_AMOUNTS, VOICES
+    assert any(label == "Man" for _key, label, _note in VOICES)
+    assert any(label == "Friendly" for _key, label, _note in ATTITUDES)
+    assert any(label == "Savage-Extreme" for _key, label, _note in ATTITUDES)
+    assert any(key == "rare" for key, _label, _note in TALK_AMOUNTS)
     assert any("Set up my controller" in title for title in titles)
     assert any("RetroArch settings" in title for title in titles)
     assert any("Exit to desktop" in title for title in titles)
     assert any("Pick a game" in title for title in titles)
     assert not any("How I talk to Buddy" in title for title in titles)
+    assert not any("Announcer booth" in title for title in titles)
     assert any(title == "Just talk" for title in titles)
     assert any("always listening" in note.lower() for _title, note in rows)
     assert any("How much Buddy talks" in title and "Sometimes" in title for title in titles)
+    assert any("Game picture:" in title for title in titles)
+    assert any("Wide" in title or "Fit" in title or "Fill" in title for title in titles)
     assert any("Save my spot" in title for title in titles)
     assert any("Load my spot" in title for title in titles)
-    assert any("18+" in note for _title, note in rows)
+    assert any("18+" in note for _key, _label, note in ATTITUDES)
+    assert len(rows) <= 20
 
 
 def test_controller_setup_opens_the_menu_then_controls():

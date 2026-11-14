@@ -84,8 +84,8 @@ jobs:
         if: success()
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: buddy-v0.1.0-pre20
-          name: Buddy 0.1.0 pre20
+          tag_name: buddy-v0.1.0-pre21
+          name: Buddy 0.1.0 pre21
           prerelease: true
           make_latest: false
           generate_release_notes: false
@@ -97,6 +97,7 @@ jobs:
             Game music is not treated as someone talking.
             pre19: the game is turned down about 11 dB while Buddy talks, RetroArch uses a 144 ms audio buffer, and Buddy's voice plays at the speaker's own rate through a soft limiter.
             pre20: the game stretches wide under the frame gutters. The centered and zoomed pictures stay available.
+            pre21: Buddy is always listening, looks every five seconds, and the menu is a compact dropdown.
             pre8 is broken. Do not install pre8.
             Snes9x is included for personal use. It is not the latest stable release.
           files: |

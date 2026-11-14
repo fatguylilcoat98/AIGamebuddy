@@ -601,8 +601,7 @@ def run_overlay(session) -> None:
     full_once = _once("fullscreen", _toggle_fullscreen)
     # bind_all still works when a menu button has focus. The lowercase q bind
     # does not: Tk's keysym for Shift+Q is Q.
-    root.bind_all("<KeyPress-F9>", talk_down_once)
-    root.bind_all("<KeyRelease-F9>", talk_up_once)
+    # Hands-free: F9 is no longer push-to-talk. The always-on brain mic listens.
     root.bind_all("<F8>", menu_once)
     root.bind_all("<F11>", full_once)
     for sequence in QUIT_SEQUENCES:
@@ -618,10 +617,7 @@ def run_overlay(session) -> None:
 
     def _schedule_hotkey(name: str):
         actions = {
-            "talk_down": talk_down_once,
-            "talk_up": talk_up_once,
-            "shoulders_talk_down": _once("shoulders", lambda: talk_down() if session.talk_mode == "hold" else None),
-            "shoulders_talk_up": lambda: talk_up() if session.talk_mode == "hold" else None,
+            # Hands-free: no click-to-talk or shoulder PTT. Just talk.
             "menu": menu_once,
             "fullscreen": full_once,
             "quit": quit_once,

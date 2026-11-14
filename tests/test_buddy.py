@@ -447,8 +447,8 @@ def test_hotkey_edges_and_quit_keysym():
     from backend.hotkeys import QUIT_SEQUENCES, poll_hotkey_events, tk_quit_event
     assert "<Control-Shift-Q>" in QUIT_SEQUENCES
     previous = {"f8": False, "f9": False, "quit": False}
-    assert poll_hotkey_events(previous, {"f8": False, "f9": True, "quit": False}) == ["talk_down"]
-    assert poll_hotkey_events({"f9": True}, {"f8": False, "f9": False, "quit": False}) == ["talk_up"]
+    assert poll_hotkey_events(previous, {"f8": False, "f9": True, "quit": False}) == []
+    assert poll_hotkey_events({"f9": True}, {"f8": False, "f9": False, "quit": False}) == []
     assert poll_hotkey_events(previous, {"f8": True, "f9": False, "quit": True}) == ["menu", "quit"]
 
     class Event:

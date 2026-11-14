@@ -18,7 +18,7 @@ What was actually tested: [VERIFICATION.md](VERIFICATION.md).
 
 Developers running from a source checkout can still install Python 3.11+ (with **Add python.exe to PATH**) and double-click `Start-Buddy.bat`. `install.bat` is only for a manual repair of that checkout.
 
-F9 is push-to-talk. F8 focuses the menu under Buddy. Arrow keys and Enter move through it. Ctrl+Shift+Q quits. Buddy speaks. Lines are not drawn over the game window.
+Just talk — Buddy is always listening, no button to push. F8 focuses the menu under Buddy. Arrow keys and Enter move through it. Ctrl+Shift+Q quits. Buddy speaks. Lines are not drawn over the game window.
 
 `buddy_character` is `male` or `female`. `resting_direction` is `left` (toward the game), `right`, or `center`. The menu toggles those live.
 

@@ -376,6 +376,20 @@ class Speaker:
         log.info("Speaker closed. Underruns this run: %s.", self.underruns)
 
 
+def _s16le_to_float(payload: bytes) -> list[float]:
+    if not payload:
+        return []
+    n = len(payload) // 2
+    if n <= 0:
+        return []
+    import array
+    raw = array.array("h")
+    raw.frombytes(payload[: n * 2])
+    if raw.itemsize != 2:
+        return []
+    scale = 1.0 / 32768.0
+    return [sample * scale for sample in raw]
+
 def decode_mp3(mp3: bytes) -> tuple[list[float], int]:
     """Decode one sentence in this process. No console, no extra python.exe."""
     import array
@@ -461,6 +475,14 @@ class BrainLink:
         self._attitude = attitude or "friendly"
         self._queue({"type": "attitude", "attitude": self._attitude})
 
+    def set_talk_settings(self, look_interval=None, frequency=None) -> None:
+        message = {"type": "settings"}
+        if look_interval is not None:
+            message["look_interval"] = int(look_interval)
+        if frequency is not None:
+            message["frequency"] = str(frequency)
+        self._queue(message)
+
     def push_game(self, text: str, react: bool, image: str = "") -> bool:
         cleaned = " ".join((text or "").split())[:400]
         picture = (image or "").strip()
@@ -521,7 +543,13 @@ class BrainLink:
         self._logged_down = False
         log.info("Brain connected. Attitude is %s.", self._attitude)
         try:
-            sock.send_text({"type": "hello", "attitude": self._attitude, "history": []})
+            sock.send_text({
+                "type": "hello",
+                "attitude": self._attitude,
+                "history": [],
+                "look_interval": int(getattr(self.session, "look_interval", 10) or 10),
+                "frequency": str(getattr(self.session, "frequency", "normal") or "normal"),
+            })
         except Exception as exc:
             log.warning("Brain dropped the hello. Buddy will stay quiet. %s", exc)
             self._hangup()
@@ -670,6 +698,19 @@ class BrainLink:
         if self._audio_stop.is_set() and self._cut_seq and seq < self._cut_seq:
             return
         self._audio_stop.clear()
+        fmt = str(header.get("fmt") or "mp3")
+        if fmt == "s16le" and audio:
+            rate = int(header.get("rate") or 24000)
+            samples = _s16le_to_float(audio)
+            if not samples:
+                return
+            self._speaker.start()
+            samples = resample(samples, rate, self._speaker.rate)
+            gain = max(0.0, min(1.0, float(self.session.volume) / 100.0))
+            count = self._output.enqueue(seq, samples, gain)
+            self._out_seq = seq
+            log.info("Queued reply audio seq=%s samples=%s stream=1", seq, count)
+            return
         with self._lock:
             self._clips.append((seq, audio))
 

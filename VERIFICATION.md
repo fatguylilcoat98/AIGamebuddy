@@ -37,7 +37,7 @@ Tested here with pytest. No Windows desktop, microphone, or API key was availabl
 The code is in the app. It was not run on Windows, with a mic, with OBS, or with RetroArch.
 
 - `install.bat` / `install.ps1`, `Start-Buddy.bat`, and the `.venv` they create.
-- The tkinter overlay, hamburger menu, F9 push-to-talk, and Ctrl+Shift+Q.
+- The tkinter overlay, hamburger menu, and Ctrl+Shift+Q.
 - Per-pixel hole and click-through (`SetWindowRgn`) and moving the emulator window into the opening.
 - Windows System.Speech to a WAV, then playback on a chosen output device and volume.
 - Microphone capture and local Whisper transcription (`BuddyEars`).
@@ -54,7 +54,7 @@ The code is in the app. It was not run on Windows, with a mic, with OBS, or with
 
 ## Not yet implemented
 
-- Wake word. The config flag is ignored except for a log line. Use F9.
+- Wake word and push-to-talk are off. The always-on brain mic is the only way to talk.
 - Actually playing a game, including Street Fighter II versus the CPU and player-2 co-op.
 - Modern PC games and capture-card consoles.
 - A license, serial, or paid download.

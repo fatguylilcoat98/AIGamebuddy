@@ -1,7 +1,7 @@
 """Hotkeys for the overlay.
 
 Tk bindings only arrive while the overlay window is focused. On Windows a
-background poll uses GetAsyncKeyState so F8, F9, and Ctrl+Shift+Q still work
+background poll uses GetAsyncKeyState so F8, F11, and Ctrl+Shift+Q still work
 when the game is in front. Tk reports Shift+Q as the keysym Q, so a bind on
 lowercase q never quits.
 """
@@ -31,10 +31,7 @@ def tk_quit_event(event) -> bool:
 
 def poll_hotkey_events(previous: dict[str, bool], down: dict[str, bool]) -> list[str]:
     events = []
-    if down.get("f9") and not previous.get("f9"):
-        events.append("talk_down")
-    if previous.get("f9") and not down.get("f9"):
-        events.append("talk_up")
+    # F9 is no longer push-to-talk (hands-free mic).
     if down.get("f8") and not previous.get("f8"):
         events.append("menu")
     if down.get("f11") and not previous.get("f11"):

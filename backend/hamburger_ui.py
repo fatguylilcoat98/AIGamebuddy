@@ -10,8 +10,8 @@ from pathlib import Path
 
 from .look_schedule import LOOK_INTERVALS
 from .menu_copy import (
-    ATTITUDES, SAVE_SLOTS, TALK_AMOUNTS, TALK_MODES, VOICES,
-    attitude_line, look_line, talk_amount_line, talk_mode_line, voice_line,
+    ATTITUDES, SAVE_SLOTS, TALK_AMOUNTS, VOICES,
+    attitude_line, look_line, talk_amount_line, voice_line,
 )
 
 
@@ -199,15 +199,11 @@ class HamburgerMenu:
         self._note("Buddy talks again and shows his face.")
         self._button("Stop Buddy", self._stop)
         self._note("Buddy goes quiet and disappears. Your game keeps playing.")
-        talk_mode = getattr(self.session, "talk_mode", "hold")
         talk_amount = getattr(self.session, "frequency", "normal")
         if talk_amount not in {key for key, _label, _note in TALK_AMOUNTS}:
             talk_amount = "normal"
-        self._title("How I talk to Buddy")
-        for key, _label, note in TALK_MODES:
-            self._button(talk_mode_line(key, talk_mode), lambda name=key: self._talk_mode(name))
-            self._note(note)
         self._title("How much Buddy talks")
+        self._note("Just talk. Buddy is always listening — no button to push.")
         for key, _label, note in TALK_AMOUNTS:
             self._button(talk_amount_line(key, talk_amount), lambda name=key: self._talk_amount(name))
             self._note(note)

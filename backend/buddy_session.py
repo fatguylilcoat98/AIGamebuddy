@@ -586,6 +586,8 @@ class BuddySession:
             return ActionResult(False, "I did not change how often I look.", reason="bad_look_interval")
         self.look_interval = chosen
         self._save_ui()
+        if getattr(self, "_brain", None) is not None:
+            self._brain.set_talk_settings(look_interval=chosen, frequency=self.frequency)
         label = "1 minute" if chosen == 60 else f"{chosen} seconds"
         return self._show(f"I'll look at the game every {label}.", category="status", emotion="talk")
 
@@ -712,15 +714,11 @@ class BuddySession:
                 log.info("Frame has not changed. Not sending it.")
                 return
             now = self.clock.mono()
-            if now - self._last_image_at < 9:
-                log.info("Holding the next picture. The last one was %.0fs ago.", now - self._last_image_at)
-                return
-            react = self.frequency != "off" and (now - self._last_react_at) >= 20
-            if self._brain.push_game("Here's the TV.", react, picture):
+            # Send every look_interval (black/unchanged frames already skipped).
+            # The brain decides whether the new picture is worth a line.
+            if self._brain.push_game("Here's the TV.", True, picture):
                 self._last_thumb = thumb
                 self._last_image_at = now
-                if react:
-                    self._last_react_at = now
             else:
                 log.info("Brain is not connected. Staying quiet.")
         except Exception:
@@ -835,7 +833,9 @@ class BuddySession:
         self.frequency = mapped
         self.brain.cooldown_seconds = FREQ_COOLDOWN.get(mapped, 16)
         self._save_ui()
-        labels = {"off": "only when you ask", "rare": "sometimes", "normal": "sometimes", "chatty": "a lot"}
+        if getattr(self, "_brain", None) is not None:
+            self._brain.set_talk_settings(look_interval=self.look_interval, frequency=mapped)
+        labels = {"off": "only when I ask", "rare": "sometimes", "normal": "sometimes", "chatty": "a lot"}
         return self._show(f"I'll talk {labels.get(mapped, mapped)}.", category="status", emotion="talk")
 
     def talk_less(self) -> ActionResult:
@@ -1560,27 +1560,14 @@ class BuddySession:
                             data={"event": event, "uncertain": uncertain, "summary": summary})
 
     def start_talking(self) -> ActionResult:
+        """Hands-free: the always-on brain mic is the only input. No button."""
         if self.closed:
             return ActionResult(False, "Buddy is closed.", reason="closed")
-        self.audio.stop()
-        try:
-            if self._ears is None:
-                from .buddy_ears import BuddyEars
-                self._ears = BuddyEars()
-            self._ears.start()
-        except Exception as exc:
-            return ActionResult(False, f"I did not start the microphone. {exc}", reason="mic_failed")
-        return ActionResult(True, "Listening.", reason="listening")
+        log.info("Hands-free: there is no push-to-talk. Just talk.")
+        return ActionResult(True, "Just talk. I am listening.", reason="handsfree")
 
     def finish_talking(self) -> ActionResult:
-        if self._ears is None or not self._ears.recording:
-            return ActionResult(False, "I was not recording, so there is nothing to transcribe.", reason="not_recording")
-        heard = self._ears.stop_and_transcribe()
-        if heard.error:
-            return ActionResult(False, heard.error, reason="transcription_error")
-        if not heard.text:
-            return ActionResult(False, "I did not catch any words.", reason="empty_speech")
-        return self.handle_text(heard.text)
+        return ActionResult(True, "", reason="handsfree")
 
     def _maybe_greet(self) -> ActionResult:
         # A greeting only when a previous session exists and a game is already visible.

@@ -86,8 +86,10 @@ def menu_lines(voice: str, attitude: str, volume: int, hidden: bool,
         ("Start Buddy", "Buddy talks again and shows his face."),
         ("Stop Buddy", "Buddy goes quiet and disappears. Your game keeps playing."),
     ]
-    for key, _label, note in TALK_MODES:
-        rows.append((talk_mode_line(key, talk_mode), note))
+    rows.append((
+        "Just talk",
+        "Buddy is always listening. There is no button to push.",
+    ))
     for key, _label, note in TALK_AMOUNTS:
         rows.append((talk_amount_line(key, talk_amount), note))
     for seconds in LOOK_EVERY:
